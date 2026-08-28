@@ -577,6 +577,7 @@ pub(super) fn solids(
         builder,
         boolean,
         raised,
+        regions,
         ..
     } = sheets;
     // Worked out here rather than borrowed off the document, unlike every solid
@@ -587,6 +588,7 @@ pub(super) fn solids(
             builder,
             boolean,
             raised,
+            regions,
         };
         growing.body(models, raising, deciding)
     });

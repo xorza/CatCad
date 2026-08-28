@@ -2,7 +2,7 @@
 
 use crate::intent::{Choice, Intent, Intents};
 use crate::model::{Model, Models};
-use crate::prompt::Prompt;
+use crate::prompt::{Form, Prompt};
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
@@ -25,6 +25,13 @@ use crate::tool::Tool;
 pub(crate) struct Session {
     tool: Tool,
     selection: Selection,
+    /// How many forms have been opened, which is what the next one is called.
+    ///
+    /// A count that only goes up, so no two openings share it. The drawing is
+    /// what wants one: a form closing and another opening moves nothing in the
+    /// document, so nothing the picture compares would otherwise say the solid
+    /// on screen is a different solid. See [`Form`].
+    forms: Form,
     /// The sketch open for editing, where one is.
     ///
     /// What every edit names, and so what decides which sketch a click builds
@@ -54,6 +61,7 @@ impl Session {
         Self {
             tool: Tool::default(),
             selection: Selection::default(),
+            forms: Form::default(),
             editing,
             prompt: None,
         }
@@ -97,13 +105,11 @@ impl Session {
     /// so the match is exhaustive over [`Intent`] and a fourth group could not be
     /// added without this saying what it makes of one.
     ///
-    /// `models` is the drawing the *asking* was read against, and the reason it
-    /// is wanted here is one intent: opening a form over a region turns a
-    /// position into a durable name, and a position is only good for the
-    /// arrangement it came from. So this is called before the history writes —
-    /// afterwards the positions in the inbox would be being resolved against a
-    /// drawing they were never read from. See
-    /// [`Asking::Extrude`](crate::prompt::Asking).
+    /// `models` is the document as the frame's asking was read against, and two
+    /// intents want it: picking something out opens the sketch it came from,
+    /// which is [`Models::opens`](crate::model::Models)' to answer. So this is
+    /// called before the history writes — afterwards a pick would be resolved
+    /// against a timeline it was never read from.
     pub(crate) fn apply(&mut self, models: Models<'_>, intents: &Intents) {
         for intent in intents.iter() {
             match intent {
@@ -155,7 +161,8 @@ impl Session {
                     // each starts out saying is the form's business rather than
                     // the session's. What is left here is *which* form is open,
                     // which is session state and nobody else's.
-                    let Some(opened) = Prompt::opening(opening, models) else {
+                    self.forms = self.forms.next();
+                    let Some(opened) = Prompt::opening(opening, self.forms) else {
                         continue;
                     };
                     // A second open of the form already open would start its

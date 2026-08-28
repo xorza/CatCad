@@ -56,7 +56,7 @@ fn raised(by: f64) -> Plane {
 /// `by`.
 fn raise(sketch: &Sketch, from: f64, to: f64, by: Step) -> Body {
     let found = Arrangement::of(sketch);
-    Extrusion::new(&found, 0, raised(from), to - from, by).body()
+    Extrusion::new(&found, &[0], raised(from), to - from, by).body()
 }
 
 /// A box over `u` and `v`, standing from `from` up to `to`, grown by `by`.

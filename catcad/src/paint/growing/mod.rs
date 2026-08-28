@@ -8,12 +8,15 @@ use crate::model::Models;
 use crate::paint::LIVE_FACES;
 use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
-use crate::timeline::{FeatureId, Sweep};
+use crate::profile::Profile;
+use crate::prompt::Form;
+use crate::timeline::Sweep;
 
 /// The step a solid nobody has taken one for is grown by.
 ///
 /// A body names its faces by which feature grew each of them, and there is no
-/// feature here — so this names one no [`FeatureId`] will ever be. What reads
+/// feature here — so this names one no
+/// [`FeatureId`](crate::timeline::FeatureId) will ever be. What reads
 /// it back is the tagging: a face grown by this carries no tag, because there
 /// is nothing yet for a tag to point at, where a face the *model* brought
 /// through the boolean carries the one it always had.
@@ -54,6 +57,12 @@ pub(super) struct Raising<'a> {
     pub(super) boolean: &'a mut Boolean,
     /// Where the tool is raised, before it is put together with what stands.
     pub(super) raised: &'a mut Body,
+    /// Where the profile is resolved to positions among its sketch's faces.
+    ///
+    /// Held by the layout and refilled rather than made here, for the reason
+    /// the bodies are: a depth typed a digit at a time resolves this on every
+    /// frame the form is open.
+    pub(super) regions: &'a mut Vec<usize>,
 }
 
 /// A solid being decided: a region, how deep it currently reads, and what it
@@ -65,16 +74,28 @@ pub(super) struct Raising<'a> {
 /// drawable without a step existing, and cancelling the form leaves the
 /// timeline never having heard of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Growing {
-    pub(crate) sketch: FeatureId,
-    pub(crate) region: usize,
-    /// What is done to that region, resolved — see [`Sweep`], which the
+pub(crate) struct Growing<'a> {
+    /// Which opening the form is, which is what tells two of them apart.
+    ///
+    /// A profile is a list of curves and this is [`Copy`], so what the picture
+    /// *keeps* between frames is this rather than the name — see
+    /// [`Stamped`](crate::paint::layout::Stamped). A form closing and another
+    /// opening moves nothing in the document, so nothing else here would say
+    /// they are two.
+    pub(crate) form: Form,
+    /// The regions being swept, by name.
+    ///
+    /// Borrowed off the open form rather than resolved here, and resolved
+    /// afresh wherever it is built: a position is only good for the arrangement
+    /// it was read from, and a form outlives several.
+    pub(crate) profile: &'a Profile,
+    /// What is done to those regions, resolved — see [`Sweep`], which the
     /// timeline's own steps are read through as well.
     pub(crate) sweep: Sweep,
     pub(crate) operation: Operation,
 }
 
-impl Growing {
+impl Growing<'_> {
     /// Where the arrow that carries this stands, or `None` where the sketch no
     /// longer holds the region it names.
     ///
@@ -96,7 +117,7 @@ impl Growing {
         let Sweep::Carried(distance) = self.sweep else {
             return None;
         };
-        let model = models.at(self.sketch)?;
+        let model = models.at(self.profile.sketch())?;
         let plane = model.plane();
         let normal = plane.normal().as_vec3();
         Some(Carried::new(
@@ -140,25 +161,27 @@ impl Growing {
         raising: Raising<'_>,
         into: &mut Body,
     ) -> Deciding {
-        let drawn = models
-            .at(self.sketch)
-            .filter(|model| self.region < model.arrangement().faces().len());
-        let Some(model) = drawn else {
-            // The sketch has gone, or the region has: either way there is no
-            // solid to show and the last one must not be left on screen.
-            into.clear();
-            return Deciding::Nothing;
-        };
         let Raising {
             builder,
             boolean,
             raised,
+            regions,
         } = raising;
+        // The sketch has gone, or one of the regions has: either way there is
+        // no solid to show and the last one must not be left on screen.
+        let Some(model) = models.at(self.profile.sketch()) else {
+            into.clear();
+            return Deciding::Nothing;
+        };
+        if !self.profile.faces_in(model.arrangement(), regions) {
+            into.clear();
+            return Deciding::Nothing;
+        }
         match self.sweep {
             Sweep::Carried(distance) => {
                 let extrusion = Extrusion::new(
                     model.arrangement(),
-                    self.region,
+                    regions,
                     model.plane(),
                     distance,
                     UNTAKEN,
@@ -174,7 +197,7 @@ impl Growing {
             Sweep::Spun(Some(axle)) => {
                 let revolution = Revolution::new(
                     model.arrangement(),
-                    self.region,
+                    regions,
                     model.plane(),
                     axle.at,
                     axle.along,

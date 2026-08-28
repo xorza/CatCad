@@ -104,7 +104,12 @@ impl Operated {
 pub(super) struct Profiled {
     /// Which step of the file holds the sketch the region belongs to.
     sketch: usize,
-    bounds: Vec<Bounded>,
+    /// What bounds each region, one list per region.
+    ///
+    /// Nested where the profile itself keeps one buffer with the shape beside
+    /// it — a file is read once and written once, so what matters here is that
+    /// the shape is plain to read rather than that it costs one allocation.
+    regions: Vec<Vec<Bounded>>,
 }
 
 impl Profiled {
@@ -115,10 +120,14 @@ impl Profiled {
         let sketch = steps.of(profile.sketch());
         Self {
             sketch,
-            bounds: profile
-                .bounds()
-                .iter()
-                .map(|&bound| Bounded::of(bound, &handles[sketch]))
+            regions: profile
+                .regions()
+                .map(|bounds| {
+                    bounds
+                        .iter()
+                        .map(|&bound| Bounded::of(bound, &handles[sketch]))
+                        .collect()
+                })
                 .collect(),
         }
     }
@@ -144,11 +153,15 @@ impl Profiled {
         // the steps a backward reference can reach.
         let sketch = sketch_at(at, timeline, added, self.sketch)?;
         let numbering = &handles[self.sketch];
-        let mut bounds = Vec::with_capacity(self.bounds.len());
-        for bound in &self.bounds {
-            bounds.push(bound.bound(at, numbering)?);
+        let mut regions = Vec::with_capacity(self.regions.len());
+        for region in &self.regions {
+            let mut bounds = Vec::with_capacity(region.len());
+            for bound in region {
+                bounds.push(bound.bound(at, numbering)?);
+            }
+            regions.push(bounds);
         }
-        Ok(Profile::new(sketch, bounds))
+        Ok(Profile::of(sketch, regions.iter().map(Vec::as_slice)))
     }
 }
 

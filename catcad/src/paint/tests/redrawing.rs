@@ -10,6 +10,7 @@ use crate::paint::tests::fixtures::{controls_untouched, stamp, stamp_controls, u
 use crate::paint::*;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::prompt::Form;
 use crate::timeline::Sweep;
 use aperture::{Camera, Viewport};
 use aperture::{Scene, Tag};
@@ -117,6 +118,11 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
         "a picture nothing had moved was drawn again"
     );
 
+    let profile = document
+        .models(&build, Some(editing))
+        .at(editing)
+        .expect("the fixture drew the sketch it opened")
+        .profile(&[0]);
     // A solid being decided resumes one rung further up, so the marks and the
     // strokes go with it — they stand after the solids in the naming order and
     // are remade whenever anything before them is. What must not move is the
@@ -128,8 +134,8 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
         &mut layout,
         Showing {
             growing: Some(Growing {
-                sketch: editing,
-                region: 0,
+                form: Form::default(),
+                profile: &profile,
                 sweep: Sweep::Carried(1.0),
                 operation: Operation::Join,
             }),
@@ -184,6 +190,11 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     let named = |layout: &Layout| layout.names().iter().collect::<Vec<(Tag, Part)>>();
+    let profile = document
+        .models(&build, Some(editing))
+        .at(editing)
+        .expect("the demo drew the sketch it opened")
+        .profile(&[0]);
 
     redraw(
         document.models(&build, Some(editing)),
@@ -211,8 +222,8 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
         },
         Showing {
             growing: Some(Growing {
-                sketch: editing,
-                region: 0,
+                form: Form::default(),
+                profile: &profile,
                 sweep: Sweep::Carried(1.0),
                 operation: Operation::Join,
             }),

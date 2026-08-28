@@ -449,6 +449,8 @@ impl Document {
     /// Hands back what it did to the shape of the recipe — see [`Shaped`], which
     /// is the whole of what an edit cannot be asked about afterwards.
     pub(crate) fn apply(&mut self, build: &mut Build, change: Change) -> Shaped {
+        // Read before the walk below, which takes the change apart.
+        let about = change.about();
         let mut shaped = Shaped::Same;
         match change {
             Change::Drag { sketch, grip, to } => self.sketching(sketch).drag_to(build, grip, to),
@@ -490,25 +492,15 @@ impl Document {
                 self.timeline.carry(extrude, to);
                 build.revised();
             }
-            // The one change that puts a step on the end. The region is named
-            // here rather than where the intent was raised, because a durable
-            // name is a list of curves and an intent is `Copy` — see
-            // [`Change::Extrude`]. Naming it now costs nothing: the arrangement
-            // it is read from is the one the click was resolved against.
+            // The one change that puts a step on the end. It arrives already
+            // named, a profile of several regions being a list an intent
+            // carries rather than positions it resolves a pass later — see
+            // [`Change::Extrude`].
             Change::Extrude {
-                sketch,
-                region,
+                profile,
                 distance,
                 operation,
             } => {
-                // By name rather than through [`Models::open`], which lands on
-                // the same model here: which sketch is being *worked in* is the
-                // session's, and an edit names its own.
-                let profile = self
-                    .models(build, Some(sketch))
-                    .at(sketch)
-                    .expect("a change names a sketch the timeline holds")
-                    .profile(region);
                 shaped = Shaped::Made(self.timeline.add(Feature::Extrude {
                     profile,
                     distance,
@@ -519,16 +511,10 @@ impl Document {
             // The same, spun about a line of its own drawing rather than
             // carried off the plane — see [`Change::Revolve`].
             Change::Revolve {
-                sketch,
-                region,
+                profile,
                 axis,
                 operation,
             } => {
-                let profile = self
-                    .models(build, Some(sketch))
-                    .at(sketch)
-                    .expect("a change names a sketch the timeline holds")
-                    .profile(region);
                 shaped = Shaped::Made(self.timeline.add(Feature::Revolve {
                     profile,
                     axis,
@@ -626,7 +612,7 @@ impl Document {
         // Skipping it is what keeps an orbit off this path, which the document
         // is careful about elsewhere for the same reason — see [`Edits`], on why
         // turning the camera must not move the revision.
-        match change.about() {
+        match about {
             About::Makes | About::Removes | About::Moves { .. } | About::Rewrites { .. } => {
                 self.rebuilt(build)
             }

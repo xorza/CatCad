@@ -78,7 +78,7 @@ pub(crate) fn write(
     // still, which on a sketch of two hundred dimensions was the entire cost of
     // a frame that had nothing to draw.
     let framed = Framed {
-        made: Made::of(models, showing, layout.chorded(Some(lens))),
+        made: Made::of(models, showing, layout.chorded(Some(lens))).kept(),
         lens,
     };
     if !layout.recontrol(framed) {
@@ -101,7 +101,10 @@ pub(crate) fn write(
     // [`Cut`](crate::paint::cut::Cut), which is what keeps the filler off the
     // camera's schedule.
     let carried = showing.growing.and_then(|growing| {
-        let cut = cut.region(models, sheets, growing.sketch, growing.region)?;
+        // The first region, a handle standing on one face — see
+        // [`Profile::first_face_of`](crate::profile::Profile).
+        let region = growing.profile.first_face_of(models)?;
+        let cut = cut.region(models, sheets, growing.profile.sketch(), region)?;
         growing.carried(models, cut, lens)
     });
     into.refill(

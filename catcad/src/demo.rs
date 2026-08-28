@@ -83,11 +83,17 @@ pub(crate) fn document(build: &mut Build) -> Document {
     // Through the same change a press on the Extrude button raises, so the
     // startup document is made the way a user would make it rather than by a
     // door of its own.
+    // Named before the change is raised, which is where a position becomes a
+    // durable name — see [`Change::Extrude`].
+    let profile = document
+        .models(build, Some(drawn))
+        .at(drawn)
+        .expect("the drawing just added")
+        .profile(&[HUB]);
     document.apply(
         build,
         Change::Extrude {
-            sketch: drawn,
-            region: HUB,
+            profile,
             distance: DEPTH,
             operation: Operation::Join,
         },

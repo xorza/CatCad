@@ -50,7 +50,7 @@ fn block(u: Range<f64>, v: Range<f64>, from: f64, to: f64, by: Step) -> Body {
         origin: Plane::GROUND.origin + Plane::GROUND.normal() * from,
         ..Plane::GROUND
     };
-    Extrusion::new(&found, 0, plane, to - from, by).body()
+    Extrusion::new(&found, &[0], plane, to - from, by).body()
 }
 
 /// The four-by-four-by-four block every placement is taken against. Sixty-four.

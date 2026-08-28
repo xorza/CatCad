@@ -242,7 +242,7 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
         Change::Project(document.camera().projection.toggled()),
     ] {
         assert!(
-            !relaid(&mut history, &mut document, &mut build, turn),
+            !relaid(&mut history, &mut document, &mut build, turn.clone()),
             "{turn:?} asked the drawing to be laid out again"
         );
     }

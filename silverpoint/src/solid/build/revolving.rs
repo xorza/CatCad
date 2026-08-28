@@ -30,11 +30,23 @@ use glam::{DVec2, DVec3};
 use std::f64::consts::{PI, TAU};
 use std::ops::Range;
 
-/// A region of a drawing and the line in its own plane it is spun about.
+/// The regions of a drawing and the line in their own plane they are spun
+/// about.
 ///
 /// Borrowed and [`Copy`], like [`Extrusion`](super::builder::Extrusion) beside
 /// it and for the same reason: what it holds is an arrangement somebody else
-/// owns, a position in it, and a frame.
+/// owns, some positions in it, and a frame.
+///
+/// **Several regions and one solid**, on the terms the extrusion states: they
+/// are faces of one arrangement and so are disjoint, and each raises lumps of
+/// its own in the one body.
+///
+/// Being disjoint in the *drawing* is not enough here, which the extrusion does
+/// not have to ask: on one side of the line a region maps to a radius and a
+/// height without folding, so two of them stay apart — but a region mirrored
+/// across the line sweeps the very same space. So every region has to stand on
+/// the same side, which is the refusal a region *straddling* the line already
+/// gets, asked of the profile instead.
 ///
 /// **A whole turn and no other**, which is what makes it one shape rather than
 /// two. Spun part way a region has two ends, and those are caps of the same
@@ -44,7 +56,7 @@ use std::ops::Range;
 #[derive(Debug, Clone, Copy)]
 pub struct Revolution<'a> {
     of: &'a Arrangement,
-    at: usize,
+    at: &'a [usize],
     plane: Plane,
     /// Somewhere on the line, in the plane's own coordinates.
     axis: DVec2,
@@ -56,15 +68,15 @@ pub struct Revolution<'a> {
 }
 
 impl<'a> Revolution<'a> {
-    /// The region at `at` in `of`, spun a whole turn about the line through
+    /// The regions at `at` in `of`, spun a whole turn about the line through
     /// `axis` running `along`, both in `plane`'s own coordinates.
     ///
-    /// `at` has to be one of `of`'s faces, and `plane` the one the drawing it
-    /// came from lies on — a face names its edges by where they fall in the
-    /// arrangement that cut them, so neither travels to another.
+    /// Every one of `at` has to be one of `of`'s faces, and `plane` the one the
+    /// drawing they came from lies on — a face names its edges by where they
+    /// fall in the arrangement that cut them, so neither travels to another.
     pub fn new(
         of: &'a Arrangement,
-        at: usize,
+        at: &'a [usize],
         plane: Plane,
         axis: DVec2,
         along: DVec2,
@@ -214,23 +226,44 @@ impl Revolving {
     /// through itself. A region merely *touching* the line has one, and what
     /// it touches with is a pole.
     ///
-    /// Four passes, and the order is forced for the reason the extrusion's is:
-    /// an edge names the two faces that use it, so every face has to exist
-    /// before any edge is made, and a face's loops cannot be written until its
-    /// edges are.
+    /// **One region that cannot be spun takes the whole body with it**, rather
+    /// than leaving the others standing: what a profile names is one solid, and
+    /// half of one is not a smaller answer but a wrong one.
+    ///
+    /// **And every region has to stand on the same side of the line.** Two
+    /// regions of one drawing cannot overlap, and on one side of the line the
+    /// map to a radius and a height keeps them apart — but a region mirrored
+    /// across the line sweeps the very same space, and two lumps sharing space
+    /// is not a solid. It is the same refusal a region *straddling* the line
+    /// gets, asked of the profile rather than of one region.
+    ///
+    /// Four passes per region, and the order is forced for the reason the
+    /// extrusion's is: an edge names the two faces that use it, so every face
+    /// has to exist before any edge is made, and a face's loops cannot be
+    /// written until its edges are.
     pub(super) fn raise(&mut self, of: &Revolution<'_>, strips: &mut Strips, into: &mut Body) {
         into.clear();
-        strips.lay(of.of, of.at);
-        let Some(spinning) = Self::framed(of, strips) else {
-            return;
-        };
-        if !self.raise_walls(spinning, strips, into) {
-            into.clear();
-            return;
+        let mut side = None;
+        for &at in of.at {
+            strips.lay(of.of, at);
+            let Some(spinning) = Self::framed(of, strips) else {
+                into.clear();
+                return;
+            };
+            // Exactly, both being the same perpendicular times a sign.
+            if side.is_some_and(|had| had != spinning.out) {
+                into.clear();
+                return;
+            }
+            side = Some(spinning.out);
+            if !self.raise_walls(spinning, strips, into) {
+                into.clear();
+                return;
+            }
+            self.raise_edges(spinning, strips, into);
+            self.write_loops(spinning, strips, into);
+            self.gather(strips, into);
         }
-        self.raise_edges(spinning, strips, into);
-        self.write_loops(spinning, strips, into);
-        self.gather(strips, into);
     }
 
     /// The frame the region is spun in, or `None` where it cannot be.

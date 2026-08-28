@@ -275,6 +275,14 @@ impl Field {
 /// A form open against the drawing: what it is about, and what has been typed.
 #[derive(Debug)]
 pub(crate) struct Prompt {
+    /// Which opening this is, so two forms are told apart by something that
+    /// cannot be equal by accident.
+    ///
+    /// What the drawing compares one frame's solid against the last one's with
+    /// — see [`Growing`]. A form closing and another opening on other regions
+    /// moves nothing in the document, so the revision says nothing, and two
+    /// extrudes both opening at no depth and a join would otherwise read alike.
+    form: Form,
     about: Asking,
     /// One per value asked for. A rectangle wants two and everything built so
     /// far wants one, which is why this is a list rather than a field.
@@ -350,28 +358,32 @@ impl Prompt {
     /// three arms — one in [`Opening`], one in [`Asking`], one here — but two of
     /// the three now sit in the file that owns what they build.
     ///
-    /// `models` is the drawing the asking was read against, and one arm wants
-    /// it: a position among the faces is only good for the arrangement it came
-    /// from, so this is where that position becomes a name — see
-    /// [`Asking::Extrude`] and [`Model::profile`].
-    pub(crate) fn opening(opening: Opening, models: Models<'_>) -> Option<Self> {
+    /// `form` is which opening this is, minted by the session — see
+    /// [`Prompt::form`], which is what the drawing tells two forms apart by.
+    ///
+    /// Nothing is resolved here any more. A position among the faces becomes a
+    /// name where the regions are *picked*, which is what lets the request
+    /// carry the name — see [`Opening::Extrude`].
+    pub(crate) fn opening(opening: Opening, form: Form) -> Option<Self> {
         Some(match opening {
             Opening::Dimension { part, from } => {
-                Self::on(Asking::Dimension { part }, [("", Seed::Stated(from))])
+                Self::on(form, Asking::Dimension { part }, [("", Seed::Stated(from))])
             }
             // Offered rather than stated, like every form that *makes*
             // something: the pointer has the value until somebody types one,
             // and the field shows whichever is speaking. See [`Seed`].
             Opening::Circle { sketch, center } => Self::on(
+                form,
                 Asking::Circle { sketch, center },
                 [("Radius", Seed::Offered(0.0))],
             ),
             // At no depth at all, which is where the ask starts: the solid is on
             // screen from the moment the form opens, and a zero-depth prism is a
             // well-formed one.
-            Opening::Extrude { sketch, region } => Self::on(
+            Opening::Extrude { profile } => Self::on(
+                form,
                 Asking::Extrude {
-                    profile: models.at(sketch)?.profile(region),
+                    profile,
                     operation: Operation::Join,
                 },
                 [("Depth", Seed::Offered(0.0))],
@@ -379,13 +391,10 @@ impl Prompt {
             // No field at all, a whole turn asking for no number — so the ring
             // is on screen whole from the moment the form opens, and what is
             // still being decided is what it does to the model.
-            Opening::Revolve {
-                sketch,
-                region,
-                axis,
-            } => Self::on(
+            Opening::Revolve { profile, axis } => Self::on(
+                form,
                 Asking::Revolve {
-                    profile: models.at(sketch)?.profile(region),
+                    profile,
                     axis,
                     operation: Operation::Join,
                 },
@@ -411,8 +420,9 @@ impl Prompt {
     /// And such a form stands *beside* what it is about, never over it:
     /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
     /// carry an `Option` for a state a dimension cannot be in.
-    fn on<const N: usize>(about: Asking, values: [(&'static str, Seed); N]) -> Self {
+    fn on<const N: usize>(form: Form, about: Asking, values: [(&'static str, Seed); N]) -> Self {
         let made = Self {
+            form,
             about,
             fields: values
                 .iter()
@@ -496,7 +506,7 @@ impl Prompt {
     /// Resolved against `models` every time rather than remembered, which is
     /// what the [`Profile`] is for: a position is only good for the arrangement
     /// it was read from, and a form outlives several.
-    pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing> {
+    pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing<'_>> {
         let profile = self.about.raising()?;
         let sweep = match &self.about {
             Asking::Extrude { .. } => Sweep::Carried(self.shows(0)?),
@@ -507,8 +517,8 @@ impl Prompt {
             Asking::Dimension { .. } | Asking::Circle { .. } => return None,
         };
         Some(Growing {
-            sketch: profile.sketch(),
-            region: profile.face_of(models)?,
+            form: self.form,
+            profile,
             sweep,
             operation: self.doing()?,
         })
@@ -733,21 +743,14 @@ impl Prompt {
                 let Some(distance) = self.says(0) else {
                     return;
                 };
-                // Resolved here rather than carried, for the reason the form
-                // holds a name at all — and `None` is a region the drawing no
-                // longer has, which is nothing to grow and nothing to report.
-                let sketch = profile.sketch();
-                let Some(region) = profile.face_of(models) else {
-                    return;
-                };
-                // The one step the whole operation costs. The solid has been on
-                // screen since the form opened, drawn from this form's own
-                // reading — see [`Asking::Extrude`] — so what reaches the
-                // timeline is the depth that was settled on rather than a zero
-                // that was then carried.
+                // The one step the whole operation costs, and it carries the
+                // name the form has held since it opened — see
+                // [`Asking::Extrude`]. So what reaches the timeline is the
+                // depth that was settled on rather than a zero then carried,
+                // and the regions are the ones that were picked rather than
+                // whatever those positions mean by now.
                 intents.push(Change::Extrude {
-                    sketch,
-                    region,
+                    profile: profile.clone(),
                     distance,
                     operation: *operation,
                 });
@@ -760,13 +763,8 @@ impl Prompt {
                 axis,
                 operation,
             } => {
-                let sketch = profile.sketch();
-                let Some(region) = profile.face_of(models) else {
-                    return;
-                };
                 intents.push(Change::Revolve {
-                    sketch,
-                    region,
+                    profile: profile.clone(),
                     axis: *axis,
                     operation: *operation,
                 });
@@ -1113,6 +1111,21 @@ impl Prompt {
         // made of the same frame, and a field that lost focus *to* the button
         // must not cancel out from under it.
         answered.or_else(|| self.resolve(said))
+    }
+}
+
+/// Which opening a form is.
+///
+/// A count that only goes up, minted by the [`Session`](crate::session::Session)
+/// when a form opens. It says nothing but *not the one before it*, which is the
+/// whole of what the drawing wants: see [`Prompt::form`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Form(u32);
+
+impl Form {
+    /// The one after this.
+    pub(crate) fn next(self) -> Self {
+        Self(self.0 + 1)
     }
 }
 

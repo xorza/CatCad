@@ -119,7 +119,7 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
         Models::new(timeline, build, Some(of))
             .open()
             .expect("a fixture opens the sketch it names")
-            .profile(0)
+            .profile(&[0])
     };
     let one = profile(&timeline, &build, near);
     let two = profile(&timeline, &build, far);
@@ -192,7 +192,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
         Models::new(timeline, build, Some(at))
             .open()
             .expect("a fixture opens the sketch it names")
-            .profile(0)
+            .profile(&[0])
     };
     let one = open(&timeline, &build, drawn);
     let two = open(&timeline, &build, round);
@@ -276,7 +276,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     let profile = Models::new(&timeline, &build, Some(drawn))
         .open()
         .expect("a fixture opens the sketch it names")
-        .profile(0);
+        .profile(&[0]);
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,
@@ -289,7 +289,9 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     // every assertion below goes through. Both halves are handed in rather than
     // captured, so the closure holds no borrow across the edits between calls.
     let covered = |document: &Document, build: &Build| {
-        let at = build.bodied(solid).region()?;
+        let &[at] = build.bodied(solid).regions() else {
+            return None;
+        };
         let faces = document
             .models(build, Some(drawn))
             .open()
@@ -299,7 +301,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         Some(faces[at].area())
     };
     // Two by two, and the one region the square shuts in.
-    assert_eq!(build.bodied(solid).region(), Some(0));
+    assert_eq!(build.bodied(solid).regions(), [0]);
     assert_eq!(covered(&document, &build), Some(4.0));
 
     // The corner at the origin dragged out to (-1, -1). Nothing here constrains
@@ -378,7 +380,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         2,
         "the line did not cut the region in two"
     );
-    assert_eq!(build.bodied(solid).region(), None);
+    assert!(build.bodied(solid).regions().is_empty());
     assert_eq!(document.models(&build, Some(drawn)).lost(), 1);
     assert_eq!(build.bodied(solid).built(), Built::Lost);
 }
@@ -405,7 +407,7 @@ fn reopening_forgets_what_the_last_document_built() {
     let profile = Models::new(&timeline, &build, Some(drawn))
         .open()
         .expect("a fixture opens the sketch it names")
-        .profile(0);
+        .profile(&[0]);
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,
@@ -413,10 +415,10 @@ fn reopening_forgets_what_the_last_document_built() {
     });
     let _document = Document::new(&mut build, timeline);
     // Built, so this answers.
-    let _ = build.bodied(solid).region();
+    let _ = build.bodied(solid).regions();
 
     build.reopened();
-    let _ = build.bodied(solid).region();
+    let _ = build.bodied(solid).regions();
 }
 
 /// Two sketches settle into two answers, and neither overwrites the other.
@@ -580,7 +582,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
     let profiles = {
         let models = Models::new(&timeline, &build, Some(drawn));
         let open = models.open().expect("a fixture opens the sketch it names");
-        [open.profile(0), open.profile(1)]
+        [open.profile(&[0]), open.profile(&[1])]
     };
     let grown: Vec<FeatureId> = profiles
         .map(|profile| {
@@ -595,10 +597,13 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
     // Forwards first, which is what every rebuild does today.
     let walk: Vec<_> = timeline.swept().collect();
     build.rebuild(walk.iter().copied());
-    let found: Vec<Option<usize>> = grown.iter().map(|&at| build.bodied(at).region()).collect();
+    let found: Vec<Vec<usize>> = grown
+        .iter()
+        .map(|&at| build.bodied(at).regions().to_vec())
+        .collect();
     assert_eq!(
         found,
-        [Some(0), Some(1)],
+        [vec![0], vec![1]],
         "the two discs are not two regions"
     );
 
@@ -606,7 +611,10 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
     // two answers, against the same two handles: what order the walk arrives in
     // is the recipe's business and no part of what an extrude resolves to.
     build.rebuild(walk.iter().rev().copied());
-    let reversed: Vec<Option<usize>> = grown.iter().map(|&at| build.bodied(at).region()).collect();
+    let reversed: Vec<Vec<usize>> = grown
+        .iter()
+        .map(|&at| build.bodied(at).regions().to_vec())
+        .collect();
     assert_eq!(
         reversed, found,
         "an extrude resolved differently for having been walked later"
@@ -640,11 +648,15 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
     let mut build = Build::default();
     timeline.edit(sketch).opened(&mut build);
     let mut document = Document::new(&mut build, timeline);
+    let profile = document
+        .models(&build, Some(sketch))
+        .at(sketch)
+        .expect("a fixture names the sketch it drew")
+        .profile(&[0]);
     document.apply(
         &mut build,
         Change::Revolve {
-            sketch,
-            region: 0,
+            profile,
             axis: drawn.axis,
             operation: Operation::Join,
         },

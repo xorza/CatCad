@@ -56,6 +56,9 @@ pub(crate) struct Hud {
     /// bar rebuilt sixty times a second would otherwise ask the heap for a list
     /// each time.
     offers: Vec<Constraint>,
+    /// What is picked out, sorted into what the bar can be asked about — kept
+    /// across frames for its room, like the offers above it.
+    picked: relations::Picked,
     /// The number the dimension field is showing, re-seeded from the drawing
     /// every frame and written over by the widget while it is being scrubbed.
     /// Scratch: what a dimension *is* lives in the sketch, and this is only what
@@ -101,7 +104,14 @@ impl Hud {
         recipe::show(ui, shown, intents);
         camera::show(ui, &mut self.cube, shown, intents);
         readout::show(ui, shown);
-        relations::show(ui, shown, &mut self.offers, &mut self.draft, intents);
+        relations::show(
+            ui,
+            shown,
+            &mut self.offers,
+            &mut self.picked,
+            &mut self.draft,
+            intents,
+        );
     }
 }
 

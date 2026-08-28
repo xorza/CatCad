@@ -780,6 +780,21 @@ Each square carries its word on hover as well, which is the shape the relations
 bar already has — one table pairs the mark with the word, so neither can be
 added without the other.
 
+**A profile is several regions, and a sweep of them is one step.** They are
+faces of one arrangement, so they cannot overlap — which is what lets
+`Extrusion` and `Revolution` take a slice of positions and raise a lump apiece
+with no boolean between them. `Profile` keeps one buffer of bounds with the runs
+beside it, so what a step names costs one allocation whatever it names. The two
+caps of two regions share `Grown::Base`, and §5's rule makes them one face of
+the feature — the same answer a pocket cut across a cap already gives.
+
+*Which cost the inbox its `Copy`.* An intent carried a region by position,
+because a durable name is a list and a position is a number; a profile of
+several is a list either way, so `Change::Extrude` and `Opening::Extrude` carry
+the name and `Intent` is `Clone`. The borrow is what lifting one out of the
+inbox was for, and a clone ends it just as well — only the two that carry a
+profile reach the heap, and each of those is one press.
+
 **Each step builds on the model the step before it left**, and `Models::solids`
 is what the last of them made rather than one body per extrude. `Build` holds a
 `Bodied` per extrude beside `settled`, keyed by a digest — the settled sketch's

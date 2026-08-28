@@ -29,6 +29,14 @@ pub(crate) struct Bodied {
     /// with its neighbour.
     of: FeatureId,
     digest: Digest,
+    /// Where each of the profile's regions fell among the faces of its sketch
+    /// when this was built.
+    ///
+    /// Beside the digest rather than in it, a list being what a [`Copy`] stamp
+    /// cannot hold — and compared with it, so a profile that resolved
+    /// elsewhere rebuilds. Refilled rather than replaced, like every buffer
+    /// here.
+    regions: Vec<usize>,
     /// **The model as of this step**, where the step could be put into it —
     /// and this step's own solid where it could not.
     ///
@@ -61,6 +69,7 @@ impl Bodied {
         Self {
             of,
             digest: Digest::unbuilt(),
+            regions: Vec::new(),
             body: Body::default(),
             version: Version::default(),
             built: Built::Lost,
@@ -94,11 +103,19 @@ impl Bodied {
     /// rather than into a new one, which is the other reason an entry is kept:
     /// a drag through the drawing under a solid rebuilds it on every frame, and
     /// a body refilled in place keeps every buffer it grew. See [`Builder`].
-    pub(super) fn rebuild(&mut self, room: Rebuilding<'_>, digest: Digest, standing: &Body) {
-        if self.digest == digest {
+    pub(super) fn rebuild(
+        &mut self,
+        room: Rebuilding<'_>,
+        digest: Digest,
+        regions: &[usize],
+        standing: &Body,
+    ) {
+        if self.digest == digest && self.regions == regions {
             return;
         }
         self.digest = digest;
+        self.regions.clear();
+        self.regions.extend_from_slice(regions);
         self.version = self.version.next();
         let Rebuilding {
             builder,
@@ -111,16 +128,16 @@ impl Bodied {
         // because a step that did not merge does not become what the step after
         // it builds on. The tree says which step lost its footing — see
         // [`Models::lost`](crate::model::Models).
-        let Some(region) = digest.region() else {
+        if regions.is_empty() {
             self.body.clear();
             self.built = Built::Lost;
             return;
-        };
+        }
         match digest.sweep() {
             Sweep::Carried(distance) => {
                 let extrusion = Extrusion::new(
                     arrangement,
-                    region,
+                    regions,
                     digest.plane(),
                     distance,
                     self.of.step(),
@@ -135,7 +152,7 @@ impl Bodied {
             Sweep::Spun(Some(axis)) => {
                 let revolution = Revolution::new(
                     arrangement,
-                    region,
+                    regions,
                     digest.plane(),
                     axis.at,
                     axis.along,
@@ -230,11 +247,16 @@ impl Built {
     }
 }
 
-/// Everything one sweep's body was built from.
+/// Everything one sweep's body was built from, except which regions it
+/// resolved to.
 ///
 /// Compared whole: equal means the rebuild would answer what is already there,
 /// so the body is kept and nothing runs. Every field is here because it can
 /// move without any of the others moving.
+///
+/// **The regions travel beside it rather than in it**, because a profile of
+/// several is a list and this is [`Copy`] — a `Bodied` keeps its own copy and
+/// the two are compared together. See [`Bodied::rebuild`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Digest {
     /// The settled sketch's own count, bumped whenever it is solved again.
@@ -246,8 +268,6 @@ pub(crate) struct Digest {
     /// solves no sketch and bumps no revision, and moves every solid grown off
     /// it.
     plane: Plane,
-    /// What the profile currently resolves to among the faces of that sketch.
-    region: Option<usize>,
     /// What is done to that region to raise a solid off it, resolved against
     /// the drawing — see [`Sweep`], and the timeline, where it is resolved.
     sweep: Sweep,
@@ -272,7 +292,6 @@ impl Digest {
         Self {
             sketch: Revision::default(),
             plane: Plane::GROUND,
-            region: None,
             sweep: Sweep::Carried(0.0),
             operation: Operation::Join,
             standing: Version::default(),
@@ -282,7 +301,6 @@ impl Digest {
     pub(super) fn new(
         sketch: Revision,
         plane: Plane,
-        region: Option<usize>,
         sweep: Sweep,
         operation: Operation,
         standing: Version,
@@ -290,16 +308,10 @@ impl Digest {
         Self {
             sketch,
             plane,
-            region,
             sweep,
             operation,
             standing,
         }
-    }
-
-    /// Which region the profile resolved to when this was taken.
-    fn region(self) -> Option<usize> {
-        self.region
     }
 
     /// What it does to that region to raise a solid off it.
@@ -402,14 +414,15 @@ mod internals {
     }
 
     impl Bodied {
-        /// Which region of its drawing the sweep currently resolves to.
+        /// Which regions of its drawing the sweep currently resolves to.
         ///
-        /// Read off the digest, because that is where it is already kept. What
-        /// asks is the sweep that says a name outlives the drawing moving under
-        /// it — a claim about *which region* rather than about the solid, so it
-        /// is asserted on the number rather than on the shape.
-        pub(crate) fn region(&self) -> Option<usize> {
-            self.digest.region()
+        /// Read off what the last build was handed, because that is where they
+        /// are already kept. What asks is the sweep that says a name outlives
+        /// the drawing moving under it — a claim about *which regions* rather
+        /// than about the solid, so it is asserted on the numbers rather than
+        /// on the shape.
+        pub(crate) fn regions(&self) -> &[usize] {
+            &self.regions
         }
     }
 }

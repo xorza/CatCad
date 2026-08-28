@@ -546,14 +546,18 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
             .is_empty(),
         "the sketch lost every region, so position 0 names nothing either way"
     );
+    // The form still stands — cancelling is the user's — and the name it holds
+    // fits nothing, which is the whole claim: a position would have found
+    // whatever sits at it now, and that is a different region.
+    let growing = raised
+        .app
+        .session
+        .prompt()
+        .and_then(|open| open.growing(models))
+        .expect("the form is still open on a region it named");
     assert!(
-        raised
-            .app
-            .session
-            .prompt()
-            .and_then(|open| open.growing(models))
-            .is_none(),
-        "the form went on growing a region at the position its own one used to \
+        growing.profile.first_face_of(models).is_none(),
+        "the form went on naming a region at the position its own one used to \
          hold, which is a different region"
     );
 }

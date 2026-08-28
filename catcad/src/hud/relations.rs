@@ -48,13 +48,16 @@ pub(super) fn show(
     ui: &mut Ui,
     shown: Shown<'_>,
     offers: &mut Vec<Constraint>,
+    picked: &mut Picked,
     draft: &mut f64,
     intents: &mut Intents,
 ) {
     let Shown {
         models, selection, ..
     } = shown;
-    let startable = plane_picked(models, selection);
+    picked.sort(selection);
+    let picked = &*picked;
+    let startable = picked.plane(models);
     let open = models.open();
     match open {
         Some(model) => model.offers(selection.picked(), offers),
@@ -64,9 +67,9 @@ pub(super) fn show(
         // refilled it.
         None => offers.clear(),
     }
-    let dimension = open.and_then(|model| dimension_picked(model, selection));
-    let region = open.and_then(|_| region_picked(selection));
-    let spinning = open.and_then(|_| axis_picked(selection));
+    let dimension = open.and_then(|model| picked.resizable(model));
+    let region = open.and_then(|_| picked.growable());
+    let spinning = open.and_then(|_| picked.spinnable());
     if offers.is_empty()
         && dimension.is_none()
         && region.is_none()
@@ -127,12 +130,17 @@ pub(super) fn show(
                     shown.icons,
                     theme,
                 )
+                && let Some(model) = models.at(growable.sketch)
             {
                 // Asks rather than builds. The solid appears at no depth at all
                 // and the form beside it decides how far it goes.
+                //
+                // **Named here rather than a pass later**, this being the one
+                // moment positions become a durable name — see
+                // [`Model::profile`]. The list reaches the heap on the frame
+                // the chip is pressed and on no other.
                 intents.push(Choice::Ask(Some(Opening::Extrude {
-                    sketch: growable.sketch,
-                    region: growable.region,
+                    profile: model.profile(growable.regions),
                 })));
             }
             // Asks rather than builds, as the extrude above does — the ring
@@ -148,10 +156,10 @@ pub(super) fn show(
                     shown.icons,
                     theme,
                 )
+                && let Some(model) = models.at(spinnable.sketch)
             {
                 intents.push(Choice::Ask(Some(Opening::Revolve {
-                    sketch: spinnable.sketch,
-                    region: spinnable.region,
+                    profile: model.profile(spinnable.regions),
                     axis: spinnable.axis,
                 })));
             }
@@ -198,6 +206,144 @@ fn offered(ui: &mut Ui, icons: &Icons, theme: &Theme, constraint: Constraint) ->
     .show(ui, icons, theme)
 }
 
+/// What is picked out, sorted into what the bar can be asked about.
+///
+/// **The contents rather than the shape.** Every reading below used to match the
+/// whole selection against a pattern — one region, or a region and a segment
+/// written both ways round — so the bar went silent for any pick it had not
+/// spelled out, and a third thing picked would have wanted six arms. Sorted
+/// once, each is a question about what is *in* the selection.
+///
+/// Kept across frames for its room, like the offers beside it: the bar runs
+/// every frame and these come out the same size each time.
+#[derive(Debug, Default)]
+pub(super) struct Picked {
+    /// Which sketch everything picked belongs to, where they agree on one.
+    sketch: Option<FeatureId>,
+    /// Every region picked, in the order they were picked.
+    regions: Vec<usize>,
+    /// Every piece of drawn geometry picked.
+    entities: Vec<Entity>,
+    /// Every step picked.
+    steps: Vec<FeatureId>,
+    /// Whether anything picked is none of those three, or is of a second
+    /// drawing.
+    ///
+    /// One flag rather than a list, because every reading below refuses the
+    /// moment it is set: what the bar offers is what can be said about *one*
+    /// drawing, and a face of a solid is not something it says anything about.
+    strays: bool,
+}
+
+impl Picked {
+    /// Sort `selection` into this, emptying whatever was there.
+    fn sort(&mut self, selection: &Selection) {
+        self.sketch = None;
+        self.regions.clear();
+        self.entities.clear();
+        self.steps.clear();
+        self.strays = false;
+        for &part in selection.picked() {
+            match part {
+                Part::Region { sketch, at } => {
+                    self.claim(sketch);
+                    self.regions.push(at);
+                }
+                Part::Entity { sketch, entity } => {
+                    self.claim(sketch);
+                    self.entities.push(entity);
+                }
+                Part::Step(at) => self.steps.push(at),
+                _ => self.strays = true,
+            }
+        }
+    }
+
+    /// Note that something of `sketch` is picked, and whether that makes two.
+    fn claim(&mut self, sketch: FeatureId) {
+        match self.sketch {
+            Some(had) => self.strays |= had != sketch,
+            None => self.sketch = Some(sketch),
+        }
+    }
+
+    /// The one dimension picked out, if what is picked is exactly that.
+    ///
+    /// One rather than any, because the field edits a value and two values have
+    /// no single answer.
+    fn resizable(&self, model: Model<'_>) -> Option<Resizable> {
+        if self.strays || !self.regions.is_empty() || !self.steps.is_empty() {
+            return None;
+        }
+        let [Entity::Constraint(id)] = self.entities[..] else {
+            return None;
+        };
+        model
+            .drawing()
+            .holds(id)
+            .then(|| {
+                model
+                    .sketch()
+                    .constraint(id)
+                    .value()
+                    .map(|value| Resizable {
+                        constraint: id,
+                        value,
+                    })
+            })
+            .flatten()
+    }
+
+    /// The regions picked out, if regions of one drawing are all that is.
+    fn growable(&self) -> Option<Growable<'_>> {
+        let sketch = self.sketch?;
+        let alone = !self.strays && self.entities.is_empty() && self.steps.is_empty();
+        (alone && !self.regions.is_empty()).then_some(Growable {
+            sketch,
+            regions: &self.regions,
+        })
+    }
+
+    /// The regions picked out and the line to spin them about, if what is
+    /// picked is those and one segment of the same drawing.
+    ///
+    /// **Which was clicked first says nothing**, which is what sorting bought.
+    fn spinnable(&self) -> Option<Spinnable<'_>> {
+        let sketch = self.sketch?;
+        if self.strays || self.regions.is_empty() || !self.steps.is_empty() {
+            return None;
+        }
+        let [Entity::Segment(axis)] = self.entities[..] else {
+            return None;
+        };
+        Some(Spinnable {
+            sketch,
+            regions: &self.regions,
+            axis,
+        })
+    }
+
+    /// The one plane picked out, if what is picked is exactly that.
+    ///
+    /// **A plane and not merely a step**, which is the whole of what `models` is
+    /// here for. Every kind of step is one thing a press can pick out, and a
+    /// sketch cannot be started on either a sketch or an extrude: what would
+    /// follow is the timeline being asked for the frame of something that has
+    /// none.
+    fn plane(&self, models: Models<'_>) -> Option<FeatureId> {
+        if self.strays || !self.regions.is_empty() || !self.entities.is_empty() {
+            return None;
+        }
+        let [at] = self.steps[..] else {
+            return None;
+        };
+        models
+            .planes()
+            .any(|sheeted| sheeted.at == at)
+            .then_some(at)
+    }
+}
+
 /// A dimension the bar can scrub, and the number it states as it stands.
 #[derive(Debug, Clone, Copy)]
 struct Resizable {
@@ -205,108 +351,21 @@ struct Resizable {
     value: f64,
 }
 
-/// The one dimension picked out, if what is picked is exactly that.
-///
-/// One rather than any, because the field edits a value and two values have no
-/// single answer.
-fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<Resizable> {
-    let [only] = *selection.picked() else {
-        return None;
-    };
-    let Some(Entity::Constraint(id)) = model.entity(only) else {
-        return None;
-    };
-    model
-        .drawing()
-        .holds(id)
-        .then(|| {
-            model
-                .sketch()
-                .constraint(id)
-                .value()
-                .map(|value| Resizable {
-                    constraint: id,
-                    value,
-                })
-        })
-        .flatten()
-}
-
-/// A region the bar can grow a solid off.
+/// The regions the bar can grow a solid off.
 ///
 /// Both halves, because a region is only a region of the arrangement it was
-/// walked out of — see [`Part::Region`] — so the sketch it belongs to travels
-/// with it rather than being looked up again at the press.
+/// walked out of — see [`Part::Region`] — so the sketch they belong to travels
+/// with them rather than being looked up again at the press.
 #[derive(Debug, Clone, Copy)]
-struct Growable {
+struct Growable<'a> {
     sketch: FeatureId,
-    region: usize,
+    regions: &'a [usize],
 }
 
-/// The one region picked out, if what is picked is exactly that.
-fn region_picked(selection: &Selection) -> Option<Growable> {
-    match *selection.picked() {
-        [Part::Region { sketch, at }] => Some(Growable { sketch, region: at }),
-        _ => None,
-    }
-}
-
-/// A region and a line to spin it about, if what is picked is exactly those
-/// two of one drawing.
-///
-/// **Either way round**, because which of the two was clicked first says
-/// nothing about what was meant. And of one drawing, because a revolve spins a
-/// region about a line drawn beside it — see
-/// [`Feature::Revolve`](crate::timeline::feature::Feature), on why the axis is
-/// named among the profile's own geometry.
-fn axis_picked(selection: &Selection) -> Option<Spinnable> {
-    let (sketch, region, drawn) = match *selection.picked() {
-        [
-            Part::Region { sketch, at },
-            Part::Entity {
-                sketch: beside,
-                entity,
-            },
-        ]
-        | [
-            Part::Entity {
-                sketch: beside,
-                entity,
-            },
-            Part::Region { sketch, at },
-        ] if sketch == beside => (sketch, at, entity),
-        _ => return None,
-    };
-    let Entity::Segment(axis) = drawn else {
-        return None;
-    };
-    Some(Spinnable {
-        sketch,
-        region,
-        axis,
-    })
-}
-
-/// A region the bar can spin a solid off, and the line to spin it about.
+/// The regions the bar can spin a solid off, and the line to spin them about.
 #[derive(Debug, Clone, Copy)]
-struct Spinnable {
+struct Spinnable<'a> {
     sketch: FeatureId,
-    region: usize,
+    regions: &'a [usize],
     axis: SegmentId,
-}
-
-/// The one plane picked out, if what is picked is exactly that.
-///
-/// **A plane and not merely a step**, which is the whole of what `models` is
-/// here for. Every kind of step is one thing a press can pick out, and a sketch
-/// cannot be started on either a sketch or an extrude: what would follow is the
-/// timeline being asked for the frame of something that has none.
-fn plane_picked(models: Models<'_>, selection: &Selection) -> Option<FeatureId> {
-    let [Part::Step(at)] = *selection.picked() else {
-        return None;
-    };
-    models
-        .planes()
-        .any(|sheeted| sheeted.at == at)
-        .then_some(at)
 }

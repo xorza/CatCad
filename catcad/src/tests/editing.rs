@@ -859,3 +859,77 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_doe
         "the revolve was not one step to take back",
     );
 }
+
+/// **Two regions picked grow one solid, not two.**
+///
+/// The bar reads what is *in* the selection rather than matching its shape, so
+/// a second region does not silence it — which is what it used to do, leaving
+/// the user nothing to read. What the pair means is one step: one row of the
+/// recipe, one thing to take back, one operation.
+///
+/// The step names both, and it names them by what bounds each — see
+/// [`Profile`](crate::profile::Profile). Asserted on the count of what it
+/// names, which is the claim: a step that had quietly kept one of the two would
+/// build a smaller solid and read the same.
+#[test]
+fn picking_two_regions_grows_one_solid_off_both() {
+    let mut raised = Raised::new();
+    let steps = raised.models().chosen().count();
+    let open = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names");
+    assert!(
+        open.arrangement().faces().len() >= 2,
+        "the demo draws one region, so there is no pair to pick",
+    );
+    let [one, two] = [0, 1].map(|at| open.region(at));
+
+    // One region alone offers an extrude, and so does the pair — which is the
+    // whole of what changed.
+    raised.choose(Choice::Select(Some(one)));
+    raised.frame();
+    assert!(
+        raised
+            .harness
+            .layout_rect(internals::relation("Extrude"))
+            .is_some(),
+        "a region alone offered no extrude",
+    );
+    raised.choose(Choice::Include(two));
+    raised.frame();
+    assert!(
+        raised
+            .harness
+            .layout_rect(internals::relation("Extrude"))
+            .is_some(),
+        "a second region silenced the bar",
+    );
+
+    raised.press(internals::relation("Extrude"));
+    raised.frame();
+    raised.harness.type_text("2");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps + 1,
+        "two regions made two steps, or none",
+    );
+    let (_, feature) = raised
+        .models()
+        .chosen()
+        .filter(|(_, feature)| matches!(feature, Feature::Extrude { .. }))
+        .last()
+        .expect("answering the form grew no step");
+    let Feature::Extrude { profile, .. } = feature else {
+        unreachable!("the step just filtered for");
+    };
+    assert_eq!(
+        profile.regions().count(),
+        2,
+        "the step kept one of the two regions",
+    );
+}

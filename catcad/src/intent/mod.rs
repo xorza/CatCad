@@ -12,6 +12,7 @@ use silverpoint::SegmentId;
 use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::part::Part;
+use crate::profile::Profile;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
@@ -40,9 +41,16 @@ use crate::tool::Tool;
 /// them: a dolly and a drag in one frame must land the way the pointer made
 /// them — see [`Intents::iter`].
 ///
-/// `Copy`, so applying one can lift it out of the inbox and let go of the
+/// `Clone`, so applying one can lift it out of the inbox and let go of the
 /// borrow before touching what it lands on.
-#[derive(Debug, Clone, Copy)]
+///
+/// **`Clone` and not `Copy`**, which is what a profile of several regions
+/// costs: it owns the list of curves naming them, and a sweep names one rather
+/// than naming positions among a frame's faces — see [`Change::Extrude`]. The
+/// borrow is what the lift is for and a clone ends it just as well. What it
+/// costs is one clone per intent per pass, and only the two that carry a
+/// profile reach the heap at all — each of those is one press.
+#[derive(Debug, Clone)]
 pub(crate) enum Intent {
     /// The document's to answer — see [`Document::apply`](crate::document::Document).
     Change(Change),
@@ -110,7 +118,7 @@ pub(crate) enum Step {
 /// through the same inbox all the same, because the order still matters and
 /// because three things can put a tool down: a replayed pass that flipped it
 /// where it was pressed would arm it and put it straight back down.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Choice {
     /// Pick out this part of the drawing and nothing else, or nothing at all
     /// when it is `None`.
@@ -190,7 +198,7 @@ pub(crate) enum Choice {
 /// One arm per operation, mirroring [`Asking`](crate::prompt::Asking): this is
 /// the *request* and that is what the form became, and keeping them apart is
 /// what lets a request carry a seed the form does not go on holding.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Opening {
     /// Restate a dimension, seeded with what it measures now.
     Dimension { part: Part, from: f64 },
@@ -202,22 +210,25 @@ pub(crate) enum Opening {
     /// and the session applies before the history does; a form opened after
     /// the fact would have nothing to name.
     Circle { sketch: FeatureId, center: Anchor },
-    /// Grow a solid off a region, seeded at no depth at all.
+    /// Grow a solid off the regions a profile names, seeded at no depth at
+    /// all.
     ///
     /// Nothing reaches the timeline until the form is committed — see
-    /// [`Asking::Extrude`](crate::prompt::Asking) — so this names the region
+    /// [`Asking::Extrude`](crate::prompt::Asking) — so this names the regions
     /// rather than a step, and cancelling leaves the document untouched.
-    Extrude { sketch: FeatureId, region: usize },
-    /// Spin a solid a whole turn off a region, about a line of that drawing.
     ///
-    /// The extrude's twin above, and it names its region the same way and for
+    /// **The durable name and not positions**, which is where a position
+    /// becomes one: picking regions out. It was resolved a pass later, and a
+    /// profile of several regions is a list an intent cannot carry by position
+    /// and stay `Copy` — see [`Intent`].
+    Extrude { profile: Profile },
+    /// Spin a solid a whole turn off the regions a profile names, about a line
+    /// of that drawing.
+    ///
+    /// The extrude's twin above, and it names its regions the same way and for
     /// the same reason. It seeds no number, a whole turn asking for none — so
     /// the form is open for the one choice a revolve still has.
-    Revolve {
-        sketch: FeatureId,
-        region: usize,
-        axis: SegmentId,
-    },
+    Revolve { profile: Profile, axis: SegmentId },
 }
 
 /// What the application answers, being the one reader that can see all of it at
@@ -302,7 +313,7 @@ impl Intents {
     /// frame have to land the way the pointer produced them, or the drag would
     /// be resolved against a camera the wheel had already moved.
     pub(crate) fn iter(&self) -> impl Iterator<Item = Intent> {
-        self.queue.iter().copied()
+        self.queue.iter().cloned()
     }
 
     /// The `nth` thing asked for, or `None` past the end.
@@ -318,6 +329,6 @@ impl Intents {
     /// the record pass allocates nothing and a `Vec` built to hold the two
     /// errands a session ever raises would be an allocation every frame.
     pub(crate) fn at(&self, nth: usize) -> Option<Intent> {
-        self.queue.get(nth).copied()
+        self.queue.get(nth).cloned()
     }
 }

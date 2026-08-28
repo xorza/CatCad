@@ -1,6 +1,6 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{Body, Boolean, Builder, ConstraintId, Fill, Filler, Mesher, Patch};
+use silverpoint::{Body, Boolean, Builder, ConstraintId, Fill, Filler, Mesher, Operation, Patch};
 
 use crate::build::Revision;
 use crate::lens::Lens;
@@ -10,8 +10,10 @@ use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::showing::Showing;
 use crate::paint::{Chorded, UNSIZED};
+use crate::part::Part;
 use crate::preview::Preview;
-use crate::timeline::FeatureId;
+use crate::prompt::Form;
+use crate::timeline::{FeatureId, Sweep};
 
 /// What one laying-out of the drawing leaves behind, and what it claims to
 /// describe.
@@ -82,7 +84,7 @@ pub(crate) struct Layout {
     /// is the one a fresh [`Build`](crate::build::Build) starts at: an empty
     /// layout and an unsolved document would then agree, and the one frame that
     /// must never be skipped — the first — is exactly the one that would be.
-    made: Option<Made>,
+    made: Option<Kept>,
     /// What the controls were last written from, or `None` where none have been.
     ///
     /// Its own stamp beside `made`, and this is the whole reason there are two:
@@ -146,12 +148,12 @@ impl Layout {
     /// describes has moved.
     ///
     /// The layout's half of the question is only whether it has drawn anything
-    /// at all. What moved between two stamps is [`Made::since`]'s, being a fact
+    /// at all. What moved between two stamps is [`Kept::since`]'s, being a fact
     /// about the stamps rather than about what was drawn from them — the same
     /// split [`Change::about`](crate::intent::change::Change) makes.
-    pub(super) fn resume(&self, made: Made) -> Option<Stage> {
+    pub(super) fn resume(&self, made: Made<'_>) -> Option<Stage> {
         match self.made {
-            Some(had) => made.since(had),
+            Some(had) => made.kept().since(had),
             // Nothing drawn yet, which is the one frame that must never be
             // skipped — see the field this reads.
             None => Some(Stage::Drawing),
@@ -175,8 +177,8 @@ impl Layout {
     }
 
     /// Note what was just drawn, which is what makes the claim above true.
-    pub(super) fn drawn(&mut self, made: Made) {
-        self.made = Some(made);
+    pub(super) fn drawn(&mut self, made: Made<'_>) {
+        self.made = Some(made.kept());
     }
 
     /// Whether the controls have to be written again.
@@ -202,7 +204,7 @@ impl Layout {
 /// pixels, which is the same pair again.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Framed {
-    pub(super) made: Made,
+    pub(super) made: Kept,
     pub(super) lens: Lens,
 }
 
@@ -268,21 +270,21 @@ impl Stage {
 /// one place any of this is compared, and [`Stage`], which is what the
 /// comparison answers with.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Made {
+pub(crate) struct Made<'a> {
     pub(crate) revision: Revision,
     pub(crate) editing: Option<FeatureId>,
-    pub(crate) showing: Showing,
+    pub(crate) showing: Showing<'a>,
     pub(crate) chorded: Chorded,
 }
 
-impl Made {
+impl Made<'_> {
     /// What a picture of `models` showing `showing` would be made from.
     ///
     /// One place rather than at each of the two calls that stamp one — the
     /// drawing's and the controls' — so that the two cannot come to disagree
     /// about what a picture is made from and gate on different things.
-    pub(super) fn of(models: Models<'_>, showing: Showing, chorded: Chorded) -> Self {
-        Self {
+    pub(super) fn of<'a>(models: Models<'_>, showing: Showing<'a>, chorded: Chorded) -> Made<'a> {
+        Made {
             revision: models.revision(),
             editing: models.editing(),
             showing,
@@ -290,6 +292,72 @@ impl Made {
         }
     }
 
+    /// The same, as a picture keeps it.
+    ///
+    /// **Kept rather than held**, which is what a profile borrowed off the open
+    /// form costs: a layout compares this frame against the last one, so what
+    /// it stores may borrow nothing. See [`Stamped`].
+    pub(super) fn kept(self) -> Kept {
+        Kept {
+            revision: self.revision,
+            editing: self.editing,
+            showing: Stamped::of(self.showing),
+            chorded: self.chorded,
+        }
+    }
+}
+
+/// What a picture was made from, as it is kept between frames.
+///
+/// [`Made`]'s twin, and the two are one type split in half: a live stamp
+/// borrows the name of what a form is growing, and a stamp compared against the
+/// *next* frame's may borrow nothing. What is dropped on the way across is the
+/// profile itself — two forms are told apart by which opening they are, which
+/// is exactly what [`Growth`] keeps.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Kept {
+    revision: Revision,
+    editing: Option<FeatureId>,
+    showing: Stamped,
+    chorded: Chorded,
+}
+
+/// What a gesture is showing, as a picture keeps it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(super) struct Stamped {
+    band: Option<Preview>,
+    typed: Option<Part>,
+    growing: Option<Growth>,
+}
+
+impl Stamped {
+    /// `showing` with nothing borrowed left in it.
+    fn of(showing: Showing<'_>) -> Self {
+        Self {
+            band: showing.band,
+            typed: showing.typed,
+            growing: showing.growing.map(|growing| Growth {
+                form: growing.form,
+                sweep: growing.sweep,
+                operation: growing.operation,
+            }),
+        }
+    }
+}
+
+/// The solid being decided, as a picture keeps it.
+///
+/// **Which opening rather than which regions**, because a profile is a list and
+/// this is [`Copy`]. It is no coarser: the regions move only when the drawing
+/// does, and the revision beside this already says that.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Growth {
+    form: Form,
+    sweep: Sweep,
+    operation: Operation,
+}
+
+impl Kept {
     /// Which stage a picture made from `had` has to be made again from to
     /// describe this, or `None` where nothing has moved.
     ///
@@ -361,4 +429,7 @@ pub(crate) struct Sheets {
     pub(super) boolean: Boolean,
     /// Where the tool is raised, before it is put together with what stands.
     pub(super) raised: Body,
+    /// Where the deciding profile is resolved to positions among its sketch's
+    /// faces, kept for the reason the bodies beside it are.
+    pub(super) regions: Vec<usize>,
 }

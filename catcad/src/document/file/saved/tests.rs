@@ -187,9 +187,9 @@ fn a_document_is_written_exactly_like_this() {
     // the drawing holds such a region is the arrangement's question and is asked
     // where regions are named rather than where they are written down.
     timeline.add(Feature::Extrude {
-        profile: Profile::new(
+        profile: Profile::of(
             drawn,
-            vec![
+            [[
                 Bound {
                     of: Entity::Segment(edge),
                     along: true,
@@ -198,7 +198,9 @@ fn a_document_is_written_exactly_like_this() {
                     of: Entity::Circle(rim),
                     along: false,
                 },
-            ],
+            ]
+            .as_slice()]
+            .into_iter(),
         ),
         distance: 1.5,
         operation: Operation::Join,
@@ -248,9 +250,8 @@ fn a_document_is_written_exactly_like_this() {
         Extrude(
             profile: (
                 sketch: 4,
-                bounds: [
-                    Segment(at: 0, along: true),
-                    Circle(at: 0, along: false),
+                regions: [
+                    [Segment(at: 0, along: true), Circle(at: 0, along: false)],
                 ],
             ),
             distance: 1.5,
@@ -476,7 +477,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Extrude(profile: (sketch: 0, bounds: []), distance: 1.0, \
+                     Extrude(profile: (sketch: 0, regions: []), distance: 1.0, \
                      operation: Join)"
                 ),
             ),
@@ -490,7 +491,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Extrude(profile: (sketch: 1, bounds: [Segment(at: 3, along: true)]), \
+                     Extrude(profile: (sketch: 1, regions: [[Segment(at: 3, along: true)]]), \
                      distance: 1.0, operation: Join)"
                 ),
             ),
@@ -506,7 +507,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Extrude(profile: (sketch: 1, bounds: []), distance: inf, operation: Join)"
+                     Extrude(profile: (sketch: 1, regions: []), distance: inf, operation: Join)"
                 ),
             ),
             Fault::NotFinite { at: 2 },

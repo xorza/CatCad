@@ -50,7 +50,7 @@ fn prism(outlines: &[&[(f64, f64)]], out: f64) -> Body {
     }
     let found = Arrangement::of(&sketch);
     assert!(!found.faces().is_empty(), "the outlines enclosed nothing");
-    Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body()
+    Extrusion::new(&found, &[0], Plane::GROUND, 3.0, STEP).body()
 }
 
 /// **Every corner faces out of the solid**, in position and in winding alike.
@@ -107,7 +107,7 @@ fn a_wall_lands_on_the_cap_it_was_raised_from() {
     let middle = sketch.add_point(DVec2::new(3.0, 1.0));
     let ring = sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 4.0, STEP).body();
 
     let mut mesher = Mesher::default();
     let (mut base, mut wall) = (Patch::default(), Patch::default());
@@ -154,7 +154,7 @@ fn a_finer_sagitta_cuts_more_finely_and_reads_nearer_the_truth() {
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 4.0, STEP).body();
 
     let true_volume = PI * 4.0 * 4.0;
     let mut mesher = Mesher::default();
@@ -338,7 +338,7 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 1.0);
     let found = Arrangement::of(&sketch);
-    let rod = Extrusion::new(&found, 0, Plane::GROUND, 6.0, STEP).body();
+    let rod = Extrusion::new(&found, &[0], Plane::GROUND, 6.0, STEP).body();
     let leaning = Plane {
         origin: DVec3::new(0.0, 3.0, 0.0),
         x: DVec3::X,
@@ -346,7 +346,7 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
     };
     let mut cutting = Sketch::default();
     cutting.outline(&[(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)]);
-    let lid = Extrusion::new(&Arrangement::of(&cutting), 0, leaning, 10.0, Step(1)).body();
+    let lid = Extrusion::new(&Arrangement::of(&cutting), &[0], leaning, 10.0, Step(1)).body();
     let mut into = Body::default();
     assert!(Boolean::default().combine(&rod, &lid, Operation::Cut, &mut into));
 

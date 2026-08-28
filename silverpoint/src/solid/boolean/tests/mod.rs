@@ -49,7 +49,7 @@ fn block(plane: Plane, corners: &[(f64, f64)], deep: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, plane, deep, by).body()
+    Extrusion::new(&found, &[0], plane, deep, by).body()
 }
 
 /// The four-by-four-by-four block everything below is cut against.
@@ -309,7 +309,7 @@ fn rod(plane: Plane, at: DVec2, radius: f64, deep: f64, by: Step) -> Rod {
     let ring = sketch.add_circle(middle, radius);
     let found = Arrangement::of(&sketch);
     Rod {
-        body: Extrusion::new(&found, 0, plane, deep, by).body(),
+        body: Extrusion::new(&found, &[0], plane, deep, by).body(),
         wall: by.grew(Grown::Side(Bound {
             of: Entity::Circle(ring),
             along: true,

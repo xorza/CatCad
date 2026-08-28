@@ -1,18 +1,26 @@
 # The revolve form
 
-Two faults, found by use. Each one has a cause in the structure, not in a
+One fault is left, found by use. It has a cause in the structure, not in a
 detail. This note gives the cause and the steps.
 
-A third is closed: the form's three squares said nothing. Each one now carries
-its word on hover, and the row names the setting that is on. One table in
-`catcad/src/prompt/marked.rs` pairs a mark with a word, so neither can be
-added without the other.
+Two are closed.
+
+**The form's three squares said nothing.** Each one now carries its word on
+hover, and the row names the setting that is on. One table in
+`catcad/src/prompt/marked.rs` pairs a mark with a word, so neither can be added
+without the other.
+
+**The bar went silent for more than one region.** It reads the contents of the
+selection now, not its shape, and several regions are one step: `Profile` names
+several, `Extrusion` and `Revolution` take a slice and raise a lump apiece, and
+an intent carries the durable name rather than positions it resolves a pass
+later.
 
 Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
 
 ---
 
-## 2. A revolve takes no start angle and no total angle
+## A revolve takes no start angle and no total angle
 
 ### What happens
 
@@ -171,75 +179,6 @@ moves.
 
 ---
 
-## 3. A revolve is not offered for more than one region
-
-### What happens
-
-Pick two regions and a line. Nothing is offered. Pick two regions alone and no
-extrude is offered either.
-
-### The cause
-
-`catcad/src/hud/relations.rs` reads the selection by matching the **shape of the
-whole list**:
-
-```rust
-fn region_picked(selection: &Selection) -> Option<Growable> {
-    match *selection.picked() {
-        [Part::Region { sketch, at }] => Some(...),
-        _ => None,
-    }
-}
-```
-
-`axis_picked` does the same and pays for it twice: it spells out both orders of
-a two-element list, because which was clicked first says nothing. A third
-element would need six arms.
-
-So every reader is fixed at exactly one pick, and the bar goes silent for any
-selection it did not spell out. The bar going silent is the worst answer: it
-gives the user nothing to read.
-
-### The fix
-
-Read the **contents** of the selection, not its shape.
-
-**Step 3.1 — one summary per frame.**
-- Add a `Picked` summary in `relations.rs`: the regions, the entities and the
-  steps, grouped by sketch, built once from `selection.picked()`.
-- Keep it in the caller's scratch buffer and `clear()` it each frame, as
-  `offers: &mut Vec<Constraint>` is already kept. The bar runs every frame.
-
-**Step 3.2 — the readers ask questions of it.**
-- `region_picked`: every pick is a region of one sketch, and there is at least
-  one.
-- `axis_picked`: every pick is a region of one sketch, except exactly one, which
-  is a segment of that same sketch.
-- The two-order match disappears. So does its comment.
-
-**Step 3.3 — one change per region, one step to take back.**
-- The chip pushes one `Change::Revolve` per region, then one `Step::Release`.
-- `Change::Revolve` is `About::Makes`, so each is its own timeline step. That is
-  the honest answer: two disjoint regions spun about one line are two solids,
-  each editable later, and the second joins onto the first.
-- Do the same for `Change::Extrude`, which has the same limit for the same
-  reason.
-
-**Step 3.4 — the form follows.**
-- `Asking::Revolve` holds one `Profile`. For several regions it holds several.
-- Keep the form single-valued at first if that is cheaper: offer the chip for
-  several regions and open the form on all of them, with one operation and one
-  turn for the set. The angles and the operation are properties of the gesture,
-  not of a region.
-
-**Step 3.5 — a test.**
-- `catcad/src/tests/editing.rs` holds
-  `picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_does`.
-- Extend it: two regions and a line offer a revolve, and accepting it puts two
-  steps in the recipe.
-
----
-
 ## What these make false
 
 Prose to rewrite, found while reading. Each is a claim the code will no longer
@@ -260,19 +199,12 @@ support.
 - `.notes/KERNEL.md` §9.2 — *"Two picks and no number"*, and *"What is left of
   the revolve is a partial turn"*, which this closes.
 
-**And one that is already false today.** `Change::Revolve` in
-`catcad/src/intent/change.rs` says *"Two picks and no form … The relations bar
-is the one thing that raises this, and it builds rather than asking."* The bar
-asks. It pushes `Choice::Ask(Some(Opening::Revolve { .. }))`. Fix this whether
-or not the rest is done.
-
 ---
 
 ## Order
 
-1. **Fault 3**, steps 3.1 to 3.5. Hours. No kernel change.
-2. **Fault 2**, 2a first. The kernel is the work. 2b, 2c and 2d follow it and
-   are each small.
+**Fault 2**, 2a first. The kernel is the work. 2b, 2c and 2d follow it and are
+each small.
 
 ## Related, still open
 

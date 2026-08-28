@@ -21,7 +21,7 @@ fn block(plane: Plane, corners: &[(f64, f64)], deep: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, plane, deep, by).body()
+    Extrusion::new(&found, &[0], plane, deep, by).body()
 }
 
 /// The four-by-four-by-four block everything below is cut against.

@@ -24,14 +24,25 @@ use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::{DVec2, DVec3};
 
-/// A region of a drawing and how far it is carried off the plane it was drawn
-/// on.
+/// The regions of a drawing and how far they are carried off the plane they
+/// were drawn on.
 ///
 /// Borrowed and [`Copy`], like the readings a drawing hands out: what it holds
-/// is an arrangement somebody else owns, a position in it, and two values. A
-/// caller makes one, hands it to a [`Builder`], and lets it go.
+/// is an arrangement somebody else owns, some positions in it, and two values.
+/// A caller makes one, hands it to a [`Builder`], and lets it go.
 ///
-/// Which region by *position*, unlike everything a feature keeps. Turning a
+/// **Several regions and one solid**, which is what a profile of several
+/// pieces is: they are faces of one arrangement, so they are disjoint by
+/// construction and no boolean is needed to put them together — each raises a
+/// lump of its own in the one body. A caller that wanted them apart would ask
+/// twice.
+///
+/// *So the two caps of two regions are one face.* Both answer to
+/// [`Grown::Base`], a name saying which step grew it and what of that step it
+/// is, and §5's rule is that a face of a body is the set of faces sharing one —
+/// which is the same answer a pocket cut across a cap already gives.
+///
+/// Which regions by *position*, unlike everything a feature keeps. Turning a
 /// durable name into one of these is the caller's, and happens once per
 /// rebuild.
 ///
@@ -41,7 +52,7 @@ use glam::{DVec2, DVec3};
 #[derive(Debug, Clone, Copy)]
 pub struct Extrusion<'a> {
     of: &'a Arrangement,
-    at: usize,
+    at: &'a [usize],
     plane: Plane,
     distance: f64,
     /// Which of the caller's steps this is, so the faces it raises say which
@@ -50,12 +61,18 @@ pub struct Extrusion<'a> {
 }
 
 impl<'a> Extrusion<'a> {
-    /// The region at `at` in `of`, carried `distance` along `plane`'s normal.
+    /// The regions at `at` in `of`, carried `distance` along `plane`'s normal.
     ///
-    /// `at` has to be one of `of`'s faces, and `plane` the one the drawing it
-    /// came from lies on — a face names its edges by where they fall in the
-    /// arrangement that cut them, so neither travels to another.
-    pub fn new(of: &'a Arrangement, at: usize, plane: Plane, distance: f64, by: Step) -> Self {
+    /// Every one of `at` has to be one of `of`'s faces, and `plane` the one the
+    /// drawing they came from lies on — a face names its edges by where they
+    /// fall in the arrangement that cut them, so neither travels to another.
+    pub fn new(
+        of: &'a Arrangement,
+        at: &'a [usize],
+        plane: Plane,
+        distance: f64,
+        by: Step,
+    ) -> Self {
         Self {
             of,
             at,
@@ -123,52 +140,58 @@ impl Builder {
     /// a fit to one, and nothing here flattens anything. What a body is *drawn*
     /// as is [`Mesher`](crate::Mesher)'s, and how finely is its caller's.
     ///
-    /// A distance of nothing leaves a body with no faces. There is no solid, so
-    /// there is nothing to draw, to pick or to build on — and six faces
-    /// enclosing nothing would be a worse answer than none.
+    /// A distance of nothing leaves a body with no faces, and so does a
+    /// profile naming no region. There is no solid, so there is nothing to
+    /// draw, to pick or to build on — and six faces enclosing nothing would be
+    /// a worse answer than none.
     ///
-    /// Four passes, and the order is forced: an edge names the two faces that
-    /// use it, so every face has to exist before any edge is made, and a face's
-    /// loops cannot be written until its edges are.
+    /// Four passes per region, and the order is forced: an edge names the two
+    /// faces that use it, so every face has to exist before any edge is made,
+    /// and a face's loops cannot be written until its edges are. The four run
+    /// region by region rather than pass by pass, the scratch each one keeps
+    /// being indexed by the strips of the region in hand.
     pub fn extrude(&mut self, of: &Extrusion<'_>, into: &mut Body) {
         into.clear();
         if of.distance == 0.0 {
             return;
         }
-        self.strips.lay(of.of, of.at);
         let normal = of.plane.normal();
         let along = of.distance > 0.0;
-        // The caps face away from the solid, so the far end faces the way it
-        // grew and the base faces back along it. The base lies on the sketch's
-        // own plane — it *is* that plane — which is what lets a datum taken on
-        // it carry the drawing's frame rather than a copy of one.
-        // In this order and before anything else, because the order faces are
-        // made is the order their names come back in — and a caller writing one
-        // drawable per name relies on that not moving between rebuilds. See
-        // [`Body::names`].
-        let base = Self::cap(into, of.plane, of.by.grew(Grown::Base), !along);
-        let far = Self::cap(
-            into,
-            Plane {
-                origin: of.plane.origin + normal * of.distance,
-                ..of.plane
-            },
-            of.by.grew(Grown::Far),
-            along,
-        );
-        let raising = Raising {
-            plane: of.plane,
-            distance: of.distance,
-            by: of.by,
-            normal,
-            along,
-            base,
-            far,
-        };
-        self.raise_walls(raising, into);
-        self.raise_edges(raising, into);
-        self.write_loops(raising, into);
-        self.gather(raising, into);
+        for &at in of.at {
+            self.strips.lay(of.of, at);
+            // The caps face away from the solid, so the far end faces the way
+            // it grew and the base faces back along it. The base lies on the
+            // sketch's own plane — it *is* that plane — which is what lets a
+            // datum taken on it carry the drawing's frame rather than a copy of
+            // one.
+            // In this order and before anything else, because the order faces
+            // are made is the order their names come back in — and a caller
+            // writing one drawable per name relies on that not moving between
+            // rebuilds. See [`Body::names`].
+            let base = Self::cap(into, of.plane, of.by.grew(Grown::Base), !along);
+            let far = Self::cap(
+                into,
+                Plane {
+                    origin: of.plane.origin + normal * of.distance,
+                    ..of.plane
+                },
+                of.by.grew(Grown::Far),
+                along,
+            );
+            let raising = Raising {
+                plane: of.plane,
+                distance: of.distance,
+                by: of.by,
+                normal,
+                along,
+                base,
+                far,
+            };
+            self.raise_walls(raising, into);
+            self.raise_edges(raising, into);
+            self.write_loops(raising, into);
+            self.gather(raising, into);
+        }
         if cfg!(debug_assertions) {
             self.checking.run(into);
         }
@@ -182,8 +205,9 @@ impl Builder {
     /// **A body with no faces where there is no solid to make**, which is the
     /// answer a distance of nothing gives above and means the same thing.
     /// Three things have no solid: a line with no direction, a region that
-    /// touches or crosses the line, and an arc that reaches it — the last of
-    /// which would sweep a surface folded through itself.
+    /// crosses the line, and an arc that reaches it — the last of which would
+    /// sweep a surface folded through itself. A region merely *touching* the
+    /// line has one, and what it touches with is a pole.
     pub fn revolve(&mut self, of: &Revolution<'_>, into: &mut Body) {
         let Self {
             strips,

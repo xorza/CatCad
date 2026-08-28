@@ -116,16 +116,17 @@ impl<'a> Model<'a> {
 
     /// The same region as something a feature can be built on.
     ///
-    /// The one place a face becomes a [`Profile`], which is the moment a
-    /// position among this frame's faces turns into a name meant to outlive
+    /// The one place faces become a [`Profile`], which is the moment
+    /// positions among this frame's faces turn into names meant to outlive
     /// every edit that follows — see [`Profile`], on why the two are different
     /// types rather than one.
     ///
     /// Here beside [`Model::region`] for the reason that one is here: the
     /// sketch half of the name is what a position among the faces cannot
     /// supply, and a caller holding both is holding a model.
-    pub(crate) fn profile(self, at: usize) -> Profile {
-        Profile::new(self.of, self.arrangement().faces()[at].named().to_vec())
+    pub(crate) fn profile(self, at: &[usize]) -> Profile {
+        let faces = self.arrangement().faces();
+        Profile::of(self.of, at.iter().map(|&at| faces[at].named()))
     }
 
     /// Where a circle's rim runs in the world, as points around it.

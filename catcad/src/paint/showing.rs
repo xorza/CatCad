@@ -25,7 +25,7 @@ use crate::preview::Preview;
 /// [`Default`] is a frame with nothing half-done — what a document nobody has
 /// looked at yet is drawn from, see [`scene`](crate::paint::scene).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct Showing {
+pub(crate) struct Showing<'a> {
     /// The shape a two-click tool is half-way through, if one is.
     ///
     /// Which of the three kinds it is is [`Preview`]'s to answer, and is asked
@@ -47,8 +47,13 @@ pub(crate) struct Showing {
     /// nothing else here would say so: the document is untouched while a form
     /// is open, so its revision does not move.
     ///
+    /// Borrowed off the open form, which is what keeps it free of the heap on a
+    /// path a depth typed a digit at a time runs every frame. What a picture
+    /// *keeps* between frames is [`Stamped`](crate::paint::layout::Stamped)
+    /// instead, which owns nothing.
+    ///
     /// The *solid* only. The arrow that carries it is a control and holds its
     /// size on screen, so it is written against the camera on its own schedule
     /// — see [`write`](crate::paint::gizmos::write).
-    pub(crate) growing: Option<Growing>,
+    pub(crate) growing: Option<Growing<'a>>,
 }

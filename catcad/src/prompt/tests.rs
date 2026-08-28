@@ -1,4 +1,5 @@
 use super::*;
+use crate::prompt::Form;
 use crate::prompt::marked::internals::EVERY;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
@@ -44,8 +45,9 @@ fn grown() -> Prompt {
         unreachable!("the fixture is a dimension of a sketch");
     };
     Prompt::on(
+        Form::default(),
         Asking::Extrude {
-            profile: Profile::new(sketch, Vec::new()),
+            profile: Profile::of(sketch, std::iter::empty()),
             operation: Operation::Join,
         },
         [("Depth", Seed::Offered(0.0))],
@@ -63,7 +65,11 @@ fn grown() -> Prompt {
 #[test]
 fn a_form_opens_on_the_value_the_dimension_states() {
     let part = dimension();
-    let prompt = Prompt::on(Asking::Dimension { part }, [("", Seed::Stated(125.4))]);
+    let prompt = Prompt::on(
+        Form::default(),
+        Asking::Dimension { part },
+        [("", Seed::Stated(125.4))],
+    );
     assert_eq!(prompt.marks(), Some(part));
     assert_eq!(
         prompt.fields[0].draft, "125.40",
@@ -82,6 +88,7 @@ fn a_form_opens_on_the_value_the_dimension_states() {
 #[test]
 fn a_draft_that_is_not_a_number_has_no_value() {
     let mut prompt = Prompt::on(
+        Form::default(),
         Asking::Dimension { part: dimension() },
         [("", Seed::Stated(12.0))],
     );
@@ -170,6 +177,7 @@ fn what_a_form_means_and_what_it_draws_come_apart_on_a_draft_mid_word() {
 #[test]
 fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     let typed = Prompt::on(
+        Form::default(),
         Asking::Dimension { part: dimension() },
         [("", Seed::Stated(1.0))],
     );
@@ -282,12 +290,17 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
 
     // A dimension being retyped stands over its own mark.
     let part = dimension();
-    let typed = Prompt::on(Asking::Dimension { part }, [("", Seed::Stated(1.0))]);
+    let typed = Prompt::on(
+        Form::default(),
+        Asking::Dimension { part },
+        [("", Seed::Stated(1.0))],
+    );
     assert_eq!(typed.marks(), Some(part));
 
     // A circle still being drawn names nothing the document holds at all, which
     // is the point of it — there is no circle until the form commits.
     let drawing = Prompt::on(
+        Form::default(),
         Asking::Circle {
             sketch: at,
             center: crate::drawing::anchor::Anchor::On(middle),

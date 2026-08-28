@@ -5,6 +5,7 @@ use crate::look::Theme;
 use crate::paint::growing::Growing;
 use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
+use crate::prompt::Form;
 use crate::timeline::Sweep;
 use aperture::Scene;
 use silverpoint::{Along, Dimension, Operation, Sketch};
@@ -180,10 +181,16 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
 fn the_depth_arrow_turns_its_face_to_the_camera() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
+    let drawn = document.first_sketch();
+    let profile = document
+        .models(&build, Some(drawn))
+        .at(drawn)
+        .expect("the demo holds the sketch it drew")
+        .profile(&[0]);
     let showing = Showing {
         growing: Some(Growing {
-            sketch: document.first_sketch(),
-            region: 0,
+            form: Form::default(),
+            profile: &profile,
             sweep: Sweep::Carried(0.5),
             operation: Operation::Join,
         }),

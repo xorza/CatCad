@@ -6,6 +6,7 @@ use silverpoint::{Constraint, ConstraintId, Entity, Operation, SegmentId};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
+use crate::profile::Profile;
 use crate::timeline::FeatureId;
 
 /// What the document answers, and the whole of what it answers.
@@ -19,7 +20,7 @@ use crate::timeline::FeatureId;
 /// — so a new one added to this enum is a compile error until the document says
 /// what to do with it, where a new one added beside it in [`Intent`](crate::intent::Intent) cannot
 /// reach the document at all.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Change {
     /// Take what a drag has hold of to a point in the world.
     ///
@@ -116,41 +117,35 @@ pub(crate) enum Change {
     /// reason: a replayed pass would otherwise delete whatever is picked out by
     /// the time it ran, which after the first pass is nothing.
     Delete { sketch: FeatureId, entity: Entity },
-    /// Grow a solid off a region of a sketch.
+    /// Grow a solid off the regions a profile names.
     ///
     /// The one change that *adds* a step rather than rewriting one, which is
     /// what [`About::Makes`] says of it and what the history has to be told
     /// before it can record anything: a step that was not there has no before.
     ///
-    /// The region by position rather than as a
-    /// [`Profile`](crate::profile::Profile), and that is forced: an intent is
-    /// [`Copy`] and load-bearingly so, where a profile owns the list of curves
-    /// naming it. Minting the durable name is the document's, one line later —
-    /// see [`Document::apply`](crate::document::Document). Nothing is lost by
-    /// the wait, because a position holds for as long as the arrangement it was
-    /// read from does, and that is the frame this intent lands in.
+    /// **The durable name rather than positions among this frame's faces**,
+    /// which is why an intent is [`Clone`] and not [`Copy`] — see [`Intent`],
+    /// where that is argued. It was positions while a sweep grew off one
+    /// region, a position being `Copy` and good for as long as the arrangement
+    /// it was read from; a profile of several is a list, and the moment a
+    /// position becomes a name is picking a region out, not one line later.
+    ///
+    /// [`Intent`]: crate::intent::Intent
     Extrude {
-        sketch: FeatureId,
-        region: usize,
+        profile: Profile,
         distance: f64,
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
     },
-    /// Spin a solid a whole turn off a region of a sketch, about a line drawn
-    /// in that same sketch.
+    /// Spin a solid a whole turn off the regions a profile names, about a line
+    /// drawn in that same sketch.
     ///
-    /// The third change that *adds* a step, and it names its region the way
+    /// The third change that *adds* a step, and it names its regions the way
     /// [`Change::Extrude`] does and for the same reason. The axis is a handle
-    /// rather than a position, a segment being the drawing's own and durable
-    /// where a face of an arrangement is not.
-    ///
-    /// **Two picks and no form**, unlike [`Change::Extrude`]: a revolve is told
-    /// everything by what is picked, where a depth is a number somebody has to
-    /// type. The relations bar is the one thing that raises this, and it
-    /// builds rather than asking.
+    /// too, a segment being the drawing's own and durable where a face of an
+    /// arrangement is not.
     Revolve {
-        sketch: FeatureId,
-        region: usize,
+        profile: Profile,
         axis: SegmentId,
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
@@ -290,7 +285,7 @@ impl Change {
     /// by what the pointer does next, because it happened once. So what was two
     /// booleans and an `Option` beside each other, most of whose combinations
     /// mean nothing, is three states and a flag inside the one arm that reads it.
-    pub(crate) fn about(self) -> About {
+    pub(crate) fn about(&self) -> About {
         // A step a gesture is still writing, so a history extends the one it is
         // recording rather than starting another. A drag arrives a frame at a
         // time and is one thing the user did, so sixty of them are one step
@@ -312,15 +307,15 @@ impl Change {
         match self {
             Change::Drag { sketch, .. }
             | Change::Place { sketch, .. }
-            | Change::Resize { sketch, .. } => gesture(sketch),
-            Change::MovePlane { plane, .. } => gesture(plane),
-            Change::Carry { extrude, .. } => gesture(extrude),
+            | Change::Resize { sketch, .. } => gesture(*sketch),
+            Change::MovePlane { plane, .. } => gesture(*plane),
+            Change::Carry { extrude, .. } => gesture(*extrude),
             Change::AddPoint { sketch, .. }
             | Change::AddSegment { sketch, .. }
             | Change::AddCircle { sketch, .. }
             | Change::Constrain { sketch, .. }
             | Change::Tidy { sketch }
-            | Change::Delete { sketch, .. } => once(sketch),
+            | Change::Delete { sketch, .. } => once(*sketch),
             // The three that make a step. What each names is what the new step is
             // built *on* rather than a step this is about: the one it makes does
             // not exist until it lands, so there is nothing here for a history
@@ -335,7 +330,7 @@ impl Change {
             // Its own arm rather than a rewrite of the step it names, because a
             // rewrite is recorded by comparing what a step held on either side
             // and this leaves every one of them holding exactly what it did.
-            Change::Reorder { step, .. } => About::Moves { at: step },
+            Change::Reorder { step, .. } => About::Moves { at: *step },
             // The camera is not the drawing, and neither is how much of the
             // recipe you are looking at. Neither names a step, so there is
             // nothing to take back and nothing to solve again — though rolling

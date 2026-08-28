@@ -31,7 +31,7 @@ fn block() -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, Plane::GROUND, 3.0, Step::default()).body()
+    Extrusion::new(&found, &[0], Plane::GROUND, 3.0, Step::default()).body()
 }
 
 /// A body that was built properly passes every check, and asking twice changes

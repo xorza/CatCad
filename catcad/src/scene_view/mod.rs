@@ -290,7 +290,7 @@ impl SceneView {
             // holds a name at all: the arrangement it was read from is not the
             // one it is being drawn against.
             Asking::Extrude { profile, .. } | Asking::Revolve { profile, .. } => profile
-                .face_of(models)
+                .first_face_of(models)
                 .and_then(|region| {
                     self.picture
                         .region_footprint(models, profile.sketch(), region, lens)

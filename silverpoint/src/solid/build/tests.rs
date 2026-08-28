@@ -53,7 +53,7 @@ fn an_extrusion_closes_the_right_way_out_whichever_way_it_grows() {
     let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 1);
 
-    let up = Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body();
+    let up = Extrusion::new(&found, &[0], Plane::GROUND, 3.0, STEP).body();
     let faces: Vec<Named> = up.names().collect();
     assert_eq!(faces.len(), 6, "{faces:?}");
     assert_eq!(faces[0], STEP.grew(Grown::Base));
@@ -64,7 +64,7 @@ fn an_extrusion_closes_the_right_way_out_whichever_way_it_grows() {
         volume(&up)
     );
 
-    let down = Extrusion::new(&found, 0, Plane::GROUND, -3.0, STEP).body();
+    let down = Extrusion::new(&found, &[0], Plane::GROUND, -3.0, STEP).body();
     assert!(
         (volume(&down) - 12.0).abs() < 1e-9,
         "grown against the normal it shut in {}, so it is inside out",
@@ -75,7 +75,7 @@ fn an_extrusion_closes_the_right_way_out_whichever_way_it_grows() {
         origin: DVec3::new(-7.0, 4.0, 11.0),
         ..Plane::FRONT
     };
-    let elsewhere = Extrusion::new(&found, 0, raised, 3.0, STEP).body();
+    let elsewhere = Extrusion::new(&found, &[0], raised, 3.0, STEP).body();
     assert!((volume(&elsewhere) - 12.0).abs() < 1e-9);
 }
 
@@ -97,7 +97,7 @@ fn a_box_counts_up_to_a_sphere_and_knows_which_edges_nobody_drew() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 3.0, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.characteristic, 2, "{reckoning:?}");
@@ -137,7 +137,7 @@ fn a_hole_is_carried_through_and_its_walls_face_into_it() {
         .position(|face| face.holes() == 1)
         .expect("the bore is a hole of the block");
 
-    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0, STEP).body();
+    let body = Extrusion::new(&found, &[ring], Plane::GROUND, 5.0, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.characteristic, 0, "{reckoning:?}");
@@ -171,7 +171,7 @@ fn a_circle_raises_two_walls_with_one_name_on_one_exact_cylinder() {
     let middle = sketch.add_point(DVec2::new(3.0, 1.0));
     let ring = sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 4.0, STEP).body();
 
     // Three names — a base, a far end and one wall — over four faces.
     let named: Vec<Named> = body.names().collect();
@@ -254,7 +254,7 @@ fn a_corner_drawn_straight_through_leaves_no_crease() {
     // Four by three, with the bottom drawn as two segments end to end.
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 2.0, STEP).body();
 
     let smooth: Vec<_> = body
         .topology()
@@ -291,13 +291,13 @@ fn a_corner_drawn_straight_through_leaves_no_crease() {
 fn a_spur_dangling_into_a_region_raises_no_wall() {
     let mut sketch = Sketch::default();
     let corners = sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
-    let plain = Extrusion::new(&Arrangement::of(&sketch), 0, Plane::GROUND, 2.0, STEP).body();
+    let plain = Extrusion::new(&Arrangement::of(&sketch), &[0], Plane::GROUND, 2.0, STEP).body();
 
     let tip = sketch.add_point(DVec2::new(2.0, 2.0));
     sketch.add_segment(corners[0], tip);
     let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 1, "the spur enclosed something");
-    let spurred = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
+    let spurred = Extrusion::new(&found, &[0], Plane::GROUND, 2.0, STEP).body();
 
     let before: Vec<Named> = plain.names().collect();
     let after: Vec<Named> = spurred.names().collect();
@@ -331,7 +331,7 @@ fn a_curve_cut_in_two_raises_one_wall_out_of_two_patches() {
     // Both regions together are the whole bar, which is what says neither lost
     // a piece of the boundary it shares.
     let together: f64 = (0..2)
-        .map(|at| volume(&Extrusion::new(&found, at, Plane::GROUND, 3.0, STEP).body()))
+        .map(|at| volume(&Extrusion::new(&found, &[at], Plane::GROUND, 3.0, STEP).body()))
         .sum();
     assert!(
         (together - 72.0).abs() < 1e-9,
@@ -339,7 +339,7 @@ fn a_curve_cut_in_two_raises_one_wall_out_of_two_patches() {
     );
 
     let bar = (0..2)
-        .map(|at| Extrusion::new(&found, at, Plane::GROUND, 3.0, STEP).body())
+        .map(|at| Extrusion::new(&found, &[at], Plane::GROUND, 3.0, STEP).body())
         .find(|body| body.names().any(|name| body.patches(name).count() == 2))
         .expect("no region is walled by a curve in two pieces");
     let doubled: Vec<Named> = bar
@@ -372,7 +372,7 @@ fn an_extrusion_of_no_depth_is_a_body_with_nothing_in_it() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 0.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 0.0, STEP).body();
 
     assert!(body.is_empty());
     assert_eq!(body.names().count(), 0);
@@ -480,7 +480,7 @@ fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
             "{drawn} folded something: {:?}",
             found.reached(),
         );
-        let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
+        let body = Extrusion::new(&found, &[0], Plane::GROUND, 4.0, STEP).body();
         body.check();
         let topology = body.topology();
         assert!(
@@ -522,7 +522,7 @@ fn a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces() {
     let middle = sketch.add_point(DVec2::new(major, 0.0));
     let drawn = sketch.add_circle(middle, minor);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a ring is a ring: {reckoning:?}");
@@ -574,7 +574,7 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (2.0, 2.0), (1.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a spun ring is a ring: {reckoning:?}");
@@ -638,7 +638,7 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
 
     let mut spun = None;
     for at in 0..found.faces().len() {
-        let body = Revolution::new(&found, at, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        let body = Revolution::new(&found, &[at], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
         // Every other face of the drawing straddles the line, and a revolve of
         // one is refused — see [`Revolving::raise`].
         if !body.is_empty() {
@@ -705,7 +705,7 @@ fn a_profile_spun_about_its_own_side_closes_at_a_pole() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 0, "a cone is a ball: {reckoning:?}");
@@ -756,7 +756,8 @@ fn a_hole_in_the_profile_sweeps_a_cavity_of_its_own() {
 
     let mut ringed = None;
     for face in 0..found.faces().len() {
-        let body = Revolution::new(&found, face, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        let body =
+            Revolution::new(&found, &[face], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
         let (_, lump) = body
             .topology()
             .lumps()
@@ -777,4 +778,111 @@ fn a_hole_in_the_profile_sweeps_a_cavity_of_its_own() {
     // chord cuts off goes as two thirds of the sagitta times the area it spans.
     let slack = (2.0 / 3.0) * 1e-3 * TAU * TAU * out * (at + hole);
     assert!(off < slack, "{off} off {want}");
+}
+
+/// **A profile of two regions raises one body of two lumps**, carried and spun
+/// alike.
+///
+/// Two disjoint squares of a drawing, both swept by one sweep. They are faces
+/// of one arrangement, so they cannot overlap — which is what lets each raise
+/// lumps of its own with no boolean between them.
+///
+/// **And the two caps are one face.** Both answer to [`Grown::Base`], a name
+/// saying which step grew it and what of that step it is, so §5's rule makes
+/// them one face of the feature — the same answer a pocket cut across a cap
+/// gives. The walls stay apart, a wall being named by the curve it came off.
+///
+/// Carried: `2·2·3` twice is twenty-four, over twelve faces under ten names.
+/// Spun about the drawing's `y`: Pappus twice, `2π·2·4` and `2π·6·4`, which is
+/// `64π` — and each square's four sides sweep two cylinders and two annuli.
+#[test]
+fn a_profile_of_two_regions_raises_one_body_of_two_lumps() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (3.0, 2.0), (1.0, 2.0)]);
+    sketch.outline(&[(5.0, 0.0), (7.0, 0.0), (7.0, 2.0), (5.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    assert_eq!(found.faces().len(), 2, "two squares, two regions");
+
+    let carried = Extrusion::new(&found, &[0, 1], Plane::GROUND, 3.0, STEP).body();
+    assert_eq!(
+        carried.topology().faces().count(),
+        12,
+        "four caps and eight walls",
+    );
+    assert_eq!(
+        carried.names().count(),
+        10,
+        "the two bases are one name, and so are the two far ends",
+    );
+    assert_eq!(
+        carried.patches(STEP.grew(Grown::Base)).count(),
+        2,
+        "one base over two regions",
+    );
+    assert_eq!(
+        carried.topology().lumps().count(),
+        2,
+        "two regions, two lumps",
+    );
+    // Of the first lump's own shell, which is what a reckoning reads: `8 − 12 +
+    // 6 − 0` is `2(1 − 0)`, a box being a box whatever stands beside it.
+    let reckoning = carried.reckoning();
+    assert_eq!(reckoning.characteristic, 2, "{reckoning:?}");
+    assert_eq!(reckoning.genus, 0, "a box: {reckoning:?}");
+    assert!(
+        (volume(&carried) - 24.0).abs() < 1e-9,
+        "it shut in {}",
+        volume(&carried),
+    );
+
+    let spun = Revolution::new(&found, &[0, 1], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    assert_eq!(
+        spun.topology().faces().count(),
+        8 * PARTS,
+        "eight walls, each cut in three",
+    );
+    assert_eq!(spun.names().count(), 8, "one name per side of each square");
+    assert_eq!(spun.topology().lumps().count(), 2, "two regions, two lumps");
+    assert!(spun.exact(), "cylinders and planes are exact");
+
+    let want = TAU * 2.0 * 4.0 + TAU * 6.0 * 4.0;
+    let off = (volume(&spun) - want).abs();
+    // Only the four cylinders are chorded, the annuli being flat. What a chord
+    // cuts off goes as two thirds of the sagitta times the area it spans, and
+    // each is `2π·radius` round by the square's own height of two.
+    let slack = (2.0 / 3.0) * FINE * TAU * (1.0 + 3.0 + 5.0 + 7.0) * 2.0;
+    assert!(off < slack, "{off} off {want}");
+}
+
+/// **A profile whose regions stand on both sides of the line sweeps nothing.**
+///
+/// Two regions of one drawing cannot overlap, and on one side of the line the
+/// map to a radius and a height keeps them apart. A region mirrored across the
+/// line sweeps the very same space, so the two lumps would share it — which is
+/// not a solid, and is what a region *straddling* the line is already refused
+/// for.
+///
+/// Each on its own is a ring, which is what says the pair is refused for
+/// standing on two sides rather than for anything either one of them is.
+#[test]
+fn a_profile_straddling_the_line_in_two_pieces_sweeps_nothing() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (3.0, 2.0), (1.0, 2.0)]);
+    sketch.outline(&[(-3.0, 0.0), (-1.0, 0.0), (-1.0, 2.0), (-3.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    assert_eq!(found.faces().len(), 2, "two squares, two regions");
+
+    let spun = |at: &[usize]| {
+        Revolution::new(&found, at, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body()
+    };
+    for at in 0..2 {
+        assert!(
+            !spun(&[at]).is_empty(),
+            "the square at {at} does not sweep a ring on its own",
+        );
+    }
+    assert!(
+        spun(&[0, 1]).is_empty(),
+        "two regions either side of the line swept two lumps of one space",
+    );
 }

@@ -4,6 +4,9 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::model::Models;
 use crate::paint::growing::*;
+use crate::profile::Profile;
+use crate::prompt::Form;
+use crate::timeline::FeatureId;
 use crate::timeline::Sweep;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
@@ -64,7 +67,7 @@ fn staged(tool: Sketch, stands: bool) -> Staged {
         let profile = Models::new(&timeline, &build, Some(base))
             .open()
             .expect("the fixture opens the sketch it names")
-            .profile(0);
+            .profile(&[0]);
         timeline.add(Feature::Extrude {
             profile,
             distance: 2.0,
@@ -91,9 +94,11 @@ fn shown(staged: &Staged, distance: f64, operation: Operation) -> Shown {
     let mut boolean = Boolean::default();
     let mut raised = Body::default();
     let mut into = Body::default();
+    let mut regions = Vec::new();
+    let profile = tooled(staged);
     let deciding = Growing {
-        sketch: staged.tool,
-        region: 0,
+        form: Form::default(),
+        profile: &profile,
         sweep: Sweep::Carried(distance),
         operation,
     }
@@ -103,6 +108,7 @@ fn shown(staged: &Staged, distance: f64, operation: Operation) -> Shown {
             builder: &mut builder,
             boolean: &mut boolean,
             raised: &mut raised,
+            regions: &mut regions,
         },
         &mut into,
     );
@@ -195,9 +201,11 @@ fn a_region_that_has_gone_shows_nothing() {
     let mut boolean = Boolean::default();
     let mut raised = Body::default();
     let mut into = Body::default();
+    let mut regions = Vec::new();
+    let profile = undrawn(&staged);
     let deciding = Growing {
-        sketch: staged.tool,
-        region: 7,
+        form: Form::default(),
+        profile: &profile,
         sweep: Sweep::Carried(4.0),
         operation: Operation::Cut,
     }
@@ -207,9 +215,34 @@ fn a_region_that_has_gone_shows_nothing() {
             builder: &mut builder,
             boolean: &mut boolean,
             raised: &mut raised,
+            regions: &mut regions,
         },
         &mut into,
     );
     assert_eq!(deciding, Deciding::Nothing);
     assert!(into.is_empty(), "the last answer was left standing");
+}
+
+/// The tool's one region, named.
+fn tooled(staged: &Staged) -> Profile {
+    let models = staged.document.models(&staged.build, Some(staged.tool));
+    models
+        .at(staged.tool)
+        .expect("the fixture drew the tool")
+        .profile(&[0])
+}
+
+/// A name that fits nothing: the tool's own region short of one of its sides.
+///
+/// Built off a real region rather than made up, because that is what a name
+/// stopping fitting looks like — the curves are the drawing's own and the *set*
+/// is one no face is bounded by. A profile of no regions at all would take the
+/// same path here and prove less: the claim is about a name outliving what it
+/// named.
+fn undrawn(staged: &Staged) -> Profile {
+    let models = staged.document.models(&staged.build, Some(staged.tool));
+    let model = models.at(staged.tool).expect("the fixture drew the tool");
+    let named = model.arrangement().faces()[0].named();
+    assert!(named.len() > 1, "a region of one side cannot be cut down");
+    Profile::of(staged.tool, [&named[..named.len() - 1]].into_iter())
 }

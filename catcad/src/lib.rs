@@ -807,14 +807,19 @@ pub(crate) mod internals {
         pub fn ask_for_a_depth(&mut self, region: usize) {
             let sketch = self.editing();
             let mut intents = Intents::default();
-            intents.push(Choice::Ask(Some(Opening::Extrude { sketch, region })));
             let Self {
                 session,
                 document,
                 build,
                 ..
             } = self;
-            session.apply(document.models(build, session.editing()), &intents);
+            let models = document.models(build, session.editing());
+            let profile = models
+                .at(sketch)
+                .expect("a harness asks for a depth off a sketch it opened")
+                .profile(&[region]);
+            intents.push(Choice::Ask(Some(Opening::Extrude { profile })));
+            session.apply(models, &intents);
         }
 
         /// Put `to` in the open form's depth field, the way a drag on the

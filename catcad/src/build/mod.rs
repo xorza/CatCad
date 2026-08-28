@@ -73,6 +73,13 @@ pub(crate) struct Build {
     /// The room putting two of them together works in, kept for the same
     /// reason.
     boolean: Boolean,
+    /// Where each step's profile is resolved to positions among its sketch's
+    /// faces, one step at a time.
+    ///
+    /// One between every step rather than one apiece, for the reason the body
+    /// below it is shared: it is filled, read and compared inside one turn of
+    /// the walk, and nothing outside that turn wants it.
+    regions: Vec<usize>,
     /// Where one step's own solid is raised, before it is combined with what
     /// the steps before it left standing.
     ///
@@ -246,6 +253,7 @@ impl Build {
             boolean,
             raised,
             standing,
+            regions,
             ..
         } = self;
         // Taken out and refilled rather than written over in place: a step may
@@ -273,11 +281,14 @@ impl Build {
             let digest = Digest::new(
                 settled.revision(),
                 step.plane,
-                step.profile.face_in(settled.arrangement()),
                 step.sweep,
                 step.operation,
                 on.map(Bodied::version).unwrap_or_default(),
             );
+            // Resolved into one buffer the whole walk shares, because it is
+            // read and compared here and never kept: what a `Bodied` keeps is
+            // its own copy of what it was built from.
+            step.profile.faces_in(settled.arrangement(), regions);
             let mut had = match standing.iter().position(|had| had.of() == step.at) {
                 Some(at) => standing.swap_remove(at),
                 None => Bodied::new(step.at),
@@ -290,6 +301,7 @@ impl Build {
                     arrangement: settled.arrangement(),
                 },
                 digest,
+                regions,
                 on.map(Bodied::body).unwrap_or(&nothing),
             );
             if had.built().merged() {

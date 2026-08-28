@@ -14,7 +14,7 @@ fn block(corners: &[(f64, f64)], deep: f64) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, Plane::GROUND, deep, STEP).body()
+    Extrusion::new(&found, &[0], Plane::GROUND, deep, STEP).body()
 }
 
 /// Where `at` stands in `body`, in the plane's own coordinates lifted by `up`.
@@ -128,7 +128,7 @@ fn a_place_down_a_bore_is_outside_the_block_it_is_bored_through() {
         .iter()
         .position(|face| face.holes() == 1)
         .expect("the bore is a hole of the block");
-    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0, STEP).body();
+    let body = Extrusion::new(&found, &[ring], Plane::GROUND, 5.0, STEP).body();
 
     assert_eq!(
         standing(&body, (3.0, 3.0), 2.5),
@@ -183,7 +183,7 @@ fn a_cylinder_holds_what_is_within_it() {
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 1.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
+    let body = Extrusion::new(&found, &[0], Plane::GROUND, 2.0, STEP).body();
 
     // On the axis, and well outside it either way — radially and past the ends.
     assert_eq!(standing(&body, (0.0, 0.0), 1.0), Standing::Inside);
