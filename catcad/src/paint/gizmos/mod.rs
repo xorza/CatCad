@@ -90,6 +90,7 @@ pub(crate) fn write(
         placed,
         proposed,
         cut,
+        sweep,
         ..
     } = layout;
     // Back to what the drawing named, and no further. These are appended after
@@ -102,11 +103,22 @@ pub(crate) fn write(
     // camera's schedule.
     // Two handles and one cut, because a form decides one number or the other:
     // an extrude has a depth and a revolve has a turn, and neither has both.
+    //
+    // Emptied first because the two ways there is no circle are early returns
+    // below — no form open, and a form whose region has gone — and a circle left
+    // standing is one a form goes on clearing after the thing that cast it has
+    // gone.
+    sweep.clear();
     let handled = showing.growing.and_then(|growing| {
         // The first region, a handle standing on one face — see
         // [`Profile::first_face_of`](crate::profile::Profile).
         let region = growing.profile.first_face_of(models)?;
         let cut = cut.region(models, sheets, growing.profile.sketch(), region)?;
+        // Everywhere a turn handle could go, for the form that has to stand
+        // clear of it — see [`Layout::sweep`]. Written here rather than read
+        // back off the scene, because this is where the region's own distance
+        // from the axle is in hand.
+        growing.sweeps(models, cut, sweep);
         let carried = growing
             .carried(models, cut, lens)
             .map(|carried| (Part::Growing, carried));

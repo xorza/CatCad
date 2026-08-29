@@ -294,7 +294,7 @@ impl Picture {
     /// `&mut self` to cut the region where the layout has not already, not to
     /// write anything drawn — see [`Cut`](crate::paint::cut::Cut), which is what
     /// keeps that off every frame.
-    pub(super) fn region_footprint(
+    pub(super) fn grown_footprint(
         &mut self,
         models: Models<'_>,
         sketch: FeatureId,
@@ -302,7 +302,12 @@ impl Picture {
         lens: Lens,
     ) -> Option<Rect> {
         let cut = self.layout.region(models, sketch, region)?;
-        lens.footprint(cut.corners().iter().copied())
+        let footprint = lens.footprint(cut.corners().iter().copied())?;
+        // Nothing where the growing has no circle, which is every extrude: a
+        // depth carries its arrow out of the face, away from the plane the form
+        // stands beside.
+        let swept = lens.footprint(self.layout.sweep().iter().copied());
+        Some(swept.map_or(footprint, |swept| footprint.union(swept)))
     }
 }
 

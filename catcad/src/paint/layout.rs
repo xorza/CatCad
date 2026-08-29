@@ -14,6 +14,7 @@ use crate::part::Part;
 use crate::preview::Preview;
 use crate::prompt::Form;
 use crate::timeline::{FeatureId, Sweep};
+use glam::Vec3;
 
 /// What one laying-out of the drawing leaves behind, and what it claims to
 /// describe.
@@ -73,6 +74,18 @@ pub(crate) struct Layout {
     /// Where the one region anything asks about lies, cut when the drawing
     /// moves and read on the camera's schedule — see [`Cut`].
     pub(super) cut: Cut,
+    /// The circle a turn handle sweeps, in the world, and empty where no form
+    /// has one.
+    ///
+    /// Kept beside the region and read for the same reason a mark's place is: a
+    /// form standing clear of what it is about has to clear its handle too, and
+    /// where that handle can go is the *drawing's* answer — see
+    /// [`Growing::sweeps`](crate::paint::growing::Growing).
+    ///
+    /// Refilled in place, like every other buffer here: a turn dragged a degree
+    /// at a time rewrites it on every frame of the drag, and the circle is the
+    /// same sixteen corners each time.
+    pub(super) sweep: Vec<Vec3>,
     /// What this was drawn from, or `None` where it describes nothing because
     /// nothing has been drawn into it yet.
     ///
@@ -123,6 +136,11 @@ impl Layout {
     }
 
     /// What each tag stands for.
+    /// The circle a turn handle sweeps, and empty where no form has one.
+    pub(crate) fn sweep(&self) -> &[Vec3] {
+        &self.sweep
+    }
+
     pub(crate) fn names(&self) -> &Names {
         &self.names
     }

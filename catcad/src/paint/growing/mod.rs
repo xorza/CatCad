@@ -1,8 +1,8 @@
 //! A solid the user is still deciding: how deep it is carried, or how much of
 //! a turn it is spun.
 
-use glam::Vec3;
-use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Step};
+use glam::{DVec3, Vec3};
+use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Sector, Step};
 
 use crate::build::bodied;
 use crate::lens::Lens;
@@ -12,7 +12,42 @@ use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
 use crate::profile::Profile;
 use crate::prompt::Form;
-use crate::timeline::Sweep;
+use crate::timeline::{Reading, Spindle, Sweep};
+
+/// The frame a turn is read in: the line it spins about, the way out to the
+/// region from it, and where the region sits on that way out.
+///
+/// A bundle because the last two are answered *against* the first and mean
+/// nothing apart from it — see [`Growing::round`], which is the only place one
+/// is built.
+#[derive(Debug, Clone, Copy)]
+struct Round {
+    spindle: Spindle,
+    /// The way out from the line to the region, which every angle here is
+    /// measured from.
+    ///
+    /// **The kernel's own frame**, not one this crate picked: a revolve is
+    /// framed with the region at an angle of nought — see [`Revolution`] — and
+    /// every point of a region lies in the drawing's plane, so the way out to
+    /// any of them is the way the frame is built about. That is what lets a
+    /// drag on the handle write the sector directly.
+    reference: DVec3,
+    reading: Reading,
+    sector: Sector,
+}
+
+impl Round {
+    /// Where the region's middle lands after `angle` of turn.
+    fn at(self, angle: f64) -> DVec3 {
+        self.spindle.spun(self.reference, self.reading, angle)
+    }
+
+    /// The angle the far end of the turn stands at, which is where the handle
+    /// is.
+    fn far(self) -> f64 {
+        self.sector.from + self.sector.sweep
+    }
+}
 
 /// The step a solid nobody has taken one for is grown by.
 ///
@@ -139,11 +174,62 @@ impl Growing<'_> {
     /// along the way the spin goes there.
     ///
     /// **The angles are the kernel's own**, which is what lets a drag write the
-    /// sector directly: a revolve is framed with the region at an angle of
-    /// nought — see [`Revolution`] — and every point
-    /// of a region lies in the drawing's plane, so the way out to any of them is
-    /// the way the frame is built about.
+    /// sector directly — see [`Round::reference`], where the frame they are
+    /// measured in is argued.
     pub(super) fn turned(self, models: Models<'_>, cut: &Cut, lens: Lens) -> Option<Carried> {
+        let round = self.round(models, cut)?;
+        let angle = round.far();
+        let along = round.spindle.tangent(round.reference, angle) * round.sector.sweep.signum();
+        Some(Carried::new(
+            round.at(angle).as_vec3(),
+            // Turned back where the spin runs the other way, so the arrow
+            // points the way a drag on it carries the turn rather than against
+            // it.
+            along.as_vec3(),
+            facing(lens, along.as_vec3(), round.reference.as_vec3()),
+        ))
+    }
+
+    /// The circle the turn handle sweeps, in the world, written into `into`.
+    ///
+    /// **Everywhere the handle can go rather than where it is.** A form stands
+    /// clear of what it is about, and a turn carries its handle *round* — so a
+    /// form clear of the region alone is one the handle walks under. Clearing
+    /// the whole circle is what keeps the handle out from under it at every
+    /// angle, and it is also what keeps the form still: the circle is the
+    /// region's own distance from the axle, so nothing a person types or drags
+    /// moves it.
+    ///
+    /// A depth's arrow has no such answer and needs none. It carries out along
+    /// the face's normal, away from the plane the region is drawn on, so a form
+    /// standing beside that region is never where the arrow is going.
+    ///
+    /// Sixteen corners, which bound a circle to within two percent on any axis
+    /// — and what is wanted here is a box round it rather than the curve.
+    pub(super) fn sweeps(self, models: Models<'_>, cut: &Cut, into: &mut Vec<Vec3>) {
+        /// How many corners the circle is measured through.
+        const CORNERS: usize = 16;
+
+        into.clear();
+        let Some(round) = self.round(models, cut) else {
+            return;
+        };
+        into.extend((0..CORNERS).map(|at| {
+            let angle = std::f64::consts::TAU * at as f64 / CORNERS as f64;
+            round.at(angle).as_vec3()
+        }));
+    }
+
+    /// The frame this turn is read in, or `None` where it is not a spin at all
+    /// or the line it spins about has gone.
+    ///
+    /// **Read once for both halves of a turn**, which is why it is a type. Where
+    /// the handle stands at the angle asked for, and the circle it sweeps
+    /// through every angle, are the same three answers measured twice — and the
+    /// second exists so a form can stand clear of the first. Read apart, they
+    /// would agree until the day one of them changed, and the form would then be
+    /// standing clear of a circle the handle is not on.
+    fn round(self, models: Models<'_>, cut: &Cut) -> Option<Round> {
         let Sweep::Spun {
             axle: Some(axle),
             sector,
@@ -154,17 +240,12 @@ impl Growing<'_> {
         let spindle = axle.borne(models.at(self.profile.sketch())?.plane())?;
         let inside = cut.inside().as_dvec3();
         let reference = spindle.out(inside)?;
-        let reading = spindle.reads(reference, inside);
-        let angle = sector.from + sector.sweep;
-        let along = spindle.tangent(reference, angle) * sector.sweep.signum();
-        Some(Carried::new(
-            spindle.spun(reference, reading, angle).as_vec3(),
-            // Turned back where the spin runs the other way, so the arrow
-            // points the way a drag on it carries the turn rather than against
-            // it.
-            along.as_vec3(),
-            facing(lens, along.as_vec3(), reference.as_vec3()),
-        ))
+        Some(Round {
+            reading: spindle.reads(reference, inside),
+            spindle,
+            reference,
+            sector,
+        })
     }
 
     /// Build what it currently reads as into `into`, and say what that is.

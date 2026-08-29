@@ -235,7 +235,7 @@ impl SceneView {
     /// form's dimension out of the document.
     ///
     /// `&mut self` for the filler's scratch alone — see
-    /// [`Picture::region_footprint`].
+    /// [`Picture::grown_footprint`].
     pub(crate) fn stands(
         &mut self,
         about: &Asking,
@@ -308,7 +308,7 @@ impl SceneView {
                 .first_face_of(models)
                 .and_then(|region| {
                     self.picture
-                        .region_footprint(models, profile.sketch(), region, lens)
+                        .grown_footprint(models, profile.sketch(), region, lens)
                 })
                 .map(Stands::Beside),
         }

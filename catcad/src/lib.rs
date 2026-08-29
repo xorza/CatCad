@@ -676,6 +676,17 @@ impl App for CatCad {
 /// layer adds is reach and nothing else — which is why a reach-in is argued
 /// where the thing it reaches *lives*, and every layer above says only what it
 /// forwards to.
+///
+/// **Which is why nothing here links inward.** These methods are `pub`, so a
+/// harness that turns the feature on reads their documentation with only the
+/// published surface in front of it — and every layer they forward to is
+/// private. A link into that tree is dead for the one reader it is written for,
+/// and rustdoc refuses it outright. So what a reach-in forwards to is *named*,
+/// in backticks, and the argument stays where the thing lives.
+///
+/// `cargo doc --document-private-items --all-features` is what catches a link
+/// that forgets. Without the feature this module is not compiled at all, so the
+/// plain doc build says nothing about it.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use std::cell::{Ref, RefCell, RefMut};
@@ -749,8 +760,7 @@ pub(crate) mod internals {
         }
 
         /// The pane the drawing is in, which is what a harness reaching the
-        /// scene almost always wants — see
-        /// [`SceneView::pane`](crate::scene_view::SceneView::pane).
+        /// scene almost always wants — see `SceneView::pane` one layer in.
         pub fn pane(&self) -> Ref<'_, Pane> {
             self.view.pane()
         }
@@ -807,7 +817,7 @@ pub(crate) mod internals {
         }
 
         /// Open the document's first sketch — see
-        /// [`Session::enter_first_sketch`](crate::session::Session).
+        /// `Session::enter_first_sketch`.
         ///
         /// The session's, plus the one thing that is the *app's*: the picture
         /// caught up with it, which a frame would do a phase later. A harness
@@ -835,7 +845,7 @@ pub(crate) mod internals {
         ///
         /// Nothing reaches the timeline: a form open on a region is a solid on
         /// screen and a step the document has not heard of — see
-        /// [`Opening::Extrude`](crate::intent::Opening).
+        /// `Opening::Extrude`.
         pub fn ask_for_a_depth(&mut self, region: usize) {
             let sketch = self.editing();
             let mut intents = Intents::default();
@@ -858,7 +868,7 @@ pub(crate) mod internals {
         /// arrow carrying the solid does.
         ///
         /// Through the inbox, because that is how the arrow writes it: a drag
-        /// sends one [`Choice::Set`](crate::intent::Choice) a frame and the
+        /// sends one `Choice::Set` a frame and the
         /// form decides what the number comes to. So a gate driving this
         /// drives the frames a depth is decided over without having to find
         /// the arrow in the picture first.
