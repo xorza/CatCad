@@ -40,6 +40,16 @@ impl Lens {
         Self { camera, viewport }
     }
 
+    /// How far the view reaches, in logical pixels.
+    ///
+    /// What a length with no bound of its own is measured against: past the far
+    /// edge of the view there is nothing left to cover, so a ray that carries on
+    /// for ever is answered by the room it has. What reads it is the anchor a
+    /// form open about a growing solid stands clear of.
+    pub(crate) fn extent(self) -> Vec2 {
+        self.viewport.extent()
+    }
+
     /// How many world units one logical pixel covers at `at`.
     ///
     /// What everything sized in *pixels* but built in the *world* is grown from

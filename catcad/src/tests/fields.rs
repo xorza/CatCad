@@ -15,7 +15,7 @@ use silverpoint::{Entity, SegmentId};
 use crate::CatCad;
 use crate::hud::internals;
 use crate::intent::Choice;
-use crate::prompt::Prompt;
+use crate::prompt::{Prompt, Stands};
 use crate::timeline::Axle;
 use std::f64::consts::FRAC_PI_2;
 
@@ -374,6 +374,60 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         panic!("not a constraint");
     };
     assert_eq!(after.constraint(id).value(), Some(was));
+}
+
+/// **A form stands clear of everywhere its arrow can go, not of where it is.**
+///
+/// A depth carries its arrow out along the face's normal without limit, so a
+/// form clear of the region alone is one the arrow walks under. What bounds the
+/// travel is the view rather than the depth — past the far edge there is
+/// nothing left to cover — so the anchor reaches that far and the fitting that
+/// places the form has no room on the arrow's side.
+///
+/// **The anchor and not the side**, which is the whole of why it holds: a form
+/// is flipped to the far side of its anchor for want of room, and a flip
+/// answers only to the surface's edge. A side chosen instead would be a side
+/// the fitting was free to give back.
+///
+/// The demo's face carries up the screen, so the anchor reaches past the top of
+/// the 800 by 600 view and stops at the region on the way down. Both halves are
+/// asserted: reaching nowhere would leave the arrow uncovered by luck, and
+/// reaching both ways would leave the form nowhere to stand at all.
+#[test]
+fn the_depth_form_stands_clear_of_everywhere_its_arrow_can_go() {
+    let mut raised = Raised::new();
+
+    let region = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .region(0);
+    raised.choose(Choice::Select(Some(region)));
+    raised.frame();
+    raised.press(internals::relation("Extrude"));
+    raised.frame();
+
+    let app = &mut raised.app;
+    let lens = app
+        .view
+        .lens(app.document.camera())
+        .expect("the view has arranged");
+    let models = app.document.models(&app.build, app.session.editing());
+    let about = app.session.prompt().expect("the form is open").about();
+    let Some(Stands::Beside(anchor)) = app.view.stands(about, models, lens) else {
+        panic!("the depth form has nowhere to stand");
+    };
+    assert!(
+        anchor.min.y < 0.0,
+        "the anchor stops at {} and the arrow carries past the top of the view",
+        anchor.min.y,
+    );
+    let below = HARNESS_SIZE.y as f32;
+    assert!(
+        anchor.max().y < below,
+        "the anchor reaches {} of a view {below} deep, leaving the form nowhere",
+        anchor.max().y,
+    );
 }
 
 /// **The arrow standing off a growing solid carries its depth, and what it

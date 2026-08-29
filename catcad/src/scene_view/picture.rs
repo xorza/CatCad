@@ -9,7 +9,7 @@ use crate::hud::cube;
 use crate::hud::cube::Gizmo;
 use crate::scene_view::GIZMO;
 
-use glam::{Vec2, Vec3};
+use glam::Vec3;
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
@@ -285,17 +285,19 @@ impl Picture {
     /// The room on screen a form open about a solid grown off `profile` has to
     /// stand clear of, or `None` where the projection draws none of it.
     ///
-    /// **The region *and* the circle a turn handle sweeps.** A form is placed to
-    /// leave what it is about visible under it, and a spin is about two things:
-    /// the face the solid rises off, and the arrow the turn is dragged by. That
-    /// arrow rides the far end of the sweep, so a form clear of the region alone
-    /// is one it walks under — neither seen nor pressed for that stretch of the
-    /// turn.
+    /// **The region, and everywhere the handle that carries the value can go.**
+    /// A form is placed to leave what it is about visible under it, and a grow
+    /// is about two things: the face the solid rises off, and the arrow the
+    /// depth or the turn is dragged by. That arrow travels, so a form clear of
+    /// the region alone is one it walks under — neither seen nor pressed for
+    /// whatever stretch of the value puts it there.
     ///
-    /// Clear of the whole circle rather than of where the arrow *is*, which is
-    /// what keeps the form still: an anchor that followed the handle would be a
-    /// form that moved every time the number did, which is worse than the thing
-    /// it fixes. See [`Growing::sweeps`](crate::paint::growing::Growing).
+    /// **In the anchor rather than answered by a side**, and that is the whole
+    /// of why it works. What places a form flips it to the far side of its
+    /// anchor for want of room, and a flip answers only to the surface's edge —
+    /// so a side chosen here would be a side the fitting was free to give back.
+    /// Held in the anchor, the same fitting flips the form clear of the arrow
+    /// because there is no room on the arrow's side either.
     ///
     /// Here rather than in [`crate::prompt`] because of the one thing this owns
     /// and nothing else does: the [`Filler`](silverpoint::Filler) the layout
@@ -305,8 +307,8 @@ impl Picture {
     /// frame rather than the picture's.
     ///
     /// `&mut self` to cut the region where the layout has not already, not to
-    /// write anything drawn — see [`Cut`], which is what
-    /// keeps that off every frame.
+    /// write anything drawn — see [`Cut`], which is what keeps that off every
+    /// frame.
     pub(super) fn grown_footprint(
         &mut self,
         models: Models<'_>,
@@ -314,35 +316,42 @@ impl Picture {
         lens: Lens,
     ) -> Option<Rect> {
         let cut = self.cut(models, profile)?;
-        let footprint = lens.footprint(cut.corners().iter().copied())?;
-        // Nothing where the growing has no circle, which is every extrude: a
-        // depth carries its arrow out of the face, away from the plane the form
-        // stands beside.
-        let swept = lens.footprint(self.layout.sweep().iter().copied());
-        Some(swept.map_or(footprint, |swept| footprint.union(swept)))
+        let region = lens.footprint(cut.corners().iter().copied())?;
+        let travel = self.travel(models, profile, lens);
+        Some(travel.map_or(region, |travel| region.union(travel)))
     }
 
-    /// Which way a solid grown off `profile` carries on screen, in pixels, or
-    /// `None` where the face it rises from is not drawn.
+    /// Everywhere the handle sharing an open form's value can go, on screen, or
+    /// `None` where the form has no handle.
     ///
-    /// **The bearing rather than the arrow's own place**, because what a form
-    /// has to keep off is where the arrow can *go*: a depth carries it out
-    /// along the face's normal without limit, so what is fixed about it is only
-    /// the direction — see [`Aside`](crate::prompt::Aside).
+    /// **Two shapes, and the second is why this is not simply a footprint.** A
+    /// turn carries its handle round a circle, which is the region's own
+    /// distance from the axle and so is bounded outright. A depth carries its
+    /// arrow along a ray, which is not — and what bounds *that* is the view
+    /// rather than the travel.
     ///
-    /// Read as the step a pixel's worth of depth takes on screen. How long the
-    /// step is decides nothing about which way it points, and a short one is
-    /// the truest where the projection is not linear.
-    pub(super) fn growth(
-        &mut self,
-        models: Models<'_>,
-        profile: &Profile,
-        lens: Lens,
-    ) -> Option<Vec2> {
+    /// Neither moves with the value, which is what keeps the form still: an
+    /// anchor that followed the handle would be a form that moved every time
+    /// the number did, which is worse than the thing it fixes.
+    fn travel(&mut self, models: Models<'_>, profile: &Profile, lens: Lens) -> Option<Rect> {
+        if let Some(round) = lens.footprint(self.layout.sweep().iter().copied()) {
+            return Some(round);
+        }
         let normal = models.at(profile.sketch())?.plane().normal().as_vec3();
         let inside = self.cut(models, profile)?.inside();
-        let step = normal * lens.world_per_pixel(inside);
-        Some(lens.screen_of(inside + step)? - lens.screen_of(inside)?)
+        // Where the arrow stands rather than the middle of the region, the ray
+        // running from the one and not the other.
+        let from = lens.screen_of(inside)?;
+        // A step of a pixel's worth, so what comes of the difference is a
+        // bearing: how long the step is decides nothing about which way it
+        // points, and a short one is the truest where the projection is not
+        // linear.
+        let step = lens.screen_of(inside + normal * lens.world_per_pixel(inside))? - from;
+        // Past the far edge of the view there is nothing left for a form to
+        // cover, and the diagonal is the furthest any bearing can carry inside
+        // one.
+        let tip = from + step.normalize_or_zero() * lens.extent().length();
+        Some(Rect::from_min_max(from.min(tip), from.max(tip)))
     }
 
     /// Where the first region of `profile` lies, cut if the layout has not cut
