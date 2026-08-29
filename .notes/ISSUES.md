@@ -1,3 +1,3 @@
 # Issues
 
-- An extrude's depth arrow carries far enough out along the face's normal to fall under the form that shares its value, so the arrow is neither seen nor pressed there.
+- A form beside a region flips to the far side of it for want of room, and can flip onto the very handle it was placed to keep off. What the flip answers to is the surface's edge, which nothing tells it the handle is on.

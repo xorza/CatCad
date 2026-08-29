@@ -13,7 +13,7 @@ use crate::look::Theme;
 use crate::model::Models;
 use crate::paint::showing::Showing;
 use crate::part::Part;
-use crate::prompt::{Asking, Prompt, Stands};
+use crate::prompt::{Aside, Asking, Prompt, Stands};
 use crate::scene_view::picture::Picture;
 use crate::scene_view::pointing::Pointing;
 use crate::session::Session;
@@ -300,17 +300,30 @@ impl SceneView {
                         .map_or(0.0, |to| middle.distance(to));
                     lens.footprint(model.rim_around(middle, radius))
                 })
-                .map(Stands::Beside),
-            // Resolved here rather than remembered, for the reason the form
-            // holds a name at all: the arrangement it was read from is not the
-            // one it is being drawn against.
-            Asking::Extrude { profile, .. } | Asking::Revolve { profile, .. } => profile
-                .first_face_of(models)
-                .and_then(|region| {
-                    self.picture
-                        .grown_footprint(models, profile.sketch(), region, lens)
-                })
-                .map(Stands::Beside),
+                // Nothing to keep off: what a circle's rim carries is the
+                // pointer itself, and the form already stands clear of the
+                // whole of it whatever the band is doing.
+                .map(|anchor| Stands::Beside {
+                    anchor,
+                    aside: Aside::default(),
+                }),
+            // **A form keeps off wherever the handle sharing its value can
+            // go**, and the two shapes that travel takes want two answers. A
+            // depth carries out along the face's normal without limit, so no
+            // anchor can hold it and what is left is the side — see [`Aside`].
+            Asking::Extrude { profile, .. } => Some(Stands::Beside {
+                anchor: self.picture.grown_footprint(models, profile, lens)?,
+                aside: self
+                    .picture
+                    .growth(models, profile, lens)
+                    .map_or_else(Aside::default, Aside::clear_of),
+            }),
+            // A turn goes round a circle instead, which the anchor holds
+            // outright — so every side of it is equally clear.
+            Asking::Revolve { profile, .. } => Some(Stands::Beside {
+                anchor: self.picture.grown_footprint(models, profile, lens)?,
+                aside: Aside::default(),
+            }),
         }
     }
 }

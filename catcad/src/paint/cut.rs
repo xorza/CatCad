@@ -88,7 +88,7 @@ impl Cut {
     }
 
     /// A point inside it.
-    pub(super) fn inside(&self) -> Vec3 {
+    pub(crate) fn inside(&self) -> Vec3 {
         self.inside
     }
 

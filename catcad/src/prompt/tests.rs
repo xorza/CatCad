@@ -314,3 +314,41 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
     );
     assert_eq!(drawing.marks(), None);
 }
+
+/// **A form takes the side clear of wherever the handle is going**, by
+/// whichever axis that bearing leans to.
+///
+/// Screen pixels, so y runs *down*: a handle carrying downward is one the form
+/// has to stand above. What this guards is the pair of sign flips, which is the
+/// arithmetic that reads right and comes out inverted — a form placed on the
+/// side the arrow walks along is the fault the rule exists to close, and
+/// inverted it would place the form there every time.
+///
+/// A bearing of nothing is a handle pointing straight at the eye, which has no
+/// direction on screen to avoid. It takes the default, which is where every
+/// other form stands.
+#[test]
+fn a_form_takes_the_side_clear_of_where_the_handle_is_going() {
+    for (bearing, aside) in [
+        (Vec2::new(1.0, 0.0), Aside::Left),
+        (Vec2::new(-1.0, 0.0), Aside::Right),
+        (Vec2::new(0.0, 1.0), Aside::Above),
+        (Vec2::new(0.0, -1.0), Aside::Below),
+        // Leaning cases, where the larger component decides and the smaller
+        // one says nothing.
+        (Vec2::new(3.0, -1.0), Aside::Left),
+        (Vec2::new(-3.0, 1.0), Aside::Right),
+        (Vec2::new(1.0, 3.0), Aside::Above),
+        (Vec2::new(-1.0, -3.0), Aside::Below),
+        // Square on the diagonal, where either of two sides clears it equally
+        // and the tie falls to the vertical.
+        (Vec2::new(1.0, 1.0), Aside::Above),
+        (Vec2::ZERO, Aside::default()),
+    ] {
+        assert_eq!(
+            Aside::clear_of(bearing),
+            aside,
+            "a handle going {bearing:?} left the form on its own side",
+        );
+    }
+}

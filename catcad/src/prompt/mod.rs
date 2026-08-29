@@ -184,7 +184,55 @@ pub(crate) enum Stands {
     /// frame the form is not shown for rather than a form that *closes*: a
     /// camera turning back brings it round again, and geometry swinging out of
     /// view is nobody asking to stop typing.
-    Beside(Rect),
+    Beside {
+        anchor: Rect,
+        /// Which side of it to take. See [`Aside`].
+        aside: Aside,
+    },
+}
+
+/// Which side of what it stands beside a form takes.
+///
+/// **The view's answer rather than the form's**, because what decides it is
+/// where the handle sharing this form's value travels — and that is a fact
+/// about the drawing. A depth's arrow carries out along the face's normal
+/// without limit, so no anchor can hold it and the only answer left is to take
+/// the other side; a turn's goes round a circle, which an anchor *can* hold, so
+/// there every side is equally clear and this says so by taking the default.
+///
+/// One rule between the two: **a form keeps off wherever the handle can go.**
+/// What differs is only whether that somewhere is bounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Aside {
+    /// Under it, which is where a form goes when nothing says otherwise.
+    #[default]
+    Below,
+    Above,
+    Left,
+    Right,
+}
+
+impl Aside {
+    /// The side clear of a handle travelling along `bearing`, in screen
+    /// pixels with y running down.
+    ///
+    /// Whichever axis the bearing leans to, taken against it. A bearing of
+    /// nothing at all — a handle pointing straight at the eye, where it has no
+    /// direction on screen to avoid — falls to the default, which is also what
+    /// the projection draws it as.
+    pub(crate) fn clear_of(bearing: Vec2) -> Self {
+        if bearing.x.abs() > bearing.y.abs() {
+            match bearing.x > 0.0 {
+                true => Self::Left,
+                false => Self::Right,
+            }
+        } else {
+            match bearing.y > 0.0 {
+                true => Self::Above,
+                false => Self::Below,
+            }
+        }
+    }
 }
 
 /// How far a form standing beside something keeps off it, in logical pixels.
@@ -780,7 +828,9 @@ impl Prompt {
         let opening = !std::mem::replace(&mut self.shown, true);
         let done = match stands {
             Stands::Over(at) => self.over(ui, theme, at, opening),
-            Stands::Beside(anchor) => self.beside(ui, theme, icons, anchor, opening),
+            Stands::Beside { anchor, aside } => {
+                self.beside(ui, theme, icons, anchor, aside, opening)
+            }
         };
         // Outside the bodies, because a value is read off a draft the widget
         // has only just finished writing.
@@ -1062,6 +1112,7 @@ impl Prompt {
         theme: &Theme,
         icons: &Icons,
         anchor: Rect,
+        aside: Aside,
         opening: bool,
     ) -> Option<Done> {
         let chrome = &theme.chrome;
@@ -1102,7 +1153,16 @@ impl Prompt {
         };
         let mut said = Said::default();
         let mut answered = None;
-        Popup::below(anchor)
+        // Which side is the view's to say — see [`Aside`]. [`Popup`] still
+        // flips and shifts from there to stay on the surface, so a face against
+        // an edge is answered by the fitting rather than by this.
+        let popup = match aside {
+            Aside::Below => Popup::below(anchor),
+            Aside::Above => Popup::above(anchor),
+            Aside::Left => Popup::left_of(anchor),
+            Aside::Right => Popup::right_of(anchor),
+        };
+        popup
             .id_salt("prompt.beside")
             .click_outside(ClickOutside::PassThrough)
             .show(ui, |ui, _| {

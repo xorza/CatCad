@@ -9,7 +9,7 @@ use crate::hud::cube;
 use crate::hud::cube::Gizmo;
 use crate::scene_view::GIZMO;
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
@@ -17,14 +17,15 @@ use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::Models;
 use crate::paint;
+use crate::paint::cut::Cut;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
 use crate::part::Part;
+use crate::profile::Profile;
 use crate::scene_view::DRAWING;
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
-use crate::timeline::FeatureId;
 
 /// The picture of a document this view last wrote, and everything it takes to
 /// keep one.
@@ -281,8 +282,20 @@ impl Picture {
         self.layout.placed(of)
     }
 
-    /// Where the region at `region` of `sketch` lands on screen, or `None` where
-    /// the projection draws none of it.
+    /// The room on screen a form open about a solid grown off `profile` has to
+    /// stand clear of, or `None` where the projection draws none of it.
+    ///
+    /// **The region *and* the circle a turn handle sweeps.** A form is placed to
+    /// leave what it is about visible under it, and a spin is about two things:
+    /// the face the solid rises off, and the arrow the turn is dragged by. That
+    /// arrow rides the far end of the sweep, so a form clear of the region alone
+    /// is one it walks under — neither seen nor pressed for that stretch of the
+    /// turn.
+    ///
+    /// Clear of the whole circle rather than of where the arrow *is*, which is
+    /// what keeps the form still: an anchor that followed the handle would be a
+    /// form that moved every time the number did, which is worse than the thing
+    /// it fixes. See [`Growing::sweeps`](crate::paint::growing::Growing).
     ///
     /// Here rather than in [`crate::prompt`] because of the one thing this owns
     /// and nothing else does: the [`Filler`](silverpoint::Filler) the layout
@@ -292,22 +305,56 @@ impl Picture {
     /// frame rather than the picture's.
     ///
     /// `&mut self` to cut the region where the layout has not already, not to
-    /// write anything drawn — see [`Cut`](crate::paint::cut::Cut), which is what
+    /// write anything drawn — see [`Cut`], which is what
     /// keeps that off every frame.
     pub(super) fn grown_footprint(
         &mut self,
         models: Models<'_>,
-        sketch: FeatureId,
-        region: usize,
+        profile: &Profile,
         lens: Lens,
     ) -> Option<Rect> {
-        let cut = self.layout.region(models, sketch, region)?;
+        let cut = self.cut(models, profile)?;
         let footprint = lens.footprint(cut.corners().iter().copied())?;
         // Nothing where the growing has no circle, which is every extrude: a
         // depth carries its arrow out of the face, away from the plane the form
         // stands beside.
         let swept = lens.footprint(self.layout.sweep().iter().copied());
         Some(swept.map_or(footprint, |swept| footprint.union(swept)))
+    }
+
+    /// Which way a solid grown off `profile` carries on screen, in pixels, or
+    /// `None` where the face it rises from is not drawn.
+    ///
+    /// **The bearing rather than the arrow's own place**, because what a form
+    /// has to keep off is where the arrow can *go*: a depth carries it out
+    /// along the face's normal without limit, so what is fixed about it is only
+    /// the direction — see [`Aside`](crate::prompt::Aside).
+    ///
+    /// Read as the step a pixel's worth of depth takes on screen. How long the
+    /// step is decides nothing about which way it points, and a short one is
+    /// the truest where the projection is not linear.
+    pub(super) fn growth(
+        &mut self,
+        models: Models<'_>,
+        profile: &Profile,
+        lens: Lens,
+    ) -> Option<Vec2> {
+        let normal = models.at(profile.sketch())?.plane().normal().as_vec3();
+        let inside = self.cut(models, profile)?.inside();
+        let step = normal * lens.world_per_pixel(inside);
+        Some(lens.screen_of(inside + step)? - lens.screen_of(inside)?)
+    }
+
+    /// Where the first region of `profile` lies, cut if the layout has not cut
+    /// it already.
+    ///
+    /// **Resolved rather than remembered**, for the reason the form holds a
+    /// profile at all: the arrangement it was read from is not the one it is
+    /// being drawn against, so the region it names is looked up afresh — see
+    /// [`Profile::first_face_of`].
+    fn cut(&mut self, models: Models<'_>, profile: &Profile) -> Option<&Cut> {
+        let region = profile.first_face_of(models)?;
+        self.layout.region(models, profile.sketch(), region)
     }
 }
 
