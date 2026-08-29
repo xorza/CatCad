@@ -1,8 +1,8 @@
 //! Where a run of type lands on the frame, and what a pick makes of it.
 
+use crate::camera::Camera;
 use crate::camera::Projection;
 use crate::renderer::tests::harness::{FRAME, Framed, Ink, run, square_on};
-use crate::renderer::*;
 use crate::tag::Tag;
 use crate::text::turn::{Facing, Turn};
 use crate::viewport::Viewport;
@@ -282,13 +282,13 @@ fn a_run_is_picked_over_the_pixels_it_was_drawn_on() {
 
                 // The run as the frame left it: the extent is the shaper's
                 // answer, filled by the very pass that drew the glyphs.
-                let drawn = view.pane.view.borrow().scene().texts[0].clone();
+                let drawn = view.pane().scene.texts[0].clone();
                 let logical = UVec2::new(
                     (FRAME.x as f32 / scale) as u32,
                     (FRAME.y as f32 / scale) as u32,
                 );
                 let viewport = Viewport::new(logical);
-                let camera = *view.pane.view.borrow().camera();
+                let camera = view.pane().camera;
                 let (ink_min, ink_max) = (ink.min.as_vec2() / scale, ink.max.as_vec2() / scale);
 
                 // Swept around the ink rather than over the whole view, which is

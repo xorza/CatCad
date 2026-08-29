@@ -392,9 +392,9 @@ fn hovering_a_plane_lights_it_without_recolouring_it() {
     // also the tag the hover below is weighed against: the same batch carries a
     // dimension's rule and the arrow that grows a solid.
     let (on_edge, drawn) = {
-        let renderer = raised.view.renderer().borrow();
-        let square = renderer
-            .scene()
+        let pane = raised.view.pane();
+        let square = pane
+            .scene
             .gizmos
             .iter()
             .find(|gizmo| {

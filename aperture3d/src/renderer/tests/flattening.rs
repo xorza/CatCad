@@ -1,12 +1,15 @@
 //! Turning a scene into the corners and instances a pass draws.
 
+use crate::camera::Camera;
 use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::mesh::{Mesh, Vertex};
 use crate::object::Object;
 use crate::renderer::band::QUAD_INDICES;
+use crate::renderer::pane::{Pane, Placement};
 use crate::renderer::uniforms::Uniforms;
 use crate::renderer::*;
+use crate::scene::Scene;
 use crate::styled::Styled;
 use glam::{Mat4, Vec3};
 
@@ -19,9 +22,9 @@ fn flatten_bakes_transforms_into_world_space() {
             .at(Vec3::new(10.0, 0.0, 0.0))
             .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    let triangles = &renderer.cpu.solids;
+    let triangles = &renderer.mirrors[0].cpu.solids;
 
     // Two cubes: 24 corners and 36 indices each.
     assert_eq!(triangles.vertices.len(), 48);
@@ -73,9 +76,9 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         color: Vec3::ZERO,
         ..Object::new(mesh)
     });
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    let triangles = &renderer.cpu.solids;
+    let triangles = &renderer.mirrors[0].cpu.solids;
 
     // Scaling x by 2 flattens the surface toward the x axis, so its normal
     // tips *away* from x: inverse transpose diag(0.5, 1, 1) sends
@@ -91,10 +94,10 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
 
 #[test]
 fn flatten_of_an_empty_scene_uploads_nothing() {
-    let mut renderer = Renderer::new(Scene::default());
+    let mut renderer = Renderer::new(Pane::new(Scene::default(), Placement::Fill));
     renderer.refresh(1.0);
 
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
     assert!(cpu.solids.vertices.is_empty());
     assert!(cpu.solids.indices.is_empty());
     assert!(cpu.curves.ordinary.is_empty());
@@ -110,9 +113,9 @@ fn flatten_curves_ships_one_instance_per_segment() {
             .colored(Vec3::new(0.25, 0.5, 0.75))
             .width(3.0),
     );
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    let records = &renderer.cpu.curves.ordinary;
+    let records = &renderer.mirrors[0].cpu.curves.ordinary;
 
     // Three points, two segments, one record each — the four corners are the
     // shader's business now.
@@ -142,9 +145,9 @@ fn flatten_curves_normalizes_and_spreads_a_named_plane() {
     scene
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::X).in_plane(Vec3::new(0.0, 5.0, 0.0)));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    let records = &renderer.cpu.curves.ordinary;
+    let records = &renderer.mirrors[0].cpu.curves.ordinary;
 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].plane, [0.0, 1.0, 0.0], "{records:?}");
@@ -160,9 +163,9 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     ];
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners.clone()).closed());
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    let closed = &renderer.cpu.curves.ordinary;
+    let closed = &renderer.mirrors[0].cpu.curves.ordinary;
     // Four corners closed is four segments; open would be three.
     assert_eq!(closed.len(), 4);
     // The closing segment runs from the last point back to the first.
@@ -171,9 +174,9 @@ fn flatten_curves_strokes_the_closing_segment_too() {
 
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 3);
+    assert_eq!(renderer.mirrors[0].cpu.curves.ordinary.len(), 3);
 }
 
 /// The plane probes step a share of the viewport, and where that share comes

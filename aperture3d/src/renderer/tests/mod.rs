@@ -4,5 +4,6 @@ mod flattening;
 mod harness;
 mod highlights;
 mod lettering;
+mod panes;
 mod passes;
 mod uploads;

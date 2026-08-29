@@ -1,12 +1,12 @@
 //! A small retained 3D scene renderer for [`palantir`] viewports.
 //!
 //! Build a [`Scene`] out of [`Object`]s, [`Curve`]s, [`Ring`]s, [`Point`]s
-//! and [`Text`], hand it to a [`Renderer`], and give the renderer
-//! to a `GpuView` each frame:
+//! and [`Text`], put it in a [`Pane`], hand that to a [`Renderer`], and give
+//! the renderer to a `GpuView` each frame:
 //!
 //! ```no_run
 //! # use std::{cell::RefCell, rc::Rc};
-//! # use aperture::{Curve, Mesh, Object, Point, Renderer, Scene, Text};
+//! # use aperture::{Curve, Mesh, Object, Pane, Placement, Point, Renderer, Scene, Text};
 //! # use glam::Vec3;
 //! # use palantir::{Configure, GpuPaint, GpuView, Sizing, Ui};
 //! # fn demo(ui: &mut Ui, renderer: &Rc<RefCell<Renderer>>) {
@@ -15,6 +15,7 @@
 //! scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
 //! scene.points.push(Point::new(Vec3::X));
 //! scene.texts.push(Text::new(Vec3::X, "1.0", 12.0));
+//! let mut view = Renderer::new(Pane::new(scene, Placement::Fill));
 //!
 //! let paint: Rc<RefCell<dyn GpuPaint>> = renderer.clone();
 //! GpuView::new(paint)
@@ -24,9 +25,20 @@
 //! # }
 //! ```
 //!
-//! The renderer owns its GPU resources and re-uploads geometry only after the
+//! The renderer owns its GPU resources and re-uploads geometry only after a
 //! scene is mutated, so a still scene costs one uniform write and one draw
 //! call per pipeline per frame.
+//!
+//! # Panes
+//!
+//! A [`Pane`] is one scene, seen from one camera, landed in one rect of the
+//! target — see [`Placement`]. One pane is a viewport. Several are a viewport
+//! with furniture over it: an orientation gizmo, an axis triad, a thumbnail,
+//! each with a scene and a camera of its own. They are drawn back to front in
+//! one pass, through one set of pipelines and one glyph sheet, and each takes
+//! its own slice of the depth range — so nothing in one pane can occlude or be
+//! occluded by anything in another. [`Renderer::pane_at`] is which pane a
+//! pointer is over.
 //!
 //! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
 //! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
@@ -110,7 +122,7 @@ pub(crate) mod viewport;
 /// What a harness painting whole frames needs, and an application never does.
 #[cfg(any(test, feature = "internals"))]
 pub mod internals {
-    pub use crate::renderer::internals::ScenePane;
+    pub use crate::renderer::internals::SceneApp;
 }
 
 pub use aim::Aim;
@@ -127,6 +139,7 @@ pub use object::Object;
 pub use point::Point;
 pub use ray::Ray;
 pub use renderer::Renderer;
+pub use renderer::pane::{Corner, Pane, PaneAt, Placement};
 pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;

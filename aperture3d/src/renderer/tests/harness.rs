@@ -1,13 +1,16 @@
 //! Painting a frame headlessly, and reading one back.
 
+use crate::camera::Camera;
 use crate::mesh::{Mesh, Vertex};
-use crate::renderer::internals::ScenePane;
+use crate::renderer::internals::SceneApp;
+use crate::renderer::pane::{Pane, Placement};
 use crate::renderer::*;
+use crate::scene::Scene;
 use crate::text::Text;
 use glam::{UVec2, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::HeadlessTestGpuLease;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 
 /// What palantir composites into, and so what the pipelines are built against.
@@ -106,45 +109,59 @@ fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
 /// A headless view a frame is painted into, and what that frame inked.
 ///
 /// Every test here that asks the *picture* rather than the buffers wants the
-/// same four things — a device, a host, a target and a pane — and they were the
-/// same fourteen lines in each. What varies is the camera it is set up with and
-/// what is put in front of it.
+/// same four things — a device, a host, a target and an application — and they
+/// were the same fourteen lines in each. What varies is the camera it is set up
+/// with and what is put in front of it.
 ///
-/// One pane for the life of it, which is not a saving but a requirement: the
-/// host initialises the view it is first given, and a second [`Renderer`] handed
-/// to the same host has never been through that. So a drawing is changed by
-/// rewriting the scene rather than by standing up another view over it.
+/// One renderer for the life of it, which is not a saving but a requirement:
+/// the host initialises the view it is first given, and a second [`Renderer`]
+/// handed to the same host has never been through that. So a drawing is changed
+/// by rewriting the scene rather than by standing up another view over it.
 #[derive(Debug)]
 pub(super) struct Framed<'a> {
     gpu: &'a HeadlessTestGpuLease,
     host: OffscreenHost,
     target: wgpu::Texture,
-    pub(super) pane: ScenePane,
+    pub(super) app: SceneApp,
 }
 
 impl<'a> Framed<'a> {
+    /// Which pane a test here draws into. [`Framed`] builds its renderer with
+    /// one and pushes none over it.
+    pub(super) const DRAWING: usize = 0;
+
     pub(super) fn new(gpu: &'a HeadlessTestGpuLease, camera: Camera) -> Self {
-        let pane = ScenePane {
-            view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
+        let app = SceneApp {
+            view: Rc::new(RefCell::new(Renderer::new(Pane::new(
+                Scene::default(),
+                Placement::Fill,
+            )))),
         };
-        *pane.view.borrow_mut().camera_mut() = camera;
+        app.view.borrow_mut().pane_mut(Self::DRAWING).camera = camera;
         Self {
             host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
             target: frame_target(&gpu.device),
-            pane,
+            app,
             gpu,
         }
     }
 
+    /// The pane these tests draw into, borrowed for the statement that asks.
+    pub(super) fn pane(&self) -> Ref<'_, Pane> {
+        Ref::map(self.app.view.borrow(), |renderer| {
+            renderer.pane(Self::DRAWING)
+        })
+    }
+
     /// Rewrite what stands in front of the camera.
     pub(super) fn edit(&mut self, staging: impl FnOnce(&mut Scene)) {
-        let mut view = self.pane.view.borrow_mut();
-        staging(view.scene_mut());
+        let mut view = self.app.view.borrow_mut();
+        staging(&mut view.pane_mut(Self::DRAWING).scene);
     }
 
     /// Clear the view to `ground` on every frame from here.
     pub(super) fn ground(&mut self, ground: Vec3) {
-        self.pane.view.borrow_mut().set_ground(ground);
+        self.app.view.borrow_mut().set_ground(ground);
     }
 
     /// Paint one frame, on a display of `scale` physical pixels to the logical
@@ -152,7 +169,7 @@ impl<'a> Framed<'a> {
     /// a logical pixel is worth.
     pub(super) fn paint(&mut self, scale: f32) {
         self.host
-            .frame_offscreen(&self.target, scale, &mut self.pane);
+            .frame_offscreen(&self.target, scale, &mut self.app);
     }
 
     /// Where the last frame it painted has ink on it, and how much.
@@ -198,12 +215,18 @@ impl<'a> Framed<'a> {
     /// rather than how much of it there was. Fully covered, so the resolve has
     /// nothing to average.
     pub(super) fn middle(&self) -> [i32; 3] {
+        self.pixel(FRAME / 2)
+    }
+
+    /// The same, anywhere on the frame — for a test asking where a boundary
+    /// fell rather than what one thing came out.
+    pub(super) fn pixel(&self, at: UVec2) -> [i32; 3] {
         let pixels = frame_pixels(self.gpu, &self.target);
-        let at = ((FRAME.y / 2 * FRAME.x + FRAME.x / 2) * 4) as usize;
+        let start = ((at.y * FRAME.x + at.x) * 4) as usize;
         [
-            i32::from(pixels[at]),
-            i32::from(pixels[at + 1]),
-            i32::from(pixels[at + 2]),
+            i32::from(pixels[start]),
+            i32::from(pixels[start + 1]),
+            i32::from(pixels[start + 2]),
         ]
     }
 

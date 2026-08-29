@@ -39,7 +39,7 @@ that is already running.
 
 ---
 
-## 2. What aperture is today
+## 2. What aperture was
 
 Worth stating exactly, because the design is a small change to it and a large
 one to what it can carry.
@@ -116,6 +116,14 @@ Answer: **give each pane a slice of the depth range.** `set_viewport` takes a
 between them — the frontmost pane taking the near end. Aperture clears depth to
 `0.0` and compares reverse, so the near end is the high end.
 
+The *rect* that call takes stays the whole target, and the scissor does the
+confining. wgpu refuses a viewport rect that leaves the attachment, and a pane
+is allowed to leave it: a gizmo pinned to the corner of a view that a scroll has
+slid half off the target is exactly that, and clamping the rect would move the
+pane rather than clip it. A scissor merely clips. So the viewport carries the
+depth slice, the projection is skewed to land the pane where the target shows
+it, and the scissor cuts it — three things, each doing the one it can.
+
 That settles it entirely and costs nothing:
 
 - Every fragment of an overlay pane is nearer than every fragment of the pane
@@ -137,8 +145,8 @@ answer if a pane ever needs the *full* depth range, and nothing today does.
 ```
 one pass, cleared to the ground once
   for each pane, back to front:
-      set_viewport(rect, depth slice)
-      set_scissor_rect(rect)
+      set_viewport(whole target, this pane's depth slice)
+      set_scissor_rect(the part of the pane's rect the target holds)
       bind the pane's uniforms
       run the kind ladder
 ```
@@ -157,21 +165,29 @@ Renderer {
     panes: Vec<Pane>,        // authored, back to front
     mirrors: Vec<Mirror>,    // derived, one per pane, same order
     gpu: Option<Gpu>,        // pipelines, glyph sheet, attachments — shared
+    atlas: GlyphAtlas,       // derived, and shared too — see below
     ground: Vec3,
     shaper: Option<TextShaper>,
 }
 
-Mirror { cpu: Cpu, buffers: Kinds, uniforms: Buffer, bind: BindGroup,
-         highlights: Highlights, relight: bool }
+Mirror { cpu: Cpu, highlights: Highlights, relight: bool, held: Option<Held> }
+Held   { a buffer per kind, uniforms: Buffer, bind: BindGroup }
 ```
 
 Highlights move into the mirror because a highlight keys on a `Tag`, and tags
 name things in *a* scene. Two panes lighting the same tag would be two panes
 disagreeing about which of them the pointer is over.
 
-The glyph atlas is the one derived thing that stays shared. It is keyed by glyph
-and size, not by scene, and a second copy of it would be a second upload of the
-same sheet.
+The mirror is split again because half of it needs a device and half of it does
+not: `Cpu` is packed on the first flatten, which a test does with no GPU in
+front of it, and the buffers it is written into cannot exist until palantir has
+handed one over. One `Option` over the half that waits, rather than three.
+
+The glyph atlas is the one derived thing that stays shared, and it has to be:
+the sheet on the device is the `Gpu`'s, so two atlases would be two mirrors
+writing one texture. It is keyed by glyph and size rather than by scene, so
+sharing it is also what it wants — two panes that write the same word at the
+same size read one entry.
 
 ### 3.5 Picking
 
@@ -181,8 +197,8 @@ landed:
 
 ```rust
 impl Renderer {
-    /// Which pane a point in the target falls in, frontmost first.
-    pub fn pane_at(&self, at: Vec2, target: Vec2) -> Option<PaneAt>;
+    /// Which pane a point of the view falls in, frontmost first.
+    pub fn pane_at(&self, at: Vec2, view: Vec2) -> Option<PaneAt>;
 }
 
 pub struct PaneAt { pub nth: usize, pub tag: Option<Tag>, pub local: Vec2 }
@@ -190,6 +206,11 @@ pub struct PaneAt { pub nth: usize, pub tag: Option<Tag>, pub local: Vec2 }
 
 Frontmost first, because that is the order the eye reads them in: a pointer over
 the gizmo is over the gizmo and not over the model behind it.
+
+Both lengths are **logical** pixels — what a pointer arrives in, and what a
+pinned pane states its size in. The frame is the one place the raster scale is
+spent, and it spends it on the rect it draws rather than on the arithmetic that
+places one, so picking and drawing cannot become two placements.
 
 A pane is free to be picked some other way. The orientation cube resolves a press
 against the projected outlines of its own facets — exact, cheap and already
@@ -237,41 +258,8 @@ with a real argument behind it and no caller yet; §8 keeps it.
 
 ## 6. Implementation plan
 
-Six steps. Each one lands on its own, and the first three change no pixel.
-
-**Step 1 — a rect per pass, still one pane.**
-`uniforms::Window` already reads "the part of the view being drawn into" off the
-frame. Give it a rect rather than the target's own size, and pass the target's
-own size in. Nothing moves yet.
-*Check:* the visual goldens do not move.
-
-**Step 2 — extract `Mirror`.**
-Move `cpu`, the per-kind instance buffers, the uniform buffer, the bind group,
-`highlights` and `relight` out of `Renderer` and `Gpu` into one `Mirror`. `Gpu`
-keeps the pipelines, the glyph sheet and the attachments. Still one mirror, still
-one scene. This is the largest mechanical step and the one worth landing alone.
-*Check:* the goldens do not move; `hot_struct_sizes` style pins, if aperture
-grows any, move deliberately.
-
-**Step 3 — the ladder takes a mirror.**
-`Gpu::draw` becomes `draw(pass, mirror)`, called once. The pass is opened by the
-caller so it can be opened once for several mirrors.
-*Check:* the goldens do not move.
-
-**Step 4 — `Pane`, `Placement`, and the list.**
-`Renderer::new(pane)`, `Renderer::panes_mut()`, `Renderer::push_pane()`. Draw
-each pane in order with its own viewport, scissor and depth slice. `scene()`,
-`camera_mut()`, `highlight_only()` and the rest become pane-scoped; catcad is
-rewritten to match, because this crate keeps no compatibility surface.
-*Check:* a new aperture test — two panes, the second drawing over the first
-**only inside its rect**, asserted by reading the target on both sides of the
-boundary. And a second: an overlay pane's geometry reads over the pane behind it
-even where the pane behind it is nearer in the world.
-
-**Step 5 — `pane_at`.**
-The rect arithmetic, frontmost first, with the local point.
-*Check:* a unit test per `Placement`, including a point in the gap between two
-pinned panes.
+The renderer side is built: `Pane`, `Placement`, `Mirror`, the pane list, the
+partitioned pass and `pane_at`. What is left is the thing it was for.
 
 **Step 6 — CatCad: the gizmo becomes a pane.**
 - Build the chamfered solid as an `Object`. Vertices split per facet, because a
@@ -282,15 +270,14 @@ pinned panes.
   fixed distance and field.
 - `Placement::Pinned` at the bottom right, sized `chrome.cube`.
 - The facet picking stays where it is: it is exact, it needs no GPU, and it is
-  already under test. What it reads changes from the HUD's box to the pane's.
+  already under test. What it reads changes from the HUD's box to the pane's,
+  which `Renderer::pane_at` answers.
 *Check:* the cube's existing tests pass unchanged — they are about the
 arithmetic, not the drawing — and the frame is looked at.
 
 **Step 7 — retire the palantir-mesh cube.**
 `Shape::mesh`, the stroked outlines that were standing in for antialiasing, and
 the stroke alphabet all go. The multisampling is aperture's.
-
----
 
 ## 7. What it costs
 
@@ -324,3 +311,9 @@ handles colour.
 - **Panes in a window of their own.** A pane is a rect of one target. A second
   window is a second `GpuView` and a second renderer, and that is the case where
   a transparent clear becomes worth building.
+- **`Placement::Share`, a rect stated as a fraction of the view.** What a second
+  picture of the same scene wants, because it should grow with the room it has —
+  and what a top-view inset would be placed by. `Fill` and `Pinned` are what the
+  two panes that exist are, and a third arm with no caller is a published surface
+  nothing has ever answered a question about. It costs five lines the day the
+  inset lands.

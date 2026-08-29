@@ -45,9 +45,9 @@ fn orthographic_holds_the_drawing_to_one_width() {
 
     /// The drawing alone, framed the same way through either projection.
     fn spanned(projection: Projection) -> Frame {
-        painted(DEMO_FRAME, |renderer| {
-            drawing_in_frame(projection)(renderer.camera_mut());
-            renderer.scene_mut().gizmos.clear();
+        painted(DEMO_FRAME, |pane| {
+            drawing_in_frame(projection)(&mut pane.camera);
+            pane.scene.gizmos.clear();
         })
     }
 

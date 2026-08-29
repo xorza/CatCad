@@ -127,10 +127,10 @@ struct Drawn {
 
 /// Every mark the app drew, in the order the scene holds them.
 fn drawn(app: &CatCad) -> Vec<Drawn> {
-    let renderer = app.renderer().borrow();
-    let camera = *renderer.camera();
+    let pane = app.pane();
+    let camera = pane.camera;
     let mut found = Vec::new();
-    for text in renderer.scene().texts.iter() {
+    for text in pane.scene.texts.iter() {
         let Some(tag) = text.tag else { continue };
         let Facing::Turned(turn) = text.facing else {
             panic!("a mark is laid in its sketch plane");
@@ -149,9 +149,8 @@ fn drawn(app: &CatCad) -> Vec<Drawn> {
 /// Where `mark`'s box sits on screen, seen through the camera the app last
 /// painted with.
 fn on_screen(app: &CatCad, mark: &Drawn) -> Vec2 {
-    app.renderer()
-        .borrow()
-        .camera()
+    app.pane()
+        .camera
         .screen_of(mark.middle, viewport())
         .expect("a drawn mark is somewhere the projection draws")
 }
@@ -280,9 +279,9 @@ fn every_mark_is_picked_where_it_is_drawn() {
             }
             raised.settle();
 
-            let renderer = raised.app.renderer().borrow();
-            let camera = *renderer.camera();
-            let scene: &Scene = renderer.scene();
+            let pane = raised.app.pane();
+            let camera = pane.camera;
+            let scene: &Scene = &pane.scene;
             let mut marks = 0;
             for text in scene.texts.iter() {
                 let Some(tag) = text.tag else { continue };
@@ -395,7 +394,7 @@ fn a_number_dragged_by_its_box_travels_with_the_cursor() {
             if !content.chars().any(|c| c.is_ascii_digit()) {
                 continue;
             }
-            let camera = *raised.app.renderer().borrow().camera();
+            let camera = raised.app.pane().camera;
             let Some(cursor) = camera.screen_of(was, viewport()) else {
                 continue;
             };

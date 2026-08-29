@@ -1,13 +1,13 @@
 //! Getting a frame out of the app, and the shapes every check below reads one
 //! through.
 
-use aperture::{Camera, Projection, Renderer, Scene};
+use aperture::{Camera, Pane, Placement, Projection, Renderer, Scene};
 use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
 use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use std::sync::{OnceLock, mpsc};
 
@@ -100,9 +100,34 @@ fn ground() -> [u8; 3] {
     *GROUND.get_or_init(CatCad::ground_srgb)
 }
 
-/// Anything the harness can paint and then ask which camera it painted with.
+/// Which pane of a renderer these frames read.
+///
+/// The application builds its renderer holding the drawing, and every renderer
+/// this file builds holds one pane — so the same index answers for both, and for
+/// the same reason: whatever is pushed over a drawing is furniture, and no frame
+/// here raises any.
+pub(crate) const DRAWING: usize = 0;
+
+/// Anything the harness can paint and then ask what it painted.
 pub(crate) trait Viewed {
     fn view(&self) -> &Rc<RefCell<Renderer>>;
+
+    /// The pane it draws into, borrowed for the statement that asks.
+    ///
+    /// What a frame asks after it is painted: the camera it was taken through,
+    /// and the scene as the renderer still holds it.
+    fn pane(&self) -> Ref<'_, Pane> {
+        Ref::map(self.view().borrow(), |renderer| renderer.pane(DRAWING))
+    }
+}
+
+/// A renderer stands for itself, so a caller holding one — the half of
+/// [`Staged`] that is not the frame — asks it the same way an application is
+/// asked.
+impl Viewed for Rc<RefCell<Renderer>> {
+    fn view(&self) -> &Rc<RefCell<Renderer>> {
+        self
+    }
 }
 
 impl Viewed for CatCad {
@@ -111,7 +136,7 @@ impl Viewed for CatCad {
     }
 }
 
-impl Viewed for ScenePane {
+impl Viewed for SceneApp {
     fn view(&self) -> &Rc<RefCell<Renderer>> {
         &self.view
     }
@@ -122,11 +147,11 @@ impl Viewed for ScenePane {
 /// [`CatCad`] cannot stand in for this: its own hover owns the highlight list
 /// and clears it whenever the pointer is absent, which in a headless frame is
 /// always. This borrows the app's renderer and leaves the app behind.
-pub(crate) struct ScenePane {
+pub(crate) struct SceneApp {
     pub(crate) view: Rc<RefCell<Renderer>>,
 }
 
-impl App for ScenePane {
+impl App for SceneApp {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
         let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
         GpuView::new(paint)
@@ -148,17 +173,17 @@ impl App for ScenePane {
 ///
 /// The camera is the renderer's here rather than the document's, for the same
 /// reason: nothing records, so nothing copies one over to the other.
-pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Renderer)) -> Frame {
+pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Pane)) -> Frame {
     let mut app = CatCad::build();
     // Opened in the demo's first sketch, which a document is not: what these
     // frames are of is a drawing being *worked in*, marks and all — see
     // [`CatCad::enter_first_sketch`].
     app.enter_first_sketch();
-    prepare(&mut app.renderer().borrow_mut());
-    let mut pane = ScenePane {
+    prepare(&mut app.pane_mut());
+    let mut app_pane = SceneApp {
         view: app.renderer().clone(),
     };
-    capture(size, &mut pane)
+    capture(size, &mut app_pane)
 }
 
 /// The app's own frame with the chrome left off it.
@@ -197,10 +222,10 @@ pub(crate) fn idle(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
 fn framed(size: UVec2, mut app: CatCad, aim: impl FnOnce(&mut Camera)) -> Frame {
     aim(app.camera_mut());
     capture(size, &mut app);
-    let mut pane = ScenePane {
+    let mut app_pane = SceneApp {
         view: app.renderer().clone(),
     };
-    capture(size, &mut pane)
+    capture(size, &mut app_pane)
 }
 
 /// A scene of the caller's own, painted through a bare pane, and the renderer
@@ -218,12 +243,12 @@ pub(crate) struct Staged {
 /// The other half of [`painted`]: that one starts from the demo and takes
 /// things out, this one starts from nothing and puts them in.
 pub(crate) fn staged(size: UVec2, camera: Camera, scene: Scene) -> Staged {
-    let mut renderer = Renderer::new(scene);
-    *renderer.camera_mut() = camera;
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
+    renderer.pane_mut(DRAWING).camera = camera;
     let view = Rc::new(RefCell::new(renderer));
-    let mut pane = ScenePane { view: view.clone() };
+    let mut app_pane = SceneApp { view: view.clone() };
     Staged {
-        frame: capture(size, &mut pane),
+        frame: capture(size, &mut app_pane),
         view,
     }
 }
@@ -273,7 +298,7 @@ pub(crate) fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
     // nothing the caller said: the app hands its renderer a camera while
     // recording, so this is the one moment the renderer holds the camera the
     // frame was actually taken through.
-    let camera = *app.view().borrow().camera();
+    let camera = app.pane().camera;
 
     let row = size.x * 4;
     let padded = row.div_ceil(COPY_ALIGN) * COPY_ALIGN;

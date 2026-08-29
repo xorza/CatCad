@@ -1,21 +1,20 @@
-//! Everything that cannot exist before the device does.
+//! Everything that cannot exist before the device does, and that every mirror
+//! of a scene shares.
 
 pub(super) mod attachments;
 pub(super) mod sheet;
 
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::Cpu;
-use crate::renderer::cpu::records::Records;
 use crate::renderer::cpu::triangles::Order;
 use crate::renderer::gpu::attachments::Attachments;
 use crate::renderer::gpu::sheet::Sheet;
 use crate::renderer::pass;
-use crate::renderer::pass::{Pass, PassSpec, Pipelines};
+use crate::renderer::pass::{PassSpec, Pipelines};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
 };
-use crate::renderer::uniforms::Uniforms;
+use crate::renderer::retained::Retained;
 use glam::{UVec2, Vec3};
 
 /// The depth ladder every layer of a drawing stands on, in steps of depth
@@ -52,7 +51,7 @@ const FACE_BIAS: i32 = 2048;
 ///
 /// Being see-through is three decisions and not one, and the other two are not
 /// here. The face is drawn *after* everything opaque, so what should show
-/// through it is already in the target to be mixed with — see `Renderer::paint`.
+/// through it is already in the target to be mixed with — see [`Held::draw`].
 /// And it writes no depth, so one face does not cull the next; they are sorted
 /// back to front instead, because blending is order-dependent whether or not
 /// anything is written — see [`Order`].
@@ -63,6 +62,8 @@ const FACE_BIAS: i32 = 2048;
 /// untouched. A stroke on some *other* plane, genuinely behind, loses it and
 /// reads through the face shaded — which is the whole point of drawing one this
 /// way round.
+///
+/// [`Held::draw`]: crate::renderer::held::Held::draw
 const FACE_OPACITY: f32 = 0.45;
 
 /// The flat controls, which lie on a datum among the faces rather than over the
@@ -110,82 +111,83 @@ const MARKER_BIAS: i32 = STROKE_BIAS * 2;
 /// without climbing over the markers that terminate it.
 const HIGHLIGHT_BIAS: i32 = FACE_BIAS;
 
-/// The two passes one overlay kind is drawn through: its own, and the same
-/// pipeline again holding only what a caller has singled out.
+/// The one shader a solid and a face are both drawn by, which is why they share
+/// a name: what tells them apart is pipeline state — a face is unculled, lifted
+/// off what it lies on, and seen through — and not one line of WGSL.
+pub(super) const MESH: &str = "mesh";
+
+/// One overlay kind's two pipelines, and the triangle list every instance of it
+/// is drawn through.
 ///
-/// Paired for the reason [`Records`] pairs the buffers that feed them, and named
-/// for the same two halves — the two are built together, uploaded together and
-/// drawn one after the other, and `sharing` already makes the second the first's
-/// pipeline with a vertex buffer of its own.
+/// The pipelines are two rather than one because the step that puts a highlight
+/// over the primitive it doubles is depth bias, and depth bias is pipeline
+/// state — see [`HIGHLIGHT_BIAS`]. The list is one because it is the same four
+/// corners, or the same band, for every instance, both halves and every mirror,
+/// and nothing ever rewrites it.
 #[derive(Debug)]
-pub(super) struct Passes {
-    pub(super) ordinary: Pass,
-    pub(super) lit: Pass,
+pub(super) struct Twin {
+    /// Names the pipelines' entry points and the buffers a mirror feeds them
+    /// through.
+    pub(super) name: &'static str,
+    pub(super) ordinary: wgpu::RenderPipeline,
+    pub(super) lit: wgpu::RenderPipeline,
+    pub(super) indices: Retained,
+    pub(super) index_count: u32,
 }
 
-impl Passes {
-    /// One pipeline, pointed at two record buffers.
+impl Twin {
+    /// One kind: the pipeline `spec` names, the same pipeline again biased
+    /// forward for the highlights, and the list both draw through.
     ///
-    /// The highlight's label is derived here rather than handed in, so a kind
-    /// names itself once — in the `spec` — and the pipeline, the entry points
-    /// and all three buffers follow from that one name.
-    fn build<R: Record>(pipelines: &Pipelines<'_>, spec: PassSpec) -> Self {
-        let label = format!("aperture.{}.highlighted", spec.name);
-        // Its own pipeline, because what puts a highlight over the primitive it
-        // doubles is depth bias and depth bias is pipeline state. The indices
-        // are still shared — see [`Pass::drawing`].
-        let raised = pipelines.build::<R>(PassSpec {
+    /// The highlight's spec is derived here rather than handed in, so a kind
+    /// names itself once and everything else follows from that one name.
+    fn build<R: Record>(
+        pipelines: &Pipelines<'_>,
+        spec: PassSpec,
+        indices: &'static [u32],
+    ) -> Self {
+        let lit = pipelines.build::<R>(PassSpec {
             depth_bias: spec.depth_bias + HIGHLIGHT_BIAS,
             ..spec
         });
-        let ordinary = pipelines.build::<R>(spec);
         Self {
-            lit: ordinary.drawing(raised.pipeline(), label),
-            ordinary,
-        }
-    }
-
-    /// Hand the GPU whatever the last refresh rewrote, and nothing it did not.
-    ///
-    /// Asks the records rather than being told: each buffer says whether it was
-    /// rewritten and hands itself over in the same breath, so a still frame
-    /// reaches the queue for neither.
-    /// Takes the [`Records`] rather than whatever holds one, which is what lets
-    /// this be written once: three kinds are a bare `Records` and text keeps its
-    /// beside a raster scale and a scratch buffer, and neither is any of this
-    /// method's business.
-    fn upload<R: Record>(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        records: &mut Records<R>,
-    ) {
-        if let Some(instances) = records.ordinary_to_upload() {
-            self.ordinary.upload_instances(device, queue, instances);
-        }
-        if let Some(instances) = records.lit_to_upload() {
-            self.lit.upload_instances(device, queue, instances);
+            indices: Retained::filled(
+                pipelines.device,
+                format!("aperture.{}.indices", spec.name),
+                wgpu::BufferUsages::INDEX,
+                bytemuck::cast_slice(indices),
+            ),
+            index_count: indices.len() as u32,
+            name: spec.name,
+            ordinary: pipelines.build::<R>(spec),
+            lit,
         }
     }
 }
 
-/// Everything that can't exist before the device does.
+/// Everything the device holds that every mirror of a scene shares: the
+/// pipelines, the sheet every glyph is sampled from, and the textures a frame
+/// is drawn into.
+///
+/// What a mirror adds is the records it draws through these — see
+/// [`Held`](super::held::Held). Nothing here is per scene, which is what lets two
+/// scenes be drawn into one frame for the cost of two sets of buffers rather
+/// than two of everything.
 #[derive(Debug)]
 pub(super) struct Gpu {
-    pub(super) solids: Pass,
-    pub(super) faces: Pass,
-    pub(super) gizmos: Passes,
-    pub(super) curves: Passes,
-    pub(super) rings: Passes,
-    pub(super) points: Passes,
-    pub(super) texts: Passes,
-    uniforms: wgpu::Buffer,
-    /// Kept so the bind group can be built again when the glyph sheet is
-    /// replaced by a larger one — everything else about the group survives.
-    sampler: wgpu::Sampler,
+    pub(super) solids: wgpu::RenderPipeline,
+    pub(super) faces: wgpu::RenderPipeline,
+    pub(super) gizmos: Twin,
+    pub(super) curves: Twin,
+    pub(super) rings: Twin,
+    pub(super) points: Twin,
+    pub(super) texts: Twin,
+    /// Kept so a mirror's bind group can be built, and built again when the
+    /// glyph sheet is replaced by a larger one — everything else about the
+    /// group survives that.
     bgl: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
     sheet: Sheet,
-    bind_group: wgpu::BindGroup,
     attachments: Option<Attachments>,
     /// Kept from init: the multisampled colour buffer has to match what it
     /// resolves into, and that isn't known until the first frame's size is.
@@ -301,16 +303,7 @@ impl Gpu {
         atlas: &GlyphAtlas,
     ) -> Self {
         let shader = Self::shader_module(device);
-        let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("aperture.uniforms"),
-            size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let bgl = Self::bind_group_layout(device);
-        let sampler = Self::sheet_sampler(device);
-        let sheet = Sheet::new(device, atlas.side());
-        let bind_group = sheet.bind(device, &bgl, &uniforms, &sampler);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("aperture.pipeline_layout"),
             bind_group_layouts: &[Some(&bgl)],
@@ -323,12 +316,10 @@ impl Gpu {
             target_format,
         };
         // Solids are the one pass that culls — they are modelled geometry, wound
-        // counter-clockwise from outside — and the one whose triangle list grows
-        // rather than being built once. The three below take
+        // counter-clockwise from outside. The three below take
         // [`PassSpec::overlay`] whole; text takes it and says how it differs.
         let solids = pipelines.build::<GpuVertex>(PassSpec {
-            name: "mesh",
-            indices: None,
+            name: MESH,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
             blend: None,
@@ -341,8 +332,7 @@ impl Gpu {
         // hide it from one side, and it needs bringing forward off whatever it
         // is coplanar with.
         let faces = pipelines.build::<GpuVertex>(PassSpec {
-            name: "mesh",
-            indices: None,
+            name: MESH,
             cull: None,
             alpha_to_coverage: false,
             blend: None,
@@ -353,46 +343,51 @@ impl Gpu {
         // Strokes like the drawing's own, on a rung of their own: a control is
         // furniture the drawing is done *on*, so a stroke or a marker of that
         // drawing reads over it and the region it encloses reads under.
-        let gizmos = Passes::build::<CurveInstance>(
+        let gizmos = Twin::build::<CurveInstance>(
             &pipelines,
             PassSpec {
                 depth_bias: GIZMO_BIAS,
-                ..PassSpec::overlay("curve", &QUAD_INDICES)
+                ..PassSpec::overlay("curve")
             },
+            &QUAD_INDICES,
         );
-        let curves = Passes::build::<CurveInstance>(
+        let curves = Twin::build::<CurveInstance>(
             &pipelines,
             PassSpec {
                 depth_bias: STROKE_BIAS,
-                ..PassSpec::overlay("curve", &QUAD_INDICES)
+                ..PassSpec::overlay("curve")
             },
+            &QUAD_INDICES,
         );
-        let rings = Passes::build::<RingInstance>(
+        let rings = Twin::build::<RingInstance>(
             &pipelines,
             PassSpec {
                 depth_bias: STROKE_BIAS,
-                ..PassSpec::overlay("ring", &RING_INDICES)
+                ..PassSpec::overlay("ring")
             },
+            &RING_INDICES,
         );
-        let points = Passes::build::<PointInstance>(
+        let points = Twin::build::<PointInstance>(
             &pipelines,
             PassSpec {
                 depth_bias: MARKER_BIAS,
-                ..PassSpec::overlay("point", &QUAD_INDICES)
+                ..PassSpec::overlay("point")
             },
+            &QUAD_INDICES,
         );
         // Last in the pass and the only blended one, so it reads over whatever
         // it overlaps rather than punching a hole in it — and it does not write
         // depth, so two labels crossing blend instead of one hiding the other.
-        let texts = Passes::build::<GlyphInstance>(
+        let texts = Twin::build::<GlyphInstance>(
             &pipelines,
             PassSpec {
                 alpha_to_coverage: false,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 depth_write: false,
                 depth_bias: MARKER_BIAS,
-                ..PassSpec::overlay("text", &QUAD_INDICES)
+                ..PassSpec::overlay("text")
             },
+            &QUAD_INDICES,
         );
         Self {
             solids,
@@ -402,45 +397,40 @@ impl Gpu {
             rings,
             points,
             texts,
-            uniforms,
-            sampler,
+            sampler: Self::sheet_sampler(device),
+            sheet: Sheet::new(device, atlas.side()),
             bgl,
-            sheet,
-            bind_group,
             attachments: None,
             target_format,
         }
     }
 
-    /// Hand the GPU everything this frame owes it, and nothing it does not.
+    /// The group a mirror drawn through `uniforms` sets, which names that
+    /// buffer and the sheet every mirror shares.
+    pub(super) fn bind(&self, device: &wgpu::Device, uniforms: &wgpu::Buffer) -> wgpu::BindGroup {
+        self.sheet.bind(device, &self.bgl, uniforms, &self.sampler)
+    }
+
+    /// Bring the glyph sheet on the GPU up to date with the one on the CPU,
+    /// rebuilding the texture when it has been started again at a new size.
     ///
-    /// **The list every drawn kind has to appear on, and [`Gpu::draw`] below is
-    /// the other one.** A kind uploaded and never drawn is invisible — it
-    /// flattens, it uploads, and nothing asks for it — and a kind drawn without
-    /// being uploaded goes on showing whatever it last held. Nothing checks
-    /// that the two agree, so they are written one after the other beside the
-    /// fields they walk, which is the most that can be done about it.
-    ///
-    /// Unconditional, all of them: each takes what it is owed and does nothing
-    /// when that is nothing, which is what a still frame costs.
-    pub(super) fn upload(
+    /// Answers whether the texture was replaced, which every mirror then owes a
+    /// bind group: a group names a *view*, and the view it named no longer
+    /// exists. That is the whole reason the layout and the sampler are kept.
+    pub(super) fn upload_sheet(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        cpu: &mut Cpu,
-        uniforms: &Uniforms,
-    ) {
-        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(uniforms));
-        self.solids.upload_mesh(device, queue, &mut cpu.solids);
-        self.faces.upload_mesh(device, queue, &mut cpu.faces);
-        self.gizmos.upload(device, queue, &mut cpu.gizmos);
-        self.curves.upload(device, queue, &mut cpu.curves);
-        self.rings.upload(device, queue, &mut cpu.rings);
-        self.points.upload(device, queue, &mut cpu.points);
-        // The sheet before the records that read it: a restart replaces the
-        // texture, and the records name places on the new one.
-        self.upload_sheet(device, queue, &mut cpu.atlas);
-        self.texts.upload(device, queue, &mut cpu.texts.records);
+        atlas: &mut GlyphAtlas,
+    ) -> bool {
+        let restarted = self.sheet.side != atlas.side();
+        if restarted {
+            self.sheet = Sheet::new(device, atlas.side());
+        }
+        if atlas.take_dirty() {
+            self.sheet.write(queue, atlas.pixels());
+        }
+        restarted
     }
 
     /// Build the textures a frame is drawn into again, if the ones in hand were
@@ -450,80 +440,28 @@ impl Gpu {
     /// pass is then confined to — see [`Attachments::begin`] — so the size is
     /// stated once and read back rather than handed to the draw a second time.
     ///
-    /// Apart from [`Gpu::draw`] because it is the one part of drawing a frame
+    /// Apart from [`Gpu::begin`] because it is the one part of drawing a frame
     /// that wants `&mut self`, where everything the draw reads it reads through
-    /// a shared borrow — which is also why the draw's `expect` cannot fire, this
-    /// being what makes sure of it.
+    /// a shared borrow — which is also why that `expect` cannot fire, this being
+    /// what makes sure of it.
     pub(super) fn resize(&mut self, device: &wgpu::Device, size: UVec2) {
         if self.attachments.as_ref().map(|used| used.size) != Some(size) {
             self.attachments = Some(Attachments::new(device, size, self.target_format));
         }
     }
 
-    /// Draw the whole frame into `target`.
+    /// Open the one render pass a frame is drawn in, cleared to `ground`.
     ///
-    /// **The other half of [`Gpu::upload`]'s list**, and the one that decides
-    /// the order.
-    ///
-    /// Everything opaque first, then what is see-through, then what is blended —
-    /// which is the order transparency has to be drawn in and the whole of why
-    /// the passes go in this sequence rather than the ladder's. A blend mixes
-    /// with what is *already* in the target, so whatever should show through a
-    /// surface has to have been drawn before it. The opaque kinds write depth
-    /// and can go in any order among themselves, because there the depth test is
-    /// the whole answer.
-    pub(super) fn draw(
+    /// One pass for every mirror that draws into the frame, which is what keeps
+    /// the multisampled buffer discarded rather than stored: a second pass would
+    /// have to load what the first left, and loading means storing.
+    pub(super) fn begin<'pass>(
         &self,
-        encoder: &mut wgpu::CommandEncoder,
+        encoder: &'pass mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         ground: Vec3,
-    ) {
+    ) -> wgpu::RenderPass<'pass> {
         let attachments = self.attachments.as_ref().expect("resize runs before draw");
-        let mut pass = attachments.begin(encoder, target, ground);
-        pass.set_bind_group(0, &self.bind_group, &[]);
-        self.solids.draw(&mut pass);
-        // Every ordinary pass before any highlight, rather than each kind's two
-        // together: a highlight has to read over anything it doubles whatever
-        // kind that is, and not merely over its own kind.
-        //
-        // Named once and walked twice, so the two halves cannot disagree.
-        let opaque = [&self.gizmos, &self.curves, &self.rings, &self.points];
-        for kind in opaque {
-            kind.ordinary.draw(&mut pass);
-        }
-        for kind in opaque {
-            kind.lit.draw(&mut pass);
-        }
-        // The faces after all of it, because a face is the one see-through thing
-        // here: drawn earlier it would mix with a target the drawing had not
-        // reached yet, and everything behind it would be missing from the
-        // mixture rather than dimmed by it. Drawn now, a stroke it crosses in
-        // front of shows through it shaded, and a stroke of its *own* sketch —
-        // coplanar, and a ladder rung above — beats it on depth and reads over
-        // it untouched.
-        self.faces.draw(&mut pass);
-        // Text last of all. It is the one alpha-blended pass, so what it reads
-        // over has to be there already — and it writes no depth, so nothing
-        // after it could be sorted against it anyway.
-        self.texts.ordinary.draw(&mut pass);
-        self.texts.lit.draw(&mut pass);
-    }
-
-    /// Bring the glyph sheet on the GPU up to date with the one on the CPU,
-    /// rebuilding the texture when it has been started again at a new size.
-    ///
-    /// The bind group is rebuilt with it: it names a view of the old texture,
-    /// which no longer exists. That is the whole reason the layout and the
-    /// sampler are kept — everything else about the group is unchanged.
-    fn upload_sheet(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, atlas: &mut GlyphAtlas) {
-        if self.sheet.side != atlas.side() {
-            self.sheet = Sheet::new(device, atlas.side());
-            self.bind_group = self
-                .sheet
-                .bind(device, &self.bgl, &self.uniforms, &self.sampler);
-        }
-        if atlas.take_dirty() {
-            self.sheet.write(queue, atlas.pixels());
-        }
+        attachments.begin(encoder, target, ground)
     }
 }

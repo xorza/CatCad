@@ -174,7 +174,7 @@ impl Camera {
     /// would come out wrong anywhere else.
     ///
     /// Geometry built with this is geometry the camera moving invalidates, and
-    /// a caller taking it on is taking that on: [`Renderer::camera_mut`] stays
+    /// a caller taking it on is taking that on: [`Pane::camera`] stays
     /// cheap because nothing in a scene depends on the camera, and a batch that
     /// does has to be rewritten when it moves.
     ///
@@ -183,7 +183,7 @@ impl Camera {
     /// screen without the camera reaching the scene at all. From outside, this
     /// is the whole number.
     ///
-    /// [`Renderer::camera_mut`]: crate::Renderer::camera_mut
+    /// [`Pane::camera`]: crate::Pane
     pub fn world_per_pixel(&self, at: Vec3, viewport: Viewport) -> f32 {
         self.view_depth(at) * self.world_per_clip_w(viewport)
     }

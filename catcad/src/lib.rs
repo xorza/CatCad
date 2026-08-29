@@ -670,10 +670,10 @@ impl App for CatCad {
 /// forwards to.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
-    use std::cell::RefCell;
+    use std::cell::{Ref, RefCell, RefMut};
     use std::rc::Rc;
 
-    use aperture::{Camera, Renderer};
+    use aperture::{Camera, Pane, Renderer};
 
     use crate::CatCad;
     use crate::hud;
@@ -738,6 +738,19 @@ pub(crate) mod internals {
         /// without a pointer to drive it with.
         pub fn renderer(&self) -> &Rc<RefCell<Renderer>> {
             self.view.renderer()
+        }
+
+        /// The pane the drawing is in, which is what a harness reaching the
+        /// scene almost always wants — see
+        /// [`SceneView::pane`](crate::scene_view::SceneView::pane).
+        pub fn pane(&self) -> Ref<'_, Pane> {
+            self.view.pane()
+        }
+
+        /// The same to write into, for a harness staging a frame by rewriting
+        /// what the application drew.
+        pub fn pane_mut(&self) -> RefMut<'_, Pane> {
+            self.view.pane_mut()
         }
 
         /// Where the document is looked at from, for a harness that wants to

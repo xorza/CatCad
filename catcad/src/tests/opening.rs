@@ -333,9 +333,9 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
 #[test]
 fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
     let raised = Raised::new();
-    let renderer = raised.app.renderer().borrow();
-    let camera = *renderer.camera();
-    let extent = renderer.scene().extent().expect("the demo draws something");
+    let pane = raised.app.pane();
+    let camera = pane.camera;
+    let extent = pane.scene.extent().expect("the demo draws something");
 
     // Aimed at the middle of what it holds, which for the demo is the slab:
     // twelve wide and nine deep, centred on the sketch's own origin.

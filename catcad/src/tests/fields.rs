@@ -59,9 +59,8 @@ fn typing_a_dimension_restates_it_as_one_step() {
     assert!(
         !raised
             .app
-            .renderer()
-            .borrow()
-            .scene()
+            .pane()
+            .scene
             .texts
             .iter()
             .any(|text| text.tag.and_then(|tag| raised.app.view.part(tag)) == Some(dimension)),
@@ -100,9 +99,8 @@ fn typing_a_dimension_restates_it_as_one_step() {
     assert!(
         raised
             .app
-            .renderer()
-            .borrow()
-            .scene()
+            .pane()
+            .scene
             .texts
             .iter()
             .any(|text| text.tag.and_then(|tag| raised.app.view.part(tag)) == Some(dimension)),
@@ -412,9 +410,9 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     // The arrow is the one gizmo naming a depth — found rather than guessed,
     // because where it lands is the region's own middle and the camera's.
     let at = {
-        let renderer = raised.app.view.renderer().borrow();
-        let arrow = renderer
-            .scene()
+        let pane = raised.app.view.pane();
+        let arrow = pane
+            .scene
             .gizmos
             .iter()
             .find(|gizmo| {
@@ -586,9 +584,9 @@ fn dragging_the_turn_arrow_writes_how_much_of_a_turn_is_swept() {
     assert_eq!(open.says(1), Some(360.0));
 
     let at = {
-        let renderer = raised.app.view.renderer().borrow();
-        let arrow = renderer
-            .scene()
+        let pane = raised.app.view.pane();
+        let arrow = pane
+            .scene
             .gizmos
             .iter()
             .find(|gizmo| {

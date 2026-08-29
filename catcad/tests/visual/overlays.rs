@@ -110,11 +110,11 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     // leaves the measured capture with nothing to write.
     capture(size, &mut app);
     {
-        let mut view = app.renderer().borrow_mut();
+        let mut pane = app.pane_mut();
         // Nothing else in the frame, so every lit pixel is the rim. The faces
         // among them: the demo's outlines enclose a filled sheet, and a sheet
         // is as much "something else" as the slab under it.
-        let scene = view.scene_mut();
+        let scene = &mut pane.scene;
         scene.solids.clear();
         scene.faces.clear();
         scene.curves.clear();
@@ -207,8 +207,8 @@ enum Overlay {
 /// column crosses is the demo's business and changes whenever the demo does,
 /// where what is *drawn* is this test's to decide.
 fn deposited(pitch: f32, overlay: Overlay) -> f32 {
-    let frame = painted(DEMO_FRAME, |renderer| {
-        edge_on(pitch)(renderer.camera_mut());
+    let frame = painted(DEMO_FRAME, |pane| {
+        edge_on(pitch)(&mut pane.camera);
         // The markers, the constraint marks, the faces and the solids go in
         // both cases: none is either of the two overlays being weighed, and each
         // lands in the columns measured below — the first two on the ends of
@@ -224,7 +224,7 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
         // the worse of the two to leave: an arrowhead is a filled triangle, so a
         // column crossing one measures a run several times the width being
         // weighed and drags the average with it.
-        let scene = renderer.scene_mut();
+        let scene = &mut pane.scene;
         scene.points.clear();
         scene.texts.clear();
         scene.faces.clear();
@@ -326,13 +326,13 @@ fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
     /// Pixels wearing the colour a free rim is drawn in, with the rim either
     /// drawn or taken away.
     fn orange(pitch: f32, rims: bool) -> u32 {
-        let frame = painted(UVec2::new(920, 520), |renderer| {
-            edge_on(pitch)(renderer.camera_mut());
+        let frame = painted(UVec2::new(920, 520), |pane| {
+            edge_on(pitch)(&mut pane.camera);
             // Close enough that a band running away in world units fills the
             // frame rather than passing off the side of it.
-            renderer.camera_mut().distance = 5.0;
+            pane.camera.distance = 5.0;
             if !rims {
-                renderer.scene_mut().rings.clear();
+                pane.scene.rings.clear();
             }
         });
         let mut ink = 0;

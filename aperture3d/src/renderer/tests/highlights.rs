@@ -5,9 +5,11 @@ use crate::highlight::Highlight;
 use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
+use crate::renderer::pane::{Pane, Placement};
 use crate::renderer::tests::harness::facing_quad;
 use crate::renderer::*;
 use crate::ring::Ring;
+use crate::scene::Scene;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -35,21 +37,24 @@ fn a_lifted_highlight_brightens_what_an_object_is_drawn_in_and_an_inked_one_repl
     scene
         .solids
         .push(Object::new(facing_quad()).colored(OWN).tagged(Tag::new(1)));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
 
     // Unlit first, so what the lift is measured against is what the flatten
     // actually wrote rather than what the object was built with.
     renderer.refresh(1.0);
-    let flat = |renderer: &Renderer| renderer.cpu.solids.vertices[0].color;
+    let flat = |renderer: &Renderer| renderer.mirrors[0].cpu.solids.vertices[0].color;
     assert_eq!(flat(&renderer), OWN.to_array());
 
     // Twice as bright, channel for channel, so the hue is untouched and only
     // the brightness moved. Doubling is exact in binary, so this is an equality
     // rather than a tolerance.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look: Highlight::lifted(2.0),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look: Highlight::lifted(2.0),
+        },
+    );
     renderer.refresh(1.0);
     assert_eq!(
         flat(&renderer),
@@ -57,10 +62,13 @@ fn a_lifted_highlight_brightens_what_an_object_is_drawn_in_and_an_inked_one_repl
         "a lift recoloured the object instead of brightening it"
     );
 
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look: Highlight::new(INK),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look: Highlight::new(INK),
+        },
+    );
     renderer.refresh(1.0);
     assert_eq!(
         flat(&renderer),
@@ -88,20 +96,23 @@ fn a_highlight_repeats_only_what_its_tag_names() {
             .tagged(Tag::new(1)),
     );
     scene.points.push(Point::new(Vec3::X).tagged(Tag::new(2)));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
 
     // Nothing named, nothing doubled.
     renderer.refresh(1.0);
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
     assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
 
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0);
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look,
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look,
+        },
+    );
     renderer.refresh(1.0);
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
 
     // Tag 1 is the three-point curve and the ring: two segments and one rim.
     // The curve tagged 2 and the marker tagged 2 are left alone.
@@ -124,33 +135,39 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     // it back.
     let doubled = cpu.curves.lit[0];
     renderer.refresh(1.0);
-    let plain = &renderer.cpu.curves.ordinary;
+    let plain = &renderer.mirrors[0].cpu.curves.ordinary;
     assert_eq!(doubled.start, plain[0].start);
     assert_eq!(doubled.end, plain[0].end);
 
     // Naming a tag again replaces its look rather than stacking a second one,
     // so a hover reads over a selection and both still draw once.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look: Highlight::new(Vec3::Y).scale(1.0),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look: Highlight::new(Vec3::Y).scale(1.0),
+        },
+    );
     renderer.refresh(1.0);
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
     assert_eq!(cpu.curves.lit.len(), 2, "still doubled once, not twice");
     assert_eq!(cpu.rings.lit[0].look.half_extent, 1.5);
     assert_eq!(cpu.rings.lit[0].look.color, [0.0, 1.0, 0.0]);
 
     // Lighting one thing alone drops the rest, and clearing drops everything.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(2),
-        look,
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(2),
+            look,
+        },
+    );
     renderer.refresh(1.0);
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
     assert!(cpu.curves.lit.len() == 1 && cpu.points.lit.len() == 1 && cpu.rings.lit.is_empty());
-    renderer.highlight_all(&[]);
+    renderer.highlight_all(0, &[]);
     renderer.refresh(1.0);
-    let cpu = &renderer.cpu;
+    let cpu = &renderer.mirrors[0].cpu;
     assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
 }
 
@@ -163,7 +180,7 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
     scene
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::X).tagged(Tag::new(1)));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     let lit = Lit {
         tag: Tag::new(1),
         look: Highlight::new(Vec3::Y),
@@ -171,30 +188,36 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
 
     // `new` starts everything outstanding, so the flag says nothing until it
     // has been cleared once.
-    renderer.relight = false;
-    renderer.highlight_only(lit);
-    assert!(renderer.relight, "the first look is a change");
+    renderer.mirrors[0].relight = false;
+    renderer.highlight_only(0, lit);
+    assert!(renderer.mirrors[0].relight, "the first look is a change");
 
-    renderer.relight = false;
-    renderer.highlight_only(lit);
-    renderer.highlight_only(lit);
-    assert!(!renderer.relight, "neither call changed anything");
+    renderer.mirrors[0].relight = false;
+    renderer.highlight_only(0, lit);
+    renderer.highlight_only(0, lit);
+    assert!(
+        !renderer.mirrors[0].relight,
+        "neither call changed anything"
+    );
 
     // A different look for the same tag is a change, and so is dropping it.
-    renderer.highlight_only(Lit {
-        look: Highlight::new(Vec3::X),
-        ..lit
-    });
-    assert!(renderer.relight);
-    renderer.relight = false;
-    renderer.highlight_all(&[]);
-    assert!(renderer.relight);
+    renderer.highlight_only(
+        0,
+        Lit {
+            look: Highlight::new(Vec3::X),
+            ..lit
+        },
+    );
+    assert!(renderer.mirrors[0].relight);
+    renderer.mirrors[0].relight = false;
+    renderer.highlight_all(0, &[]);
+    assert!(renderer.mirrors[0].relight);
 
     // And clearing what is already clear is the same nothing: a pointer over
     // empty space says so every frame it does not move.
-    renderer.relight = false;
-    renderer.highlight_all(&[]);
-    assert!(!renderer.relight, "nothing was lit to drop");
+    renderer.mirrors[0].relight = false;
+    renderer.highlight_all(0, &[]);
+    assert!(!renderer.mirrors[0].relight, "nothing was lit to drop");
 }
 
 /// A highlighted mesh is written in the colour it was given, where it stands.
@@ -217,13 +240,13 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
     scene
         .faces
         .push(Object::new(Mesh::cube(1.0)).colored(plain));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
 
     renderer.refresh(1.0);
-    let corners = renderer.cpu.faces.vertices.len();
+    let corners = renderer.mirrors[0].cpu.faces.vertices.len();
     assert!(corners > 0, "the faces were never flattened");
     assert!(
-        renderer
+        renderer.mirrors[0]
             .cpu
             .faces
             .vertices
@@ -236,13 +259,16 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
     // of what this pins. A `refresh` that only watched the batch's own mark
     // would leave the colour where it was.
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0);
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look,
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look,
+        },
+    );
     renderer.refresh(1.0);
 
-    let lit: Vec<[f32; 3]> = renderer
+    let lit: Vec<[f32; 3]> = renderer.mirrors[0]
         .cpu
         .faces
         .vertices
@@ -265,10 +291,10 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
 
     // And it goes back when the highlight does, rather than staying lit for
     // the rest of the run.
-    renderer.highlight_all(&[]);
+    renderer.highlight_all(0, &[]);
     renderer.refresh(1.0);
     assert!(
-        renderer
+        renderer.mirrors[0]
             .cpu
             .faces
             .vertices

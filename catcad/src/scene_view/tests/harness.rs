@@ -423,7 +423,7 @@ impl RaisedView {
     /// How many strokes the scene holds — the drawing's edges, plus a rubber
     /// band when a tool is half-way through one.
     pub(super) fn strokes(&self) -> usize {
-        self.view.renderer().borrow().scene().curves.len()
+        self.view.pane().scene.curves.len()
     }
 
     /// Where every marker in the scene sits — see [`SceneView::markers`].

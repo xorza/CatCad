@@ -31,7 +31,9 @@ const fn ring_indices() -> [u32; RING_STEPS * 6] {
 /// The two triangles every overlay quad is drawn through. Together they cover
 /// the quad rather than overlapping, sharing the edge between the middle pair.
 ///
-/// Each overlay pass is built holding its own copy rather than sharing one:
-/// twenty-four bytes twice, against an index buffer that would otherwise have
-/// to be told apart from the growable kind everywhere both are handled.
+/// Each overlay *kind* is built holding its own copy rather than one being
+/// shared between them: twenty-four bytes four times over, against a buffer
+/// every kind would then have to be handed. What a kind holds is already shared
+/// as far as sharing pays — both halves of it draw the one buffer, and so does
+/// every mirror of the scene.
 pub(super) const QUAD_INDICES: [u32; 6] = [0, 1, 2, 2, 1, 3];

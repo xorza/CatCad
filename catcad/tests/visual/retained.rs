@@ -1,6 +1,6 @@
 //! What the renderer keeps between frames, and what a second frame owes it.
 
-use crate::harness::{DEMO_FRAME, Frame, ScenePane, capture, edge_on};
+use crate::harness::{DEMO_FRAME, DRAWING, Frame, SceneApp, capture, edge_on};
 use crate::ink::strokes;
 use aperture::{Curve, Highlight, Lit, Ring};
 use catcad::CatCad;
@@ -22,22 +22,22 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     // two batches the column is counted in, and a dimension set as a number is
     // ink in that column that belongs to neither — so it would show up as a
     // stroke that appeared or vanished for reasons nothing here is testing.
-    app.renderer().borrow_mut().scene_mut().texts.clear();
+    app.pane_mut().scene.texts.clear();
 
     let first = capture(size, &mut app);
     assert!(
         !strokes(&first, 430).is_empty(),
         "no strokes to begin with, so the rest proves nothing"
     );
-    let original: Vec<Curve> = app.renderer().borrow().scene().curves.to_vec();
-    let rings: Vec<Ring> = app.renderer().borrow().scene().rings.to_vec();
+    let original: Vec<Curve> = app.pane().scene.curves.to_vec();
+    let rings: Vec<Ring> = app.pane().scene.rings.to_vec();
 
     // Emptied — rings too, since the sketch's circle is one and would still be
     // ink in the column. The buffers stay behind, so anything still drawn here
     // is a ghost read out of bytes the removed batch left in them.
     {
-        let mut view = app.renderer().borrow_mut();
-        let scene = view.scene_mut();
+        let mut pane = app.pane_mut();
+        let scene = &mut pane.scene;
         scene.curves.clear();
         scene.rings.clear();
     }
@@ -51,8 +51,8 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     // Refilled past what the first batch needed, so the buffer has to grow and
     // the new geometry has to land in the buffer that replaces it.
     {
-        let mut view = app.renderer().borrow_mut();
-        let scene = view.scene_mut();
+        let mut pane = app.pane_mut();
+        let scene = &mut pane.scene;
         scene.curves.extend(original.iter().cloned());
         scene.curves.extend(original);
         scene.rings.extend(rings);
@@ -92,8 +92,8 @@ fn bare(size: UVec2) -> Frame {
     // hand back the whole drawing rather than none of it.
     capture(size, &mut app);
     {
-        let mut view = app.renderer().borrow_mut();
-        let scene = view.scene_mut();
+        let mut pane = app.pane_mut();
+        let scene = &mut pane.scene;
         scene.texts.clear();
         scene.curves.clear();
         scene.rings.clear();
@@ -113,11 +113,11 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let mut app = CatCad::build();
     app.enter_first_sketch();
     // The renderer's own camera rather than the document's, unlike everywhere
-    // else: what paints below is a `ScenePane` borrowing this renderer, and the
+    // else: what paints below is a `SceneApp` borrowing this renderer, and the
     // app never records a frame — so nothing ever hands the document's camera
     // over, and aiming it would aim at nothing.
-    edge_on(1.1)(app.renderer().borrow_mut().camera_mut());
-    let mut pane = ScenePane {
+    edge_on(1.1)(&mut app.pane_mut().camera);
+    let mut app_pane = SceneApp {
         view: app.renderer().clone(),
     };
 
@@ -137,16 +137,16 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
         count
     };
 
-    let plain = capture(size, &mut pane);
+    let plain = capture(size, &mut app_pane);
     assert_eq!(magenta(&plain), 0, "nothing is that colour to begin with");
 
-    let edge = app.renderer().borrow().scene().curves[0]
+    let edge = app.pane().scene.curves[0]
         .tag
         .expect("the drawing tags its edges");
     app.renderer()
         .borrow_mut()
-        .highlight_only(Lit { tag: edge, look });
-    let lit = capture(size, &mut pane);
+        .highlight_only(DRAWING, Lit { tag: edge, look });
+    let lit = capture(size, &mut app_pane);
     assert!(
         magenta(&lit) > 200,
         "the highlighted edge drew {} px",
@@ -155,8 +155,8 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
 
     // And it is *drawn over*, not drawn instead: the rest of the frame is
     // untouched, so clearing restores it pixel for pixel.
-    app.renderer().borrow_mut().highlight_all(&[]);
-    let cleared = capture(size, &mut pane);
+    app.renderer().borrow_mut().highlight_all(DRAWING, &[]);
+    let cleared = capture(size, &mut app_pane);
     assert_eq!(magenta(&cleared), 0);
     assert_eq!(cleared.image, plain.image, "clearing left something behind");
 }

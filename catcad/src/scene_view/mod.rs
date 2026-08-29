@@ -24,6 +24,12 @@ mod gesture;
 mod picture;
 mod pointing;
 
+/// Which pane of the view's renderer the drawing is.
+///
+/// The renderer is built holding it, so it is the first — and whatever is
+/// pushed over it is furniture, which the drawing is not.
+pub(crate) const DRAWING: usize = 0;
+
 /// Radians of orbit per logical pixel of drag.
 ///
 /// Here rather than beside the pointer that spends it, because the orientation
@@ -87,8 +93,8 @@ impl SceneView {
     ///
     /// One caller, in `CatCad::build`, and worth the method anyway: how big
     /// what you are showing is a fair question to ask a view, and the caller
-    /// would otherwise reach through `renderer().borrow().scene()` to ask the
-    /// scene the same thing.
+    /// would otherwise reach through the renderer for the drawing's own pane to
+    /// ask the scene the same thing.
     pub(crate) fn extent(&self) -> Option<Extent> {
         self.picture.extent()
     }
@@ -305,8 +311,8 @@ impl SceneView {
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::scene_view::SceneView;
-    use aperture::{Renderer, Tag};
-    use std::cell::RefCell;
+    use aperture::{Pane, Renderer, Tag};
+    use std::cell::{Ref, RefCell, RefMut};
     use std::rc::Rc;
 
     impl SceneView {
@@ -327,6 +333,18 @@ pub(crate) mod internals {
             self.picture
                 .part(tag)
                 .is_some_and(|part| Some(part) == self.pointing.hovered())
+        }
+
+        /// The pane the drawing is in — see
+        /// [`Picture::pane`](crate::scene_view::picture::Picture::pane), where
+        /// the borrow it hands back is argued.
+        pub(crate) fn pane(&self) -> Ref<'_, Pane> {
+            self.picture.pane()
+        }
+
+        /// The same to write into.
+        pub(crate) fn pane_mut(&self) -> RefMut<'_, Pane> {
+            self.picture.pane_mut()
         }
 
         /// The renderer being drawn — see
@@ -352,6 +370,7 @@ pub(crate) mod internals {
 
         use crate::part::Part;
         use crate::preview::Preview;
+
         use crate::scene_view::SceneView;
 
         impl SceneView {
@@ -398,9 +417,8 @@ pub(crate) mod internals {
             /// question as where the document says its points are — a frame
             /// nothing has redrawn shows the drawing as it stood.
             pub(crate) fn markers(&self) -> Vec<Vec3> {
-                self.renderer()
-                    .borrow()
-                    .scene()
+                self.pane()
+                    .scene
                     .points
                     .iter()
                     .map(|point| point.position)

@@ -252,13 +252,13 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 fn settling_aims_the_renderer_through_the_documents_own_camera() {
     let mut raised = RaisedView::new();
     raised.frame();
-    assert_eq!(*raised.view.renderer().borrow().camera(), raised.camera());
+    assert_eq!(raised.view.pane().camera, raised.camera());
 
     // Turn the camera the way a gesture would, and the renderer follows.
     raised.document.camera_mut().orbit(0.4, 0.2);
     let turned = raised.camera();
     assert_ne!(
-        *raised.view.renderer().borrow().camera(),
+        raised.view.pane().camera,
         turned,
         "nothing to prove otherwise"
     );
@@ -268,7 +268,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         &Theme::default(),
         &raised.session,
     );
-    assert_eq!(*raised.view.renderer().borrow().camera(), turned);
+    assert_eq!(raised.view.pane().camera, turned);
 
     // The projection rides along with it, which is the toggle's whole path.
     let was = raised.camera().projection;
@@ -279,7 +279,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         &Theme::default(),
         &raised.session,
     );
-    let now = raised.view.renderer().borrow().camera().projection;
+    let now = raised.view.pane().camera.projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);
 }

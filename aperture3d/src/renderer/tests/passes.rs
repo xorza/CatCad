@@ -4,16 +4,17 @@ use crate::curve::Curve;
 use crate::object::Object;
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
+use crate::renderer::held::Held;
 use crate::renderer::tests::harness::{Framed, TARGET_FORMAT, facing_quad, square_on};
 use crate::renderer::*;
 use crate::styled::Styled;
 use glam::Vec3;
 use palantir::internals::headless_test_gpu;
 
-/// Every pipeline builds — the only thing in this crate that checks the
-/// shaders at all.
+/// Every pipeline builds, and a mirror of one draws through the list the
+/// pipeline was built holding.
 ///
-/// `Gpu::new` compiles one WGSL module out of six files and builds five
+/// `Gpu::new` compiles one WGSL module out of six files and builds twelve
 /// pipelines from it, and the Rust compiler checks none of it: an entry point
 /// is found by joining `spec.name` onto `_vs` at run time, the ring band's
 /// step count arrives as a pipeline override, and each vertex layout is matched
@@ -24,47 +25,70 @@ use palantir::internals::headless_test_gpu;
 /// Building it *is* the assertion: a bad entry point, a shader that will not
 /// compile, or a layout wgpu rejects raises a validation error, which panics.
 /// What is checked below is the one thing that is a choice rather than a
-/// requirement — which passes were built holding their triangle list and which
-/// were left to grow one.
+/// requirement — which lists are built once and shared by every mirror, and
+/// which a mirror grows for itself.
 #[test]
 fn every_pipeline_builds() {
     let gpu = headless_test_gpu();
     let built = Gpu::new(&gpu.device, TARGET_FORMAT, &GlyphAtlas::default());
 
-    // The overlays are built holding the list they draw every instance
-    // through, so it is there before a frame is and never rewritten.
-    for (pass, indices) in [
-        (&built.curves.ordinary, QUAD_INDICES.len()),
-        (&built.points.ordinary, QUAD_INDICES.len()),
-        (&built.texts.ordinary, QUAD_INDICES.len()),
-        (&built.rings.ordinary, RING_INDICES.len()),
+    // Each overlay kind is built holding the one list both its halves draw
+    // every instance through, so it is there before a frame is and never
+    // rewritten.
+    for (kind, indices) in [
+        (&built.curves, QUAD_INDICES.len()),
+        (&built.points, QUAD_INDICES.len()),
+        (&built.texts, QUAD_INDICES.len()),
+        (&built.rings, RING_INDICES.len()),
     ] {
-        assert_eq!(pass.index_count, indices as u32);
-        assert!(pass.indices.buffer().is_some(), "the list was not filled");
-        assert!(
-            pass.records.buffer().is_none(),
-            "a pass allocated records before it had any"
-        );
+        assert_eq!(kind.index_count, indices as u32);
+        assert!(kind.indices.buffer().is_some(), "the list was not filled");
     }
 
-    // Meshes are the one pass whose list changes, so it grows like the records
-    // do and there is nothing in it yet.
-    assert_eq!(built.solids.index_count, 0);
-    assert!(built.solids.indices.buffer().is_none());
-
-    // Nothing is drawn until something is uploaded, whichever kind.
-    for pass in [
-        &built.solids,
-        &built.curves.ordinary,
-        &built.curves.lit,
-        &built.rings.ordinary,
-        &built.rings.lit,
-        &built.points.ordinary,
-        &built.points.lit,
-        &built.texts.ordinary,
-        &built.texts.lit,
+    // **A second mirror of the same pipelines draws the same lists.** It is
+    // handed them filled without anything having filled them, which is the
+    // whole of what says they are shared rather than copied — and it is the
+    // reason a scene drawn twice at once costs two sets of records rather than
+    // two of everything.
+    for mirror in [
+        Held::new(&gpu.device, &built),
+        Held::new(&gpu.device, &built),
     ] {
-        assert_eq!(pass.instances, 0, "a fresh pass has something in it");
+        // Meshes are the one kind whose list changes, so a mirror grows its own
+        // beside its records and there is nothing in either yet.
+        assert_eq!(mirror.solids.index_count, 0);
+        assert!(mirror.solids.indices.buffer().is_none());
+        for pass in [
+            &mirror.curves.ordinary,
+            &mirror.curves.lit,
+            &mirror.rings.ordinary,
+            &mirror.points.ordinary,
+            &mirror.texts.ordinary,
+        ] {
+            assert!(
+                pass.indices.buffer().is_some(),
+                "a mirror was handed no list"
+            );
+        }
+        // Nothing is drawn until something is uploaded, whichever kind.
+        for pass in [
+            &mirror.solids,
+            &mirror.faces,
+            &mirror.curves.ordinary,
+            &mirror.curves.lit,
+            &mirror.rings.ordinary,
+            &mirror.rings.lit,
+            &mirror.points.ordinary,
+            &mirror.points.lit,
+            &mirror.texts.ordinary,
+            &mirror.texts.lit,
+        ] {
+            assert!(
+                pass.records.buffer().is_none(),
+                "a pass allocated records before it had any"
+            );
+            assert_eq!(pass.instances, 0, "a fresh pass has something in it");
+        }
     }
 }
 

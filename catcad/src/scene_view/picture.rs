@@ -1,9 +1,10 @@
 //! What the view has drawn, and the room it was drawn in.
 
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
-use aperture::{Aim, Camera, Extent, Hit, Lit, Renderer};
+use aperture::{Aim, Camera, Extent, Hit, Lit, Pane, Placement, Renderer};
+
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
@@ -15,6 +16,7 @@ use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
 use crate::part::Part;
+use crate::scene_view::DRAWING;
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -52,10 +54,32 @@ pub(super) struct Picture {
 }
 
 impl Picture {
+    /// The pane the drawing is in, borrowed for the statement that asks.
+    ///
+    /// **A borrow rather than a reference, and that is the whole of what makes
+    /// it safe to hand out.** The renderer sits behind a `RefCell` because a
+    /// paint writes into the very thing these calls read, so a caller that held
+    /// one open across a redraw would meet the panic that guards it. Everything
+    /// here asks and lets go inside one statement.
+    ///
+    /// [`DRAWING`] is which pane, and this file is the only one that names it.
+    /// Everything outside asks for the drawing's own pane rather than for an
+    /// index into a list it does not keep.
+    pub(super) fn pane(&self) -> Ref<'_, Pane> {
+        Ref::map(self.renderer.borrow(), |renderer| renderer.pane(DRAWING))
+    }
+
+    /// The same to write into.
+    pub(super) fn pane_mut(&self) -> RefMut<'_, Pane> {
+        RefMut::map(self.renderer.borrow_mut(), |renderer| {
+            renderer.pane_mut(DRAWING)
+        })
+    }
+
     /// How much of the world what has been drawn occupies, or `None` where
     /// nothing has been. What a camera is aimed at to take the whole of it in.
     pub(super) fn extent(&self) -> Option<Extent> {
-        self.renderer.borrow().scene().extent()
+        self.pane().scene.extent()
     }
 
     /// A picture of `models`, laid out as they stand.
@@ -71,7 +95,7 @@ impl Picture {
     pub(super) fn new(models: Models<'_>, theme: &Theme) -> Self {
         let mut layout = Layout::default();
         let scene = paint::scene(models, theme, &mut layout);
-        let mut renderer = Renderer::new(scene);
+        let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
         renderer.set_ground(theme.drawing.ground);
         Self {
             renderer: Rc::new(RefCell::new(renderer)),
@@ -123,7 +147,7 @@ impl Picture {
             &mut self.layout,
             showing,
             lens,
-            renderer.scene_mut(),
+            &mut renderer.pane_mut(DRAWING).scene,
         );
         if let Some(lens) = lens {
             paint::gizmos::write(
@@ -132,7 +156,7 @@ impl Picture {
                 &mut self.layout,
                 showing,
                 lens,
-                &mut renderer.scene_mut().gizmos,
+                &mut renderer.pane_mut(DRAWING).scene.gizmos,
             );
         }
     }
@@ -162,7 +186,7 @@ impl Picture {
             };
             self.lit.push(Lit { tag, look });
         }
-        self.renderer.borrow_mut().highlight_all(&self.lit);
+        self.renderer.borrow_mut().highlight_all(DRAWING, &self.lit);
     }
 
     /// Paint what is here through `camera` from now on.
@@ -172,7 +196,7 @@ impl Picture {
     /// is what keeps the two from ever disagreeing. Copied here rather than
     /// pushed by the document, which has no business knowing a renderer exists.
     pub(super) fn aimed_through(&mut self, camera: Camera) {
-        *self.renderer.borrow_mut().camera_mut() = camera;
+        self.pane_mut().camera = camera;
     }
 
     /// What `aimed` is over, seen through `lens`, or `None` where it is over
@@ -194,8 +218,7 @@ impl Picture {
     /// frame's orbit.
     pub(super) fn under(&self, aimed: Aimed, lens: Lens) -> Option<Under> {
         let aim = aimed.aim(lens);
-        let renderer = self.renderer.borrow();
-        let hit = renderer.scene().nearest(aim)?;
+        let hit = self.pane().scene.nearest(aim)?;
         Some(Under {
             aim,
             hit,
@@ -288,7 +311,7 @@ pub(crate) mod internals {
         /// The size is the caller's so a test that cares can say.
         #[cfg(test)]
         pub(crate) fn labels_reach(&self, extent: Vec2) {
-            for text in self.renderer.borrow().scene().texts.iter() {
+            for text in self.pane().scene.texts.iter() {
                 text.reaches(extent);
             }
         }

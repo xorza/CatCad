@@ -63,10 +63,6 @@ pub(super) struct PassSpec {
     /// are derived rather than stated — three strings per pass that said only
     /// what this one already does.
     pub(super) name: &'static str,
-    /// The pass's triangle list, for a pass whose list never changes: it is
-    /// built holding these and never rewrites them. `None` grows one instead,
-    /// which is meshes and only meshes.
-    pub(super) indices: Option<&'static [u32]>,
     pub(super) cull: Option<wgpu::Face>,
     /// Whether the fragment stage reports partial coverage in alpha, for a
     /// shape that does not fill the triangles it is drawn on.
@@ -134,10 +130,9 @@ impl PassSpec {
     /// Text takes this and overrides the middle two — a glyph's antialiasing is
     /// a smooth alpha, and quantizing it to the sample count is what makes
     /// small type look stippled.
-    pub(super) fn overlay(name: &'static str, indices: &'static [u32]) -> Self {
+    pub(super) fn overlay(name: &'static str) -> Self {
         Self {
             name,
-            indices: Some(indices),
             cull: None,
             alpha_to_coverage: true,
             blend: None,
@@ -159,15 +154,16 @@ pub(super) struct Pipelines<'a> {
 }
 
 impl Pipelines<'_> {
-    pub(super) fn build<R: Record>(&self, spec: PassSpec) -> Pass {
+    /// The pipeline alone, which is the whole of what every mirror of a scene
+    /// shares: what a mirror adds is the records it draws through this.
+    pub(super) fn build<R: Record>(&self, spec: PassSpec) -> wgpu::RenderPipeline {
         let () = R::LAYOUT_SPANS_STRUCT;
         let constants = overrides(&spec);
         let compilation_options = wgpu::PipelineCompilationOptions {
             constants: &constants,
             ..Default::default()
         };
-        let pipeline = self
-            .device
+        self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(&format!("aperture.{}_pipeline", spec.name)),
                 layout: Some(self.layout),
@@ -222,30 +218,16 @@ impl Pipelines<'_> {
                 },
                 multiview_mask: None,
                 cache: None,
-            });
-        let indices_label = format!("aperture.{}.indices", spec.name);
-        Pass {
-            pipeline,
-            records: Retained::growable(
-                format!("aperture.{}.records", spec.name),
-                wgpu::BufferUsages::VERTEX,
-            ),
-            indices: match spec.indices {
-                Some(contents) => Retained::filled(
-                    self.device,
-                    indices_label,
-                    wgpu::BufferUsages::INDEX,
-                    bytemuck::cast_slice(contents),
-                ),
-                None => Retained::growable(indices_label, wgpu::BufferUsages::INDEX),
-            },
-            index_count: spec.indices.map_or(0, |contents| contents.len() as u32),
-            instances: 0,
-        }
+            })
     }
 }
 
-/// One pipeline and the buffers it draws from, which outlive any one upload.
+/// One mirror's buffers for one pipeline, which outlive any one upload.
+///
+/// **A pipeline handle rather than the pipeline**, because a scene drawn twice
+/// at once is drawn through the same pipelines twice and only the records
+/// differ. What is shared is a refcount — see [`Gpu`](super::gpu::Gpu), which
+/// holds the one of each.
 #[derive(Debug)]
 pub(super) struct Pass {
     pub(super) pipeline: wgpu::RenderPipeline,
@@ -257,30 +239,39 @@ pub(super) struct Pass {
 }
 
 impl Pass {
-    /// A second pass over the same indices, for drawing some of the same
-    /// primitives again in a different look.
+    /// A pass that grows its own triangle list, which is meshes and only
+    /// meshes: what a mesh draws *is* its list, so every mirror needs one.
     ///
-    /// The same pass drawing from another record buffer.
-    ///
-    /// What a kind's highlighted half is built from. It is a pipeline of its own
-    /// rather than a clone of the handle, because the step that puts a highlight
-    /// over what it doubles is depth bias and depth bias is pipeline state — but
-    /// the triangle list is identical and stays shared, which is a handle and
-    /// costs a refcount.
-    pub(super) fn drawing(&self, pipeline: wgpu::RenderPipeline, records_label: String) -> Self {
+    /// `stem` labels both buffers, so a capture tool names them for the pass
+    /// they feed. Nothing else reads a label.
+    pub(super) fn growing(stem: &str, pipeline: wgpu::RenderPipeline) -> Self {
         Self {
             pipeline,
-            records: Retained::growable(records_label, wgpu::BufferUsages::VERTEX),
-            indices: self.indices.clone(),
-            index_count: self.index_count,
+            records: Retained::growable(format!("{stem}.records"), wgpu::BufferUsages::VERTEX),
+            indices: Retained::growable(format!("{stem}.indices"), wgpu::BufferUsages::INDEX),
+            index_count: 0,
             instances: 0,
         }
     }
 
-    /// The pipeline this pass draws through, for the highlighted half of a kind
-    /// to be built beside it.
-    pub(super) fn pipeline(&self) -> wgpu::RenderPipeline {
-        self.pipeline.clone()
+    /// A pass drawn through a list that never changes — the four corners of a
+    /// quad, or the band of a rim.
+    ///
+    /// `indices` arrives already filled and is taken by handle, so every mirror
+    /// and both halves of a kind draw the same buffer.
+    pub(super) fn fixed(
+        stem: &str,
+        pipeline: wgpu::RenderPipeline,
+        indices: Retained,
+        index_count: u32,
+    ) -> Self {
+        Self {
+            pipeline,
+            records: Retained::growable(format!("{stem}.records"), wgpu::BufferUsages::VERTEX),
+            indices,
+            index_count,
+            instances: 0,
+        }
     }
 
     /// Refill from the flattened objects: one triangle list, drawn once.
@@ -291,7 +282,7 @@ impl Pass {
     /// the queue its staging whatever is in it, so the half that did not move is
     /// worth not asking about.
     ///
-    /// The same shape [`Passes::upload`](super::gpu::Passes) reads the overlays
+    /// The same shape [`Passes::upload`](super::held::Passes) reads the overlays
     /// through, which is the point of it: a buffer and its mark arrive together
     /// or not at all, so there is no reading one and uploading the other.
     pub(super) fn upload_mesh(

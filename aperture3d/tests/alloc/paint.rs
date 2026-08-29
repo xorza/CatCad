@@ -15,8 +15,8 @@
 //! the number that says aperture is still adding nothing of its own.
 
 use crate::fixture::{SURFACE, scene};
-use aperture::internals::ScenePane;
-use aperture::{Highlight, Lit, Renderer, Tag};
+use aperture::internals::SceneApp;
+use aperture::{Highlight, Lit, Pane, Placement, Renderer, Tag};
 use common::AllocTester;
 use glam::Vec3;
 use palantir::{HeadlessGpu, OffscreenHost};
@@ -50,7 +50,7 @@ struct Painting {
     gpu: HeadlessGpu,
     host: OffscreenHost,
     target: wgpu::Texture,
-    pane: ScenePane,
+    pane: SceneApp,
 }
 
 impl Painting {
@@ -81,8 +81,11 @@ impl Painting {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let pane = ScenePane {
-            view: Rc::new(RefCell::new(Renderer::new(scene()))),
+        let pane = SceneApp {
+            view: Rc::new(RefCell::new(Renderer::new(Pane::new(
+                scene(),
+                Placement::Fill,
+            )))),
         };
         Some(Self {
             gpu,
@@ -126,10 +129,13 @@ fn a_hovering_frame_stays_at_the_floor_plus_its_upload() {
     let mut lit = 0u64;
     AllocTester::new().budget(HOVERING).run(|| {
         lit = (lit + 1) % 4;
-        painting.pane.view.borrow_mut().highlight_only(Lit {
-            tag: Tag::new(lit),
-            look: Highlight::new(Vec3::Y),
-        });
+        painting.pane.view.borrow_mut().highlight_only(
+            0,
+            Lit {
+                tag: Tag::new(lit),
+                look: Highlight::new(Vec3::Y),
+            },
+        );
         painting.frame();
     });
 }

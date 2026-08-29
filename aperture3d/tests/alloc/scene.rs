@@ -12,7 +12,7 @@
 //! will want, and it gets a gate when it exists.
 
 use crate::fixture::{ON_THE_DRAWING, SURFACE, scene};
-use aperture::{Aim, Camera, Highlight, Lit, Renderer, Tag, Viewport};
+use aperture::{Aim, Camera, Highlight, Lit, Pane, Placement, Renderer, Tag, Viewport};
 use common::AllocTester;
 use glam::Vec3;
 use std::hint::black_box;
@@ -40,14 +40,17 @@ fn the_nearest_hit_allocates_nothing() {
 /// are rebuilt while the ordinary ones are left alone.
 #[test]
 fn rebuilding_the_highlights_allocates_nothing() {
-    let mut renderer = Renderer::new(scene());
+    let mut renderer = Renderer::new(Pane::new(scene(), Placement::Fill));
     let mut lit = 0u64;
     AllocTester::new().run(|| {
         lit = (lit + 1) % 4;
-        renderer.highlight_only(Lit {
-            tag: Tag::new(lit),
-            look: Highlight::new(Vec3::Y),
-        });
+        renderer.highlight_only(
+            0,
+            Lit {
+                tag: Tag::new(lit),
+                look: Highlight::new(Vec3::Y),
+            },
+        );
         renderer.flatten(RASTER_SCALE);
         black_box(&renderer);
     });
@@ -59,9 +62,9 @@ fn rebuilding_the_highlights_allocates_nothing() {
 /// way there is.
 #[test]
 fn re_flattening_the_whole_scene_allocates_nothing() {
-    let mut renderer = Renderer::new(scene());
+    let mut renderer = Renderer::new(Pane::new(scene(), Placement::Fill));
     AllocTester::new().run(|| {
-        let scene = renderer.scene_mut();
+        let scene = &mut renderer.pane_mut(0).scene;
         scene.solids.mark();
         scene.curves.mark();
         scene.rings.mark();

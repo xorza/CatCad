@@ -1,54 +1,10 @@
 //! The one buffer every pass reads, and the shape of the frame it is built for.
 
 use crate::camera::{Camera, Projection};
-use crate::viewport::Viewport;
-use glam::{Mat4, UVec2, Vec2, Vec4};
+use crate::renderer::pane::Placement;
+use crate::renderer::tile::Tile;
+use glam::{UVec2, Vec2};
 use palantir::GpuFrameCtx;
-
-/// The part of a view actually being drawn into, in physical pixels from the
-/// view's own top-left corner.
-///
-/// Palantir allocates a `GpuView`'s target for what is on screen rather than
-/// for the whole widget — a rect is allowed to reach past the window, and a
-/// scroll can put most of one outside its pane — so the target is sometimes a
-/// window onto the view rather than the view itself. This is that window,
-/// which in the ordinary case is neither offset nor smaller than the view.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Window {
-    /// Where the target begins in the view — [`Rect::min`](palantir::Rect)'s
-    /// counterpart, and named for it so the crate has one word for a corner.
-    pub(super) min: Vec2,
-    /// How far it reaches, which is the target's own size.
-    pub(super) size: Vec2,
-}
-
-impl Window {
-    /// The clip-space transform that brings the part of `viewport` this names
-    /// out to fill the target.
-    ///
-    /// A scale about the window's middle, in NDC. The translation is folded
-    /// into the `w` column rather than applied after the divide, because these
-    /// are clip coordinates and a constant added there would move a vertex by
-    /// less the further off it was.
-    ///
-    /// Y is negated because the window is measured down from the view's top
-    /// where NDC counts up from its middle — the same flip every conversion
-    /// between the two makes.
-    fn onto(self, viewport: Viewport) -> Mat4 {
-        let whole = viewport.extent();
-        let scale = whole / self.size;
-        // Where the window's middle falls in NDC, which is what the scale is
-        // taken about.
-        let middle = (self.min + self.size * 0.5) / whole * 2.0 - 1.0;
-        let middle = Vec2::new(middle.x, -middle.y);
-        Mat4::from_cols(
-            Vec4::new(scale.x, 0.0, 0.0, 0.0),
-            Vec4::new(0.0, scale.y, 0.0, 0.0),
-            Vec4::new(0.0, 0.0, 1.0, 0.0),
-            Vec4::new(-middle.x * scale.x, -middle.y * scale.y, 0.0, 1.0),
-        )
-    }
-}
 
 /// The shape of one frame's target: how much of the view is being drawn into,
 /// and at what density.
@@ -63,15 +19,13 @@ impl Window {
 /// of. Neither is this crate's to guarantee, and a zero here would divide by it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Frame {
-    /// The target's own size in physical pixels.
-    pub(super) size: UVec2,
     /// The whole view the target is a part of.
     ///
-    /// What the scene is framed for, so that what is drawn agrees with what a
-    /// pick at the same cursor answers — see [`Uniforms::of`].
-    viewport: Viewport,
-    /// Which part of that view the target actually covers. See [`Window`].
-    window: Window,
+    /// What a pane is placed against, so that a corner is the widget's corner
+    /// rather than the corner of whichever part of it is on screen.
+    view: UVec2,
+    /// Which part of that view the target covers. See [`Tile`].
+    pub(super) target: Tile,
     /// Physical pixels per logical one.
     pub(super) raster_scale: f32,
 }
@@ -81,13 +35,34 @@ impl Frame {
     pub(super) fn of(ctx: &GpuFrameCtx<'_>) -> Self {
         let size = ctx.size_px.max(UVec2::ONE);
         Self {
-            size,
-            viewport: Viewport::new(ctx.full_px.max(size)),
-            window: Window {
-                min: ctx.offset_px.as_vec2(),
-                size: size.as_vec2(),
+            view: ctx.full_px.max(size),
+            target: Tile {
+                min: ctx.offset_px.as_ivec2(),
+                size,
             },
             raster_scale: ctx.raster_scale,
+        }
+    }
+
+    /// Where `placement` lands in this frame's view, in whole physical pixels.
+    ///
+    /// **The one place the raster scale is spent on a placement.** A pinned
+    /// pane states its size in logical pixels, so that furniture holds its size
+    /// on screen whatever the display is — and picking asks
+    /// [`Placement::rect`] the same question in those same logical pixels. Doing
+    /// the arithmetic there and the conversion here is what keeps the two from
+    /// being two arithmetics.
+    ///
+    /// Rounded, and floored at a pixel: what comes back is what a scissor is
+    /// cut on and what a projection is framed for, and neither has a fraction
+    /// of a pixel to spend — see [`Tile`].
+    pub(super) fn tile(&self, placement: Placement) -> Tile {
+        let scale = self.raster_scale;
+        let rect = placement.rect(self.view.as_vec2() / scale);
+        let size = Vec2::new(rect.size.w, rect.size.h) * scale;
+        Tile {
+            min: (rect.min * scale).round().as_ivec2(),
+            size: size.round().max(Vec2::ONE).as_uvec2(),
         }
     }
 }
@@ -155,44 +130,39 @@ pub(super) struct Uniforms {
 const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
 
 impl Uniforms {
-    /// What a frame of `camera` over the whole of `frame`'s view is drawn
-    /// through, rendered into the part of it the frame's window names.
+    /// What a frame of `camera` over `pane` is drawn through, landed where the
+    /// frame's target shows that tile.
     ///
-    /// The two are the same thing whenever the view is wholly on screen, which
-    /// is the usual case — see [`Window`].
+    /// The two are one whenever the pane has the whole view and the whole view
+    /// is on screen, which is the usual case — see [`Tile`].
     ///
-    /// The projection is built for the *whole* view and then skewed onto the
-    /// window, rather than built for the window: what a camera frames is a
-    /// property of the view, and one that reframed to whatever part of itself
-    /// happened to be showing would swing as a scroll slid it past. It would
-    /// also stop agreeing with picking, which aims at the whole view because
-    /// that is the rect the widget occupies.
+    /// The projection is built for `pane` and then skewed onto the target,
+    /// rather than built for the target: what a camera frames is a property of
+    /// the rect a caller gave it, and one that reframed to whatever part of
+    /// that rect happened to be showing would swing as a scroll slid it past.
+    /// It would also stop agreeing with picking, which aims at the whole rect
+    /// because that is what the caller placed.
     ///
-    /// `viewport` in the uniform is the *window*, not the whole: it is what
-    /// turns a length in pixels into one in NDC, and the pixels a shader is
-    /// writing are the target's.
-    pub(super) fn of(camera: &Camera, frame: Frame) -> Self {
-        let Frame {
-            viewport,
-            window,
-            raster_scale,
-            ..
-        } = frame;
-        let whole = camera.view_proj(viewport.aspect());
+    /// `viewport` in the uniform is the *target*, not the pane: it is what
+    /// turns a length in pixels into one in NDC, and the shader spends it after
+    /// the skew — so the pixels it counts are the target's, and a two-pixel
+    /// stroke in a small pane is still two pixels wide.
+    pub(super) fn of(camera: &Camera, frame: Frame, pane: Tile) -> Self {
+        let seen = pane.viewport();
         Self {
-            view_proj: (window.onto(viewport) * whole).to_cols_array(),
-            viewport: window.size.to_array(),
-            raster_scale,
+            view_proj: (pane.onto(frame.target) * camera.view_proj(seen.aspect())).to_cols_array(),
+            viewport: frame.target.size.as_vec2().to_array(),
+            raster_scale: frame.raster_scale,
             probe_reach: Self::probe_reach(camera),
-            // Off the *whole* view rather than the window, which is where the
-            // projection frames its field of view — a window is a crop at the
+            // Off the pane rather than the target, which is where the
+            // projection frames its field of view — a target is a crop at the
             // same pixel density, so what one of its pixels is worth in the
-            // world is what one of the view's is.
+            // world is what one of the pane's is.
             // Times the scale, which turns the per-physical-pixel answer into
             // the per-logical-pixel one — the same number `world_per_clip_w`
             // gives for a viewport `raster_scale` smaller, and exactly what a
             // pick asks the camera for.
-            world_per_logical_px: camera.world_per_clip_w(viewport) * raster_scale,
+            world_per_logical_px: camera.world_per_clip_w(seen) * frame.raster_scale,
             _pad: [0.0; 3],
         }
     }
@@ -222,6 +192,3 @@ impl Uniforms {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

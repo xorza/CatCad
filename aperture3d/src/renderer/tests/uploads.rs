@@ -1,13 +1,16 @@
 //! What a refresh owes the GPU, and what it must not owe it twice.
 
+use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::highlight::Highlight;
 use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
+use crate::renderer::pane::{Pane, Placement};
 use crate::renderer::tests::harness::Framed;
 use crate::renderer::*;
 use crate::ring::Ring;
+use crate::scene::Scene;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
@@ -27,12 +30,12 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
     scene.rings.push(Ring::new(Vec3::ZERO, 1.0, Vec3::Y));
     scene.points.push(Point::new(Vec3::X));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
 
     // Everything was written to build it, so everything is owed once. Asking
     // takes the mark, which is what the second refresh below then relies on.
     renderer.refresh(1.0);
-    let cpu = &mut renderer.cpu;
+    let cpu = &mut renderer.mirrors[0].cpu;
     assert!(
         cpu.solids.vertices_to_upload().is_some() && cpu.solids.indices_to_upload().is_some(),
         "the first flatten owes both"
@@ -46,7 +49,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
 
     // And nothing twice. A still frame is the common case, not the odd one.
     renderer.refresh(1.0);
-    let cpu = &mut renderer.cpu;
+    let cpu = &mut renderer.mirrors[0].cpu;
     assert!(cpu.solids.vertices_to_upload().is_none() && cpu.solids.indices_to_upload().is_none());
     assert!(cpu.curves.ordinary_to_upload().is_none());
     assert!(cpu.rings.ordinary_to_upload().is_none());
@@ -57,11 +60,12 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // for the whole scene and adding a stroke is a stroke's worth of work, and
     // the solids beside it are not re-flattened.
     renderer
-        .scene_mut()
+        .pane_mut(0)
+        .scene
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::Y));
     renderer.refresh(1.0);
-    let cpu = &mut renderer.cpu;
+    let cpu = &mut renderer.mirrors[0].cpu;
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
     assert!(
         cpu.solids.vertices_to_upload().is_none(),
@@ -74,13 +78,20 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // the caller never named, so a pointer crossing the drawing in front of the
     // model must not rewrite one triangle of it — which taking `relight` at its
     // word did, on every frame the pointer moved.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look: Highlight::new(Vec3::Y),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look: Highlight::new(Vec3::Y),
+        },
+    );
     renderer.refresh(1.0);
     assert!(
-        renderer.cpu.solids.vertices_to_upload().is_none(),
+        renderer.mirrors[0]
+            .cpu
+            .solids
+            .vertices_to_upload()
+            .is_none(),
         "a relight rewrote a mesh that nothing can light"
     );
 
@@ -88,21 +99,25 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // colour in them — and still owes no index, because an index says which
     // vertex and nothing about how it looks.
     renderer
-        .scene_mut()
+        .pane_mut(0)
+        .scene
         .solids
         .push(Object::new(Mesh::cube(1.0)).tagged(Tag::new(1)));
     renderer.refresh(1.0);
-    let solids = &mut renderer.cpu.solids;
+    let solids = &mut renderer.mirrors[0].cpu.solids;
     assert!(
         solids.vertices_to_upload().is_some() && solids.indices_to_upload().is_some(),
         "the push moved geometry"
     );
-    renderer.highlight_only(Lit {
-        tag: Tag::new(1),
-        look: Highlight::new(Vec3::X),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(1),
+            look: Highlight::new(Vec3::X),
+        },
+    );
     renderer.refresh(1.0);
-    let solids = &mut renderer.cpu.solids;
+    let solids = &mut renderer.mirrors[0].cpu.solids;
     assert!(
         solids.vertices_to_upload().is_some(),
         "a relit mesh keeps its old colour"
@@ -115,22 +130,33 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // And dropping the highlight owes the vertices once more, to take the
     // colour back off. This is the half a batch cannot learn from the new set
     // alone — it no longer names the object at all.
-    renderer.highlight_all(&[]);
+    renderer.highlight_all(0, &[]);
     renderer.refresh(1.0);
     assert!(
-        renderer.cpu.solids.vertices_to_upload().is_some(),
+        renderer.mirrors[0]
+            .cpu
+            .solids
+            .vertices_to_upload()
+            .is_some(),
         "an unlit mesh kept the colour it had just lost"
     );
 
     // Settled again, and now nothing is lit on either side, so the next relight
     // is refused as the first one was.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(404),
-        look: Highlight::new(Vec3::Z),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(404),
+            look: Highlight::new(Vec3::Z),
+        },
+    );
     renderer.refresh(1.0);
     assert!(
-        renderer.cpu.solids.vertices_to_upload().is_none(),
+        renderer.mirrors[0]
+            .cpu
+            .solids
+            .vertices_to_upload()
+            .is_none(),
         "a relight naming nothing in the batch still rewrote it"
     );
 }
@@ -156,10 +182,10 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
     scene
         .faces
         .push(Object::new(Mesh::cube(1.0)).at(Vec3::Z * 4.0));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     // Down −Z from well back, so both sheets are in front of the eye and the
     // nearer one is the one at +4.
-    *renderer.camera_mut() = Camera {
+    renderer.pane_mut(0).camera = Camera {
         target: Vec3::ZERO,
         distance: 20.0,
         yaw: 0.0,
@@ -168,13 +194,13 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
     };
 
     renderer.refresh(1.0);
-    let faces = &mut renderer.cpu.faces;
+    let faces = &mut renderer.mirrors[0].cpu.faces;
     assert!(
         faces.vertices_to_upload().is_some() && faces.indices_to_upload().is_some(),
         "the first flatten owes both"
     );
-    let before = renderer.cpu.faces.indices.clone();
-    let corners: Vec<[f32; 3]> = renderer
+    let before = renderer.mirrors[0].cpu.faces.indices.clone();
+    let corners: Vec<[f32; 3]> = renderer.mirrors[0]
         .cpu
         .faces
         .vertices
@@ -184,9 +210,9 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
 
     // Round to the other side. Which sheet is furthest has swapped, and
     // nothing else about the scene has moved at all.
-    renderer.camera_mut().yaw = std::f32::consts::PI;
+    renderer.pane_mut(0).camera.yaw = std::f32::consts::PI;
     renderer.refresh(1.0);
-    let faces = &mut renderer.cpu.faces;
+    let faces = &mut renderer.mirrors[0].cpu.faces;
     assert!(
         faces.indices_to_upload().is_some(),
         "the order flipped and nothing said so"
@@ -196,12 +222,12 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
         "a resort rewrote corners that had not moved"
     );
     assert_ne!(
-        renderer.cpu.faces.indices, before,
+        renderer.mirrors[0].cpu.faces.indices, before,
         "the order did not actually flip, so this test proves nothing"
     );
     // The first cube's corners are still the first twenty-four, which is what
     // lets an index rebased on `bases` mean anything.
-    let after: Vec<[f32; 3]> = renderer
+    let after: Vec<[f32; 3]> = renderer.mirrors[0]
         .cpu
         .faces
         .vertices
@@ -212,11 +238,11 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
 
     // And turning back owes the indices again rather than settling into
     // whichever order was reached last.
-    renderer.camera_mut().yaw = 0.0;
+    renderer.pane_mut(0).camera.yaw = 0.0;
     renderer.refresh(1.0);
-    let faces = &mut renderer.cpu.faces;
+    let faces = &mut renderer.mirrors[0].cpu.faces;
     assert!(faces.indices_to_upload().is_some() && faces.vertices_to_upload().is_none());
-    assert_eq!(renderer.cpu.faces.indices, before);
+    assert_eq!(renderer.mirrors[0].cpu.faces.indices, before);
 }
 
 /// The records are held between frames now, so refilling them has to leave no
@@ -233,37 +259,40 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
             .curves
             .push(Curve::segment(Vec3::X * i as f32, Vec3::Y).tagged(Tag::new(i)));
     }
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 4);
-    let grown = renderer.cpu.curves.ordinary.capacity();
+    assert_eq!(renderer.mirrors[0].cpu.curves.ordinary.len(), 4);
+    let grown = renderer.mirrors[0].cpu.curves.ordinary.capacity();
 
     // Down to one: the other three must be gone, not merely overwritten.
-    renderer.scene_mut().curves.truncate(1);
+    renderer.pane_mut(0).scene.curves.truncate(1);
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 1);
+    assert_eq!(renderer.mirrors[0].cpu.curves.ordinary.len(), 1);
     assert_eq!(
-        renderer.cpu.curves.ordinary[0].start,
+        renderer.mirrors[0].cpu.curves.ordinary[0].start,
         Vec3::ZERO.to_array(),
         "the surviving instance is the surviving curve's"
     );
     assert_eq!(
-        renderer.cpu.curves.ordinary.capacity(),
+        renderer.mirrors[0].cpu.curves.ordinary.capacity(),
         grown,
         "the room it grew to is the point of holding it"
     );
 
     // And the `lit` records, which are what a hover refills every frame.
-    renderer.highlight_only(Lit {
-        tag: Tag::new(0),
-        look: Highlight::new(Vec3::Y),
-    });
+    renderer.highlight_only(
+        0,
+        Lit {
+            tag: Tag::new(0),
+            look: Highlight::new(Vec3::Y),
+        },
+    );
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.curves.lit.len(), 1);
-    renderer.highlight_all(&[]);
+    assert_eq!(renderer.mirrors[0].cpu.curves.lit.len(), 1);
+    renderer.highlight_all(0, &[]);
     renderer.refresh(1.0);
     assert!(
-        renderer.cpu.curves.lit.is_empty(),
+        renderer.mirrors[0].cpu.curves.lit.is_empty(),
         "unlighting has to empty what lighting filled"
     );
 }
@@ -284,11 +313,11 @@ fn emptying_the_text_owes_the_gpu_an_empty_buffer() {
     scene
         .texts
         .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(1)));
-    let mut renderer = Renderer::new(scene);
+    let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.shape_with(palantir::TextShaper::new());
 
     renderer.refresh(1.0);
-    let drawn = renderer
+    let drawn = renderer.mirrors[0]
         .cpu
         .texts
         .records
@@ -299,10 +328,10 @@ fn emptying_the_text_owes_the_gpu_an_empty_buffer() {
 
     // Taken away after it was drawn, which is the only way to reach the bug:
     // a scene that never had text has nothing left over to clear.
-    renderer.scene_mut().texts.clear();
+    renderer.pane_mut(0).scene.texts.clear();
     renderer.refresh(1.0);
     assert_eq!(
-        renderer
+        renderer.mirrors[0]
             .cpu
             .texts
             .records
@@ -314,22 +343,29 @@ fn emptying_the_text_owes_the_gpu_an_empty_buffer() {
 
     // And having said so once, it is quiet again.
     renderer.refresh(1.0);
-    assert!(renderer.cpu.texts.records.ordinary_to_upload().is_none());
+    assert!(
+        renderer.mirrors[0]
+            .cpu
+            .texts
+            .records
+            .ordinary_to_upload()
+            .is_none()
+    );
 }
 
 /// A mark left behind is one that fires again on the next frame, which is what
 /// an early return owes the batch it returned over.
 #[test]
 fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
-    let mut renderer = Renderer::new(Scene::default());
+    let mut renderer = Renderer::new(Pane::new(Scene::default(), Placement::Fill));
     renderer.shape_with(palantir::TextShaper::new());
 
     // Written to and left empty, which is what a caller refilling a batch from
     // an arena that turned out to hold nothing does.
-    renderer.scene_mut().texts.mark();
+    renderer.pane_mut(0).scene.texts.mark();
     renderer.refresh(1.0);
     assert!(
-        !renderer.scene_mut().texts.take_dirty(),
+        !renderer.pane_mut(0).scene.texts.take_dirty(),
         "the mark outlived the refresh that had nothing to do with it"
     );
 }
@@ -367,8 +403,11 @@ fn a_frame_uploads_every_kind() {
     view.paint(1.0);
 
     {
-        let renderer = view.pane.view.borrow();
-        let built = renderer.gpu.as_ref().expect("init runs before paint");
+        let renderer = view.app.view.borrow();
+        let built = renderer.mirrors[0]
+            .held
+            .as_ref()
+            .expect("a paint builds one");
 
         // A cube is 24 corners and 36 indices, drawn as one instance of one
         // triangle list.
@@ -395,14 +434,20 @@ fn a_frame_uploads_every_kind() {
 
     // Lit between the frames, which is the only edit — so the second frame
     // rebuilds the highlights and re-uploads nothing else.
-    view.pane.view.borrow_mut().highlight_only(Lit {
-        tag: lit,
-        look: Highlight::new(Vec3::Y),
-    });
+    view.app.view.borrow_mut().highlight_only(
+        0,
+        Lit {
+            tag: lit,
+            look: Highlight::new(Vec3::Y),
+        },
+    );
     view.paint(1.0);
 
-    let renderer = view.pane.view.borrow();
-    let built = renderer.gpu.as_ref().expect("init runs before paint");
+    let renderer = view.app.view.borrow();
+    let built = renderer.mirrors[0]
+        .held
+        .as_ref()
+        .expect("a paint builds one");
     assert_eq!(built.curves.lit.instances, 1);
     assert_eq!(built.rings.lit.instances, 1);
     assert_eq!(built.points.lit.instances, 1);

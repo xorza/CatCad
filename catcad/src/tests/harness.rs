@@ -220,9 +220,9 @@ impl Raised {
 
     /// The mark the drawing put on screen for `part`.
     pub(super) fn drawn_mark(&self, part: Part) -> DrawnMark {
-        let renderer = self.app.renderer().borrow();
-        let text = renderer
-            .scene()
+        let pane = self.app.pane();
+        let text = pane
+            .scene
             .texts
             .iter()
             .find(|text| text.tag.and_then(|tag| self.app.view.part(tag)) == Some(part))

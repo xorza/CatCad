@@ -108,10 +108,10 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
     /// The demo at `pitch`, with the slab either in the sketch plane or
     /// `dropped` below it, and the faces either drawn or taken away.
     fn frame_of(pitch: f32, dropped: f32, faces: bool) -> Frame {
-        painted(UVec2::new(700, 520), |renderer| {
-            edge_on(pitch)(renderer.camera_mut());
-            renderer.camera_mut().distance = 6.0;
-            let scene = renderer.scene_mut();
+        painted(UVec2::new(700, 520), |pane| {
+            edge_on(pitch)(&mut pane.camera);
+            pane.camera.distance = 6.0;
+            let scene = &mut pane.scene;
             // Only the two surfaces in question. The drawing standing on the
             // face is neither, and would only be noise here.
             scene.curves.clear();
@@ -250,10 +250,10 @@ fn strokes_behind_a_face_still_reach_the_frame() {
     /// The demo at `pitch` with the solids and markers gone, so what is left is
     /// the strokes and — at the caller's word — the faces they cross.
     fn frame_of(pitch: f32, faces: bool, strokes: bool) -> Frame {
-        painted(UVec2::new(820, 560), |renderer| {
-            edge_on(pitch)(renderer.camera_mut());
-            renderer.camera_mut().distance = 11.0;
-            let scene = renderer.scene_mut();
+        painted(UVec2::new(820, 560), |pane| {
+            edge_on(pitch)(&mut pane.camera);
+            pane.camera.distance = 11.0;
+            let scene = &mut pane.scene;
             scene.solids.clear();
             scene.points.clear();
             scene.texts.clear();

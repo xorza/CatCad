@@ -1,7 +1,7 @@
 //! Type: where a run is drawn, what box a click is tested against, and what
 //! hides one.
 
-use crate::harness::{DEMO_FRAME, Frame, Staged, edge_on, head_on, painted, staged};
+use crate::harness::{DEMO_FRAME, Frame, Staged, Viewed, edge_on, head_on, painted, staged};
 use crate::ink::{INK, Ink, differing};
 use aperture::{Facing, Mesh, Object, Scene, Styled, Text};
 use glam::{Mat4, UVec2, Vec2, Vec3};
@@ -98,7 +98,7 @@ fn the_type_lands_inside_the_box_a_click_is_tested_against() {
     // The box the pick tests, in the frame's own pixels: the anchor projects to
     // the middle of the target, and the extent is logical — which the harness
     // paints at one to one.
-    let extent = view.borrow().scene().texts[0].extent();
+    let extent = view.pane().scene.texts[0].extent();
     let corner = Vec2::new(size.x as f32, size.y as f32) * 0.5;
     // A pixel of slack either way: the ink is antialiased, so its outermost
     // covered pixel is the one the edge falls inside.
@@ -161,14 +161,14 @@ fn type_reading_its_depth_off_a_plane_survives_that_planes_horizon() {
     /// off the sketch plane or carrying no plane at all.
     fn ink(pitch: f32, on_plane: bool) -> u32 {
         let drawing = |drawn: bool| {
-            painted(DEMO_FRAME, |renderer| {
-                edge_on(pitch)(renderer.camera_mut());
+            painted(DEMO_FRAME, |pane| {
+                edge_on(pitch)(&mut pane.camera);
                 // Nearer than the grazing test stands, which is what the report
                 // this was written from showed: the shallower the angle the
                 // closer the horizon runs to the type, and closing in puts it
                 // through the middle of the run rather than off past its end.
-                renderer.camera_mut().distance = 5.0;
-                let scene = renderer.scene_mut();
+                pane.camera.distance = 5.0;
+                let scene = &mut pane.scene;
                 scene.solids.clear();
                 scene.faces.clear();
                 scene.curves.clear();
@@ -294,10 +294,10 @@ enum Marks {
 /// at the caller's word — the solids emptied out, so what moves between two of
 /// these is only ever the thing under test.
 fn marks(pitch: f32, distance: f32, marks: Marks, solids: bool) -> Frame {
-    painted(DEMO_FRAME, |renderer| {
-        edge_on(pitch)(renderer.camera_mut());
-        renderer.camera_mut().distance = distance;
-        let scene = renderer.scene_mut();
+    painted(DEMO_FRAME, |pane| {
+        edge_on(pitch)(&mut pane.camera);
+        pane.camera.distance = distance;
+        let scene = &mut pane.scene;
         scene.faces.clear();
         scene.curves.clear();
         scene.rings.clear();

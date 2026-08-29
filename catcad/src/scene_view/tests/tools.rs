@@ -330,8 +330,8 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     );
     // The stroke it added runs from the click to the cursor. It is written
     // after everything the drawing wrote, so it is the last one.
-    let renderer = raised.view.renderer().borrow();
-    let band = renderer.scene().curves.last().expect("a band was drawn");
+    let pane = raised.view.pane();
+    let band = pane.scene.curves.last().expect("a band was drawn");
     assert!(
         band.points[0].abs_diff_eq(from, 1e-3) && band.points[1].abs_diff_eq(to, 1e-3),
         "the band runs {:?}, not from {from:?} to {to:?}",
@@ -340,7 +340,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     // Untagged, so it cannot be hovered, grabbed or picked out — it is not
     // there yet.
     assert_eq!(band.tag, None);
-    drop(renderer);
+    drop(pane);
 
     // Put the tool down and it goes, leaving the drawing exactly as it was.
     raised.harness.right_click_at(raised.cursor_on(to));
@@ -352,7 +352,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     // A circle bands the same way, as a rim rather than a stroke: its size is
     // how far the cursor is from where the first click landed, so a cursor two
     // and a half units out is a band of that radius.
-    let rims = raised.view.renderer().borrow().scene().rings.len();
+    let rims = raised.view.pane().scene.rings.len();
     raised.hold(Tool::Circle { center: None });
     raised.harness.click_at(raised.cursor_on(from));
     raised.frame();
@@ -364,9 +364,9 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.harness.move_to(raised.cursor_on(out));
     raised.frame();
 
-    let renderer = raised.view.renderer().borrow();
-    assert_eq!(renderer.scene().rings.len(), rims + 1, "no rim was banded");
-    let band = renderer.scene().rings.last().expect("a band was drawn");
+    let pane = raised.view.pane();
+    assert_eq!(pane.scene.rings.len(), rims + 1, "no rim was banded");
+    let band = pane.scene.rings.last().expect("a band was drawn");
     assert!(
         (band.radius - 2.5).abs() < 1e-2,
         "the band came out {} across rather than 2.5",

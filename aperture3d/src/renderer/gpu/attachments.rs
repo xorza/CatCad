@@ -5,9 +5,9 @@ use glam::{UVec2, Vec3};
 
 /// The two textures a frame is drawn into, and the size they were built for.
 ///
-/// Reached only through [`Gpu::resize`](super::Gpu::resize) and [`Gpu::draw`](super::Gpu::draw), which is what keeps
-/// building them and drawing into them from being two things a frame has to
-/// remember to pair.
+/// Reached only through [`Gpu::resize`](super::Gpu::resize) and
+/// [`Gpu::begin`](super::Gpu::begin), which is what keeps building them and
+/// drawing into them from being two things a frame has to remember to pair.
 ///
 /// Multisampled, both of them, and neither outlives the pass: the colour buffer
 /// is resolved into whatever palantir hands over and the depth buffer is read
@@ -45,10 +45,10 @@ impl Attachments {
     /// it are discarded rather than stored, that reversed depth puts the far end
     /// at zero, and that the pass covers the whole of what was built.
     ///
-    /// The viewport and the scissor come off [`Attachments::size`], which is the
-    /// only place a frame's size is kept. A caller handing one in would be
-    /// stating a second time what these textures were built to, and the two are
-    /// only ever right together.
+    /// Neither the viewport nor the scissor is set here, though both are set
+    /// before anything is drawn: each pane sets its own, because each takes a
+    /// rect of the target and a slice of the depth range. What is left over is
+    /// wgpu's own default, which is the whole attachment.
     ///
     /// `ground` is linear RGB, which the target being sRGB is what makes right:
     /// the GPU encodes on write, so a value encoded here would be encoded twice.
@@ -58,7 +58,7 @@ impl Attachments {
         target: &wgpu::TextureView,
         ground: Vec3,
     ) -> wgpu::RenderPass<'pass> {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("aperture.pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.color,
@@ -85,11 +85,7 @@ impl Attachments {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        });
-        let size = self.size.as_vec2();
-        pass.set_viewport(0.0, 0.0, size.x, size.y, 0.0, 1.0);
-        pass.set_scissor_rect(0, 0, self.size.x, self.size.y);
-        pass
+        })
     }
 
     fn view(

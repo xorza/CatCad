@@ -3,17 +3,20 @@
 pub(crate) mod records;
 pub(crate) mod triangles;
 
-use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::cpu::records::{Records, TextRecords};
 use crate::renderer::cpu::triangles::Triangles;
 use crate::renderer::record::{CurveInstance, PointInstance, RingInstance};
 
 /// The whole scene in the shape the GPU takes it.
 ///
-/// The mirror of [`Gpu`](crate::renderer::gpu::Gpu), field for field: what is
+/// The mirror of [`Held`](crate::renderer::held::Held), field for field: what is
 /// `curves` here flattens into what is `curves` there. This side is the records
 /// themselves and exists before a device does; that side is the buffers they are
 /// written into, and cannot.
+///
+/// The coverage the glyphs are drawn from is not here, though it is derived like
+/// everything else: a sheet is keyed by glyph and size rather than by scene, so
+/// two mirrors read one — see [`Renderer`](crate::Renderer).
 ///
 /// Field for field by hand, and not a list either side could walk: a
 /// [`Records`] is generic over what one kind ships, so the fields have five
@@ -30,8 +33,8 @@ use crate::renderer::record::{CurveInstance, PointInstance, RingInstance};
 /// Not named `Batches`, though it holds one flattening per
 /// [`Batch`](crate::Batch): a batch is the primitives a *caller* writes, and
 /// nothing in here is one. The three
-/// tiers are `Batch` → [`Records`] → [`Passes`](crate::renderer::gpu::Passes), and
-/// each is a different word.
+/// tiers are `Batch` → [`Records`] → [`Passes`](crate::renderer::held::Passes),
+/// and each is a different word.
 #[derive(Debug, Default)]
 pub(crate) struct Cpu {
     pub(crate) solids: Triangles,
@@ -43,9 +46,4 @@ pub(crate) struct Cpu {
     pub(crate) rings: Records<RingInstance>,
     pub(crate) points: Records<PointInstance>,
     pub(crate) texts: TextRecords,
-    /// The coverage every glyph in `texts` is drawn from. Beside the records
-    /// rather than inside them because it outlives any one flatten: the records
-    /// are rebuilt whenever the scene's text moves, and the sheet they read is
-    /// not.
-    pub(crate) atlas: GlyphAtlas,
 }
