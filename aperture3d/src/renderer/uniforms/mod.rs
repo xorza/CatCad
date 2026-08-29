@@ -53,16 +53,21 @@ impl Frame {
     /// the arithmetic there and the conversion here is what keeps the two from
     /// being two arithmetics.
     ///
-    /// Rounded, and floored at a pixel: what comes back is what a scissor is
-    /// cut on and what a projection is framed for, and neither has a fraction
-    /// of a pixel to spend — see [`Tile`].
+    /// Rounded, because what comes back is what a scissor is cut on and what a
+    /// projection is framed for, and neither has a fraction of a pixel to
+    /// spend — see [`Tile`].
+    ///
+    /// A rect that rounds to nothing comes back as nothing, and the pane is
+    /// then skipped rather than drawn a pixel wide: a caller whose layout has
+    /// not arranged the pane yet has nowhere to put it, and one pixel in the
+    /// corner is a worse answer than none.
     pub(super) fn tile(&self, placement: Placement) -> Tile {
         let scale = self.raster_scale;
         let rect = placement.rect(self.view.as_vec2() / scale);
         let size = Vec2::new(rect.size.w, rect.size.h) * scale;
         Tile {
             min: (rect.min * scale).round().as_ivec2(),
-            size: size.round().max(Vec2::ONE).as_uvec2(),
+            size: size.round().max(Vec2::ZERO).as_uvec2(),
         }
     }
 }

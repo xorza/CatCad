@@ -1,5 +1,6 @@
 //! Turning, panning and zooming the view, and what that must not edit.
 
+use crate::hud::cube::Gizmo;
 use crate::internals::HARNESS_SIZE;
 use crate::look::Theme;
 use crate::scene_view::pointing::ZOOM_RATE;
@@ -267,6 +268,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         &raised.build,
         &Theme::default(),
         &raised.session,
+        Gizmo::NOWHERE,
     );
     assert_eq!(raised.view.pane().camera, turned);
 
@@ -278,6 +280,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         &raised.build,
         &Theme::default(),
         &raised.session,
+        Gizmo::NOWHERE,
     );
     let now = raised.view.pane().camera.projection;
     assert_eq!(now, was.toggled());

@@ -9,8 +9,8 @@
 //! that is what a run comes to once the shaper has placed it.
 
 use crate::highlight::Lit;
-use crate::renderer::pane::{Pane, PaneAt};
-use glam::{Vec2, Vec3};
+use crate::renderer::pane::Pane;
+use glam::Vec3;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
@@ -145,25 +145,6 @@ impl Renderer {
     /// the only place that can be true.
     pub fn pane_mut(&mut self, nth: usize) -> &mut Pane {
         &mut self.panes[nth]
-    }
-
-    /// Which pane a point of the view falls in, frontmost first.
-    ///
-    /// Frontmost, because that is the order the eye reads them in: a pointer
-    /// over a gizmo is over the gizmo and not over the model behind it. The
-    /// panes are held back to front, so the walk runs backwards.
-    ///
-    /// `at` and `view` are both in logical pixels — what a pointer arrives in,
-    /// and what [`Placement`](pane::Placement) states a pinned size in.
-    pub fn pane_at(&self, at: Vec2, view: Vec2) -> Option<PaneAt> {
-        self.panes.iter().enumerate().rev().find_map(|(nth, pane)| {
-            let rect = pane.placement.rect(view);
-            rect.contains(at).then(|| PaneAt {
-                nth,
-                tag: pane.tag,
-                local: at - rect.min,
-            })
-        })
     }
 
     /// Light `lit` in the `nth` pane and nothing else, dropping whatever was

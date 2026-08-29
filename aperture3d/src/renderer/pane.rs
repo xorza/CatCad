@@ -2,59 +2,43 @@
 
 use crate::camera::Camera;
 use crate::scene::Scene;
-use crate::tag::Tag;
 use glam::Vec2;
 use palantir::Rect;
-
-/// Which corner of the view a pinned pane holds on to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Corner {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
 
 /// Where a pane lands in the view.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Placement {
     /// The whole view, which is what a viewport is.
     Fill,
-    /// A box of a stated size, held to a corner of the view and inset from it.
+    /// Exactly this rect of it, in logical pixels down and right from the
+    /// view's own top-left corner.
     ///
-    /// **Stated in logical pixels, so that furniture is the same size whatever
-    /// the view is.** An orientation gizmo is a control rather than part of the
-    /// drawing: it is read and pressed at a size a hand can hit, and one that
-    /// grew with the window would be a different control on a different
-    /// monitor.
-    Pinned { at: Corner, size: Vec2, inset: Vec2 },
+    /// **The caller places it, because the caller already has a layout.** A
+    /// gizmo in the corner of a window sits above whatever else that corner
+    /// holds, and how much room that leaves is a question the application's own
+    /// layout answers. A placement that pinned itself to the corner here would
+    /// be a second layout, agreeing with the first only until one of them
+    /// changed.
+    ///
+    /// Logical pixels, because that is what a layout and a cursor are both
+    /// measured in. The frame is the one place the raster scale is spent.
+    At(Rect),
 }
 
 impl Placement {
     /// The rect this takes of a view `view` logical pixels across.
     ///
-    /// Logical throughout, because that is what a pinned size is stated in and
-    /// what a cursor arrives in. What a *frame* wants is the same rect in the
-    /// target's own pixels, and it converts — so the placement is worked out
-    /// once and the raster scale is spent in one place.
+    /// `Fill` is the one arm that needs the view at all, and it is why the arm
+    /// exists: a viewport would otherwise have to restate the view's own size
+    /// every frame, and would be wrong for the frame after a resize.
     ///
-    /// A pane too large for the view it is pinned in keeps its corner and
-    /// reaches past the far one, rather than being shrunk or refused: what
-    /// confines it is the scissor, and a window too small for the furniture in
-    /// it is a window rather than a mistake.
+    /// A rect reaching outside the view is answered as given rather than
+    /// clamped: what confines a pane is the scissor, and a window too small for
+    /// the furniture in it is a window rather than a mistake.
     pub fn rect(self, view: Vec2) -> Rect {
         match self {
             Self::Fill => Rect::new(0.0, 0.0, view.x, view.y),
-            Self::Pinned { at, size, inset } => {
-                let far = view - size - inset;
-                let min = match at {
-                    Corner::TopLeft => inset,
-                    Corner::TopRight => Vec2::new(far.x, inset.y),
-                    Corner::BottomLeft => Vec2::new(inset.x, far.y),
-                    Corner::BottomRight => far,
-                };
-                Rect::new(min.x, min.y, size.x, size.y)
-            }
+            Self::At(rect) => rect,
         }
     }
 }
@@ -83,94 +67,58 @@ pub struct Pane {
     /// without ever naming it.
     pub camera: Camera,
     pub placement: Placement,
-    /// What a pick that lands here reports it landed in — see
-    /// [`Renderer::pane_at`](crate::Renderer::pane_at). `None` for a pane
-    /// nothing points at.
-    pub tag: Option<Tag>,
 }
 
 impl Pane {
-    /// A pane of `scene` placed by `placement`, seen from the default camera
-    /// and answering to no tag.
+    /// A pane of `scene` placed by `placement`, seen from the default camera.
     ///
-    /// The two a pane cannot be built without. The camera and the tag are set
-    /// after, being the two a caller usually leaves as they are.
+    /// The two a pane cannot be built without. The camera is set after, being
+    /// the one a caller usually leaves as it is.
     pub fn new(scene: Scene, placement: Placement) -> Self {
         Self {
             scene,
             camera: Camera::default(),
             placement,
-            tag: None,
         }
     }
-}
-
-/// Which pane a point of the view falls in.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PaneAt {
-    /// Which pane it is, as [`Renderer::pane`](crate::Renderer::pane) takes
-    /// one.
-    pub nth: usize,
-    /// What that pane answers to, carried here so a caller that only wants to
-    /// know *which* pane need not go back for it.
-    pub tag: Option<Tag>,
-    /// Where the point falls in the pane, in logical pixels from the pane's own
-    /// top-left corner — which is what a pick of that pane's scene aims with.
-    pub local: Vec2,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// **Every placement puts the pane where its own words say**, worked out in
-    /// pixels by hand.
+    /// **A pane takes the rect its placement names**, and `Fill` is the only
+    /// one the view's own size reaches.
     ///
-    /// A view 800 across and 600 down, and a pane 120 square inset 20 from
-    /// whichever corner it holds. Held top-left it begins at 20, 20. Held
-    /// bottom-right it begins at `800 − 120 − 20` across and `600 − 120 − 20`
-    /// down, which is 660, 460 — and the other two take one of each.
-    ///
-    /// What this guards is the pair of subtractions, which is exactly the
-    /// arithmetic that reads right and comes out mirrored: an inset counted
-    /// from the far edge instead of the near one puts a gizmo 20 pixels off
-    /// screen rather than 20 pixels in.
+    /// Worked by hand against a view 800 across and 600 down. `Fill` is that
+    /// rect. A gizmo 120 square, held 20 clear of the bottom-right corner,
+    /// begins at `800 − 120 − 20` across and `600 − 120 − 20` down — 660, 460 —
+    /// and says so itself, the caller's layout having worked it out.
     #[test]
-    fn every_placement_puts_the_pane_where_its_own_words_say() {
+    fn a_pane_takes_the_rect_its_placement_names() {
         let view = Vec2::new(800.0, 600.0);
-        let size = Vec2::splat(120.0);
-        let inset = Vec2::splat(20.0);
         assert_eq!(
             Placement::Fill.rect(view),
             Rect::new(0.0, 0.0, 800.0, 600.0)
         );
-        for (at, min) in [
-            (Corner::TopLeft, Vec2::new(20.0, 20.0)),
-            (Corner::TopRight, Vec2::new(660.0, 20.0)),
-            (Corner::BottomLeft, Vec2::new(20.0, 460.0)),
-            (Corner::BottomRight, Vec2::new(660.0, 460.0)),
-        ] {
-            let rect = Placement::Pinned { at, size, inset }.rect(view);
-            assert_eq!(rect, Rect::new(min.x, min.y, 120.0, 120.0), "{at:?}");
-        }
+        let corner = Rect::new(660.0, 460.0, 120.0, 120.0);
+        assert_eq!(Placement::At(corner).rect(view), corner);
+        // And a view of another size moves neither of them the same way: the
+        // first follows it and the second does not.
+        let wider = Vec2::new(1600.0, 600.0);
+        assert_eq!(Placement::Fill.rect(wider).max().x, 1600.0);
+        assert_eq!(Placement::At(corner).rect(wider), corner);
     }
 
-    /// A pane too large for the view keeps the corner it was pinned to and
-    /// reaches past the other, rather than being shrunk to fit.
+    /// A rect reaching past the view is answered as it was given.
     ///
-    /// A 300-pixel pane in a 200-pixel view, held bottom-right and inset 10:
-    /// its corner is `200 − 300 − 10`, which is −110. Negative is the answer,
-    /// not an error — the far corner is what the pin holds, and the near one is
-    /// what gives.
+    /// What a scroll does to a pinned gizmo, and what a window too small for
+    /// its own furniture is. The scissor is what clips; a placement that
+    /// clamped would move the pane instead of cutting it, and picking would
+    /// then answer somewhere the drawing is not.
     #[test]
-    fn a_pane_larger_than_its_view_keeps_the_corner_it_holds() {
-        let rect = Placement::Pinned {
-            at: Corner::BottomRight,
-            size: Vec2::splat(300.0),
-            inset: Vec2::splat(10.0),
-        }
-        .rect(Vec2::splat(200.0));
-        assert_eq!(rect.min, Vec2::splat(-110.0));
-        assert_eq!(rect.max(), Vec2::splat(190.0), "the pin let go");
+    fn a_rect_past_the_view_is_answered_as_it_was_given() {
+        let over = Rect::new(-110.0, -110.0, 300.0, 300.0);
+        assert_eq!(Placement::At(over).rect(Vec2::splat(200.0)), over);
     }
 }

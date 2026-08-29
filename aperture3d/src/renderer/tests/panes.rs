@@ -3,21 +3,21 @@
 
 use crate::mesh::{Mesh, Vertex};
 use crate::object::Object;
-use crate::renderer::pane::{Corner, Pane, Placement};
+use crate::renderer::pane::{Pane, Placement};
 use crate::renderer::tests::harness::{FRAME, Framed, square_on};
 use crate::scene::Scene;
 use crate::styled::Styled;
-use glam::{UVec2, Vec2, Vec3};
+use glam::{UVec2, Vec3};
+use palantir::Rect;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
 
-/// How far the pinned pane reaches, in logical pixels, and how far it is held
-/// off the corner it hangs from.
+/// The rect the second pane takes: 80 logical pixels square, held 20 clear of
+/// the frame's bottom-right corner.
 ///
 /// At one physical pixel to the logical one — which is what these paint at —
 /// they are the frame's pixels too, so the boundaries below are arithmetic
 /// rather than measurement.
-const SIDE: f32 = 80.0;
-const INSET: f32 = 20.0;
+const CORNER: Rect = Rect::new(220.0, 140.0, 80.0, 80.0);
 
 /// The colour of the pane that fills the view, and of the one pinned over it.
 ///
@@ -54,14 +54,7 @@ fn walls(gpu: &HeadlessTestGpuLease, behind: f32, over: f32) -> Framed<'_> {
     let mut view = Framed::new(gpu, square_on());
     view.edit(|scene| scene.solids.push(wall(BEHIND, behind)));
 
-    let mut pinned = Pane::new(
-        Scene::default(),
-        Placement::Pinned {
-            at: Corner::BottomRight,
-            size: Vec2::splat(SIDE),
-            inset: Vec2::splat(INSET),
-        },
-    );
+    let mut pinned = Pane::new(Scene::default(), Placement::At(CORNER));
     pinned.camera = square_on();
     pinned.scene.solids.push(wall(OVER, over));
     let nth = view.app.view.borrow_mut().push_pane(pinned);
@@ -80,10 +73,9 @@ fn over(view: &Framed<'_>, at: UVec2) -> bool {
 /// all four of its edges.
 ///
 /// The frame is 320 by 240 and painted at one physical pixel to the logical
-/// one, so a pane 80 across held 20 off the bottom-right corner runs from
-/// `320 − 80 − 20` to `320 − 20` across — 220 up to 300 — and from
-/// `240 − 80 − 20` to `240 − 20` down, which is 140 up to 220. Every pixel
-/// below is one step either side of one of those four numbers.
+/// one, and the second pane is [`CORNER`] — 220 up to 300 across, 140 up to
+/// 220 down. Every pixel below is one step either side of one of those four
+/// numbers.
 ///
 /// The boundaries are exact rather than blurred: what confines a pane is a
 /// scissor, which drops whole samples, so the pixel outside an edge takes none
@@ -140,36 +132,4 @@ fn a_pane_in_front_reads_over_one_that_is_nearer_in_the_world() {
     // And the near wall still wins where it is the only pane, so the slice
     // moved the panes apart rather than moving the geometry.
     assert!(!over(&view, FRAME / 2), "the pane behind lost the middle");
-}
-
-/// Which pane a point of the view falls in, frontmost first.
-///
-/// The rect is the one worked out above — 220 to 300 across, 140 to 220 down —
-/// and a point inside it is in the pinned pane however much of the pane behind
-/// is under it. `local` is measured from the pane's own corner, so the pinned
-/// pane's middle at 260, 180 is 40, 40 into it.
-#[test]
-fn a_point_falls_in_the_frontmost_pane_that_holds_it() {
-    let gpu = headless_test_gpu();
-    let view = walls(&gpu, 0.0, 0.0);
-    let renderer = view.app.view.borrow();
-    let across = FRAME.as_vec2();
-
-    let inside = renderer
-        .pane_at(Vec2::new(260.0, 180.0), across)
-        .expect("the middle of the pinned pane is in a pane");
-    assert_eq!(inside.nth, 1, "a point over the gizmo answered the drawing");
-    assert_eq!(inside.local, Vec2::splat(40.0));
-
-    // One pixel outside it, and the pane behind answers — with the point
-    // measured from the view's own corner, that pane filling it.
-    let outside = renderer
-        .pane_at(Vec2::new(219.0, 180.0), across)
-        .expect("the drawing fills the view");
-    assert_eq!(outside.nth, 0);
-    assert_eq!(outside.local, Vec2::new(219.0, 180.0));
-
-    // And off the view entirely is no pane at all, rather than the last one
-    // that happened to be looked at.
-    assert_eq!(renderer.pane_at(across + Vec2::ONE, across), None);
 }

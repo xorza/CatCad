@@ -37,8 +37,7 @@
 //! each with a scene and a camera of its own. They are drawn back to front in
 //! one pass, through one set of pipelines and one glyph sheet, and each takes
 //! its own slice of the depth range — so nothing in one pane can occlude or be
-//! occluded by anything in another. [`Renderer::pane_at`] is which pane a
-//! pointer is over.
+//! occluded by anything in another.
 //!
 //! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
 //! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
@@ -139,7 +138,7 @@ pub use object::Object;
 pub use point::Point;
 pub use ray::Ray;
 pub use renderer::Renderer;
-pub use renderer::pane::{Corner, Pane, PaneAt, Placement};
+pub use renderer::pane::{Pane, Placement};
 pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;

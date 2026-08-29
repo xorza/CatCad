@@ -91,13 +91,13 @@ pub(crate) struct Chrome {
     /// palantir's own widgets have a disabled state whichever way that goes.
     pub(crate) ink_dim: Color,
 
-    /// A face of the orientation cube, unlit and fully lit.
+    /// A piece of the orientation cube, and the piece the pointer is on.
     ///
-    /// A pair rather than one shade per face, because which face is bright
-    /// follows from where the cube has been turned to rather than from which
-    /// face it is: a face is lit against a light fixed in the world and lands
-    /// somewhere between these two. A ladder of three fixed tints would be a
-    /// cube whose faces swapped shades as it came round.
+    /// One shade for the solid rather than one per face, because the renderer
+    /// lights it: the cube is drawn as modelled geometry against a light fixed
+    /// in the world, so which face reads bright follows from where the cube has
+    /// been turned to. A ladder of fixed tints would be a cube whose faces
+    /// swapped shades as it came round.
     pub(crate) cube_low: Color,
     pub(crate) cube_high: Color,
 
@@ -176,14 +176,13 @@ pub(crate) struct Chrome {
     /// A quarter, which is what leaves each bevel wide enough to aim at
     /// without taking so much of a face that its name has nowhere to sit.
     pub(crate) cube_chamfer: f32,
-    /// How wide the strokes the cube letters its faces with are drawn.
+    /// How large the cube's faces are named, in logical pixels.
     ///
-    /// A stroke rather than a shaped glyph, because a name on this cube lies
-    /// *in* the face it names, and there is no asking a run of shaped text to
-    /// lean. Set against the cap height the naming works out to, not chosen:
-    /// much thinner and a face turned away loses its word, much fatter and the
-    /// counters of `B` and `O` fill in.
-    pub(crate) cube_letter: f32,
+    /// The size a run would be set at square to the viewer, which is what a
+    /// turned one holds — so `BOTTOM`, the longest of the six, has to fit
+    /// across a face at whatever angle the cube is turned to. Small enough for
+    /// that, and no smaller: a name nobody can read is a face nobody can name.
+    pub(crate) cube_name: f32,
 }
 
 impl Chrome {
@@ -197,7 +196,8 @@ impl Chrome {
         self.chip_radius + self.pad
     }
 
-    /// How far one unit of the orientation cube reaches in its box.
+    /// How far the orientation cube's own view reaches, in the units its solid
+    /// is built in — half the height of what its pane shows.
     ///
     /// **Sized against the widest the solid can ever project to**, not against
     /// how it looks from one angle — so it fits its box from every angle rather
@@ -209,16 +209,17 @@ impl Chrome {
     /// from a corner, where all three count: `√3 · (1 - chamfer)`. Which of the
     /// two wins moves with the cut, so both are asked and the larger taken.
     ///
-    /// A plain cube is the first of those with no cut at all, and its corner is
-    /// the `√2` this used to be written as — so a solid whose edges are cut
-    /// fits more of its box, and the lettering on it grows with it.
-    pub(crate) fn cube_scale(&self) -> f32 {
+    /// Then opened out by whatever [`Chrome::cube_margin`] keeps clear, since
+    /// what the camera frames is the whole box and the solid is to fit inside
+    /// it: at no margin the two are the same number.
+    pub(crate) fn cube_extent(&self) -> f32 {
         let chamfer = self.cube_chamfer;
         let widest = f32::max(
             3f32.sqrt() * (1.0 - chamfer),
             (2.0 - chamfer) / std::f32::consts::SQRT_2,
         );
-        (self.cube * 0.5 - self.cube_margin) / widest
+        let half = self.cube * 0.5;
+        widest * half / (half - self.cube_margin)
     }
 
     /// The chrome this palette dresses, at the sizes the overlay is built on.
@@ -264,7 +265,7 @@ impl Chrome {
             cube: 124.0,
             cube_margin: 7.0,
             cube_chamfer: 0.24,
-            cube_letter: 1.3,
+            cube_name: 15.0,
         }
     }
 }

@@ -1,52 +1,30 @@
 //! The orientation cube: which way the camera is looking, and one click to a
 //! named view.
+//!
+//! **Drawn by the renderer and worked by a widget.** The solid and the six
+//! names are a scene of their own in a pane of the viewport — see [`drawn`] —
+//! so they are shaded, antialiased and lettered by the same code the drawing
+//! is. What is here is the half a scene cannot do: sensing the box, resolving
+//! which piece a press landed on, and easing the camera round to it.
 
 use std::f32::consts::PI;
 
-use aperture::Camera;
-use glam::{Vec2, Vec3};
+use aperture::{Camera, Highlight, Lit, Viewport};
+use glam::{Mat4, UVec2, Vec2, Vec3};
 use palantir::{
-    Align, AnimSlot, Animatable, Color, Configure, Drag, LineCap, LineJoin, Mesh, Panel,
-    PolylineColors, Sense, Shape, Sizing, Ui, Vec2 as UiVec2, WidgetId,
+    Align, AnimSlot, Animatable, Configure, Drag, Panel, Rect, Sense, Shape, Sizing, Ui,
+    Vec2 as UiVec2, WidgetId,
 };
 
-use crate::hud::cube::facet::Facet;
+use crate::hud::cube::facet::{Facet, SIDES};
 use crate::intent::Intents;
 use crate::intent::change::Change;
+use crate::look;
 use crate::look::Theme;
 use crate::scene_view::ORBIT_RATE;
 
+pub(crate) mod drawn;
 mod facet;
-mod letters;
-
-/// How much of a face a name is set across, as a share of the face's own width.
-///
-/// **Sized against the widest of the six, so all six are set at one height.** A
-/// cube whose lettering grew as it turned would read as six cubes rather than
-/// as one being looked at from six sides. Short of the whole face, because a
-/// word pressed against the bevel would read as one that had not fitted.
-const NAMING: f32 = 0.80;
-
-/// How far a face has to be turned toward the eye before its name is written on
-/// it, as the cosine of the angle between them.
-///
-/// **A word is not worth the room until it can be read.** A face near enough to
-/// edge-on projects its letters into a smear a stroke or two wide, which is
-/// noise across the piece next to it. At this much the three faces of a corner
-/// view all carry their names — a corner shows each at `0.577` — and a face
-/// swinging away loses its name well before it loses its outline.
-const READS: f32 = 0.3;
-
-/// Where the cube's light comes from, in the world.
-///
-/// **Fixed in the world rather than to the screen**, which is what makes the
-/// cube read as an object being turned rather than as three flat panels
-/// swapping shades: the face that was bright stays the bright one as it comes
-/// round.
-///
-/// Authored at unit length, so shading a piece is one normalize and one dot
-/// rather than two normalizes.
-const LIGHT: Vec3 = Vec3::new(0.3235, 0.8896, 0.3538);
 
 /// The row the camera's bearing is eased in.
 const TURNING: AnimSlot = AnimSlot::new("turning");
@@ -106,6 +84,34 @@ impl From<Vec3> for Bearing {
     }
 }
 
+/// Where the gizmo landed and what the pointer is on, as its pane needs them.
+///
+/// **What the widget knows and the renderer does not.** Where the box sits is
+/// the overlay's layout, and which piece the pointer is over is answered
+/// against that box — so both are carried out of the frame that drew the
+/// overlay and handed to the picture that draws the pane.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Gizmo<'a> {
+    /// The box, in the view's own logical pixels. Empty until the overlay has
+    /// arranged once, and a pane with no room draws nothing.
+    pub(crate) at: Rect,
+    /// What is lit in the gizmo's own scene, which is at most the piece under
+    /// the pointer and the word on it.
+    pub(crate) lit: &'a [Lit],
+}
+
+impl Gizmo<'static> {
+    /// Nowhere, and nothing lit on it.
+    ///
+    /// What a gizmo nothing has arranged or pointed at is, and what a caller
+    /// driving the view without an overlay hands over. A pane with no room
+    /// draws nothing, so it is a whole answer rather than a stand-in.
+    pub(crate) const NOWHERE: Self = Self {
+        at: Rect::new(0.0, 0.0, 0.0, 0.0),
+        lit: &[],
+    };
+}
+
 /// The gizmo, and the view it is on its way to.
 ///
 /// **The target is the whole of its state.** Where the camera *is* belongs to
@@ -113,25 +119,18 @@ impl From<Vec3> for Bearing {
 /// gesture's worth of intent — the view asked for, until the camera reaches it.
 #[derive(Debug, Default)]
 pub(super) struct Cube {
-    /// The three lit faces and whatever wedge the pointer is over, as one
-    /// shape.
-    ///
-    /// **One mesh rather than a triangle apiece**, for two reasons. A quad cut
-    /// into two triangles antialiases along the cut, so the seam shows as a
-    /// hairline across every face; a mesh has no seam because it has no second
-    /// shape to blend against. And it is cleared and refilled rather than
-    /// rebuilt, so the buffers it needs are asked for once and the record pass
-    /// stays at zero allocations.
-    mesh: Mesh,
-    /// One piece's outline, in the world and then laid into the box.
+    /// One piece's outline, in the world and then in the box.
     ///
     /// Kept for their room rather than their contents, like everything else the
-    /// overlay parks: twenty-six outlines are built every frame, and a pair of
-    /// lists asked for at each of them is twenty-six trips to the heap a frame.
+    /// overlay parks: twenty-six outlines are projected to answer a hover, and
+    /// a pair of lists asked for at each of them is twenty-six trips to the
+    /// heap a frame.
     ring: Vec<Vec3>,
     flat: Vec<Vec2>,
-    /// One stroke of one letter, laid into the box, for the same reason.
-    stroke: Vec<UiVec2>,
+    /// What the pane is told to light, refilled every frame — see [`Gizmo`].
+    lit: Vec<Lit>,
+    /// Where the box was last arranged, which is where the pane goes.
+    at: Rect,
     turning_to: Option<Bearing>,
     /// How far the drag under way has travelled, so the next frame can ask for
     /// the *step* rather than the whole of it again. Palantir reports a drag as
@@ -140,11 +139,15 @@ pub(super) struct Cube {
 }
 
 impl Cube {
-    /// Draw it, and ask for whatever a press on it named.
+    /// Sense it, and ask for whatever a press on it named.
     ///
     /// **Shows and does not act**, like everything else on the overlay: the
     /// eased bearing goes out as a [`Change::Aim`] rather than being written to
     /// a camera. Landing twice is harmless because an aim is absolute.
+    ///
+    /// What it draws is the two arrows and nothing else. The solid and the
+    /// names are the renderer's — see [`Gizmo`], which is how what happens here
+    /// reaches them.
     pub(super) fn show(
         &mut self,
         ui: &mut Ui,
@@ -155,27 +158,18 @@ impl Cube {
     ) {
         let state = ui.response_for(id);
         let seen = Seen::of(theme, camera);
-        // Borrowed apiece, because the lettering runs inside the panel below
-        // and the outlines are laid before it: they are different fields, and
-        // nothing here reads one while writing another.
-        let Self {
-            mesh,
-            ring,
-            flat,
-            stroke,
-            ..
-        } = self;
-        // Read before the shapes, so the piece under the pointer is lit on the
-        // frame it is under it rather than the frame after.
         let under = state
             .pointer_local
             .filter(|_| state.hovered)
-            .and_then(|p| seen.facet_at(seen.local(p), ring, flat));
-        solid(mesh, &seen, ring, flat, under);
-        let mesh = &*mesh;
-        // A canvas rather than a stack, because the lettering is *placed*: a
-        // stack puts every child at its own top-left, so three names would land
-        // on top of one another in the corner.
+            .and_then(|at| seen.facet_at(Vec2::new(at.x, at.y), &mut self.ring, &mut self.flat));
+        self.light(theme, under);
+        // The rect the pane is drawn into, which is a frame behind: the overlay
+        // is arranged after it is recorded, so what a widget knows of its own
+        // box is where it was put last time. A resize therefore carries the
+        // gizmo one frame after the window, and nothing else moves it.
+        self.at = state.rect.unwrap_or(Gizmo::NOWHERE.at);
+        // A canvas rather than a stack, because the arrows are *placed* at
+        // either edge rather than laid out one after the other.
         Panel::canvas()
             .id(id)
             .size((
@@ -185,20 +179,50 @@ impl Cube {
             .align(Align::CENTER)
             .sense(Sense::CLICK | Sense::DRAG)
             .show(ui, |ui| {
-                ui.add_shape(Shape::mesh(mesh));
-                edges(ui, &seen, ring, flat, stroke, under);
                 // Away while the cube itself is under the pointer, so they do
                 // not compete with the thing they sit beside.
                 if under.is_none() {
                     arrows(ui, theme);
                 }
-                names(ui, &seen, stroke, under);
             });
         if let Some(facet) = under.filter(|_| state.left.clicked()) {
             self.turning_to = Some(Bearing::from(facet.out()).near(camera.yaw));
         }
         self.drag(state.left.drag, intents);
         self.turn(ui, id, theme, camera, intents);
+    }
+
+    /// Where it is and what is lit on it, for the picture that draws its pane.
+    pub(crate) fn gizmo(&self) -> Gizmo<'_> {
+        Gizmo {
+            at: self.at,
+            lit: &self.lit,
+        }
+    }
+
+    /// What the piece under the pointer, and the word on it, are lit in.
+    ///
+    /// Two looks rather than one, because they land on top of each other: a
+    /// face gone bright with one colour on it would be a face whose name had
+    /// disappeared into it.
+    fn light(&mut self, theme: &Theme, under: Option<Facet>) {
+        let chrome = &theme.chrome;
+        self.lit.clear();
+        let Some(facet) = under else {
+            return;
+        };
+        self.lit.push(Lit {
+            tag: facet.tag(),
+            look: Highlight::new(look::ink(chrome.cube_high)),
+        });
+        // The pill's own dark, which is what reads on a face that has gone
+        // light — the same pairing a held chip is inked with.
+        if let Some(side) = SIDES.into_iter().find(|side| side.facet() == facet) {
+            self.lit.push(Lit {
+                tag: side.tag(),
+                look: Highlight::new(look::ink(chrome.on_held)),
+            });
+        }
     }
 
     /// Turn it by hand.
@@ -254,41 +278,36 @@ impl Cube {
 
 /// How the cube is being looked at this frame.
 ///
-/// **Built once and handed down.** Every projection below wants the same two
-/// facts — where the eye stands and how big the box is — and the screen basis
-/// they imply costs two normalizes. A frame projects forty-odd corners and label
-/// centres, so working it out at each of them would be doing once-a-frame
-/// arithmetic forty times over.
+/// **The pane's own projection, and not a second one.** What a press lands on
+/// has to agree with what was drawn, so both go through the very matrix the
+/// pane is drawn by — see [`drawn::camera`]. A basis worked out again here from
+/// the same yaw and pitch would agree with it until the day one of the two
+/// changed.
+///
+/// Built once and handed down: a frame projects the corners of every piece in
+/// view, and building the matrix at each of them would be doing once-a-frame
+/// arithmetic a hundred times over.
 #[derive(Debug)]
-struct Seen<'a> {
-    theme: &'a Theme,
+struct Seen {
     /// Where the eye stands, as a direction from what it is looking at.
-    ///
-    /// **Taken off the camera's own answer rather than worked out again.** Which
-    /// way the offset runs from a yaw and a pitch is aperture's convention, and a
-    /// second copy of it here would be a cube that went on drawing the old one
-    /// the day it changed. What is dropped is the distance, which says nothing
-    /// about which way round the cube reads.
     eye: Vec3,
-    /// The screen right and up the camera implies, with the world's own up.
-    ///
-    /// The same basis the renderer builds, restated here rather than borrowed:
-    /// the cube is drawn flat and orthographic whatever the view is doing, so it
-    /// wants the camera's *orientation* and nothing else of it — no projection,
-    /// no distance, no viewport.
-    right: Vec3,
-    up: Vec3,
+    view_proj: Mat4,
+    /// The gizmo's box, which is the pane's viewport.
+    viewport: Viewport,
+    /// How far the solid's edges are cut, so an outline asked for here is the
+    /// outline the pane drew.
+    chamfer: f32,
 }
 
-impl<'a> Seen<'a> {
-    fn of(theme: &'a Theme, camera: Camera) -> Self {
-        let eye = (camera.eye() - camera.target).normalize_or(Vec3::Y);
-        let right = Vec3::new(eye.z, 0.0, -eye.x).normalize_or(Vec3::X);
+impl Seen {
+    fn of(theme: &Theme, aim: Camera) -> Self {
+        let camera = drawn::camera(theme, aim);
+        let viewport = Viewport::new(UVec2::splat(theme.chrome.cube as u32));
         Self {
-            theme,
-            eye,
-            right,
-            up: right.cross(-eye).normalize_or(Vec3::Y),
+            eye: drawn::eye(&camera),
+            view_proj: camera.view_proj(viewport.aspect()),
+            viewport,
+            chamfer: theme.chrome.cube_chamfer,
         }
     }
 
@@ -297,37 +316,22 @@ impl<'a> Seen<'a> {
         facet.out().dot(self.eye) > 0.0
     }
 
-    /// Where a world direction lands in the box, measured from its middle.
-    fn flat(&self, direction: Vec3) -> Vec2 {
-        // Negated down the screen, because a box counts its rows from the top
-        // and the world counts its height from the ground.
-        Vec2::new(direction.dot(self.right), -direction.dot(self.up))
-            * self.theme.chrome.cube_scale()
+    /// Where a point of the solid lands in the box, counting down from its
+    /// top-left corner — the way a pointer arrives.
+    ///
+    /// Never off the view: the projection is parallel and its slab reaches
+    /// sixty-four times the standoff, so nothing an inch across is clipped.
+    fn at(&self, position: Vec3) -> Vec2 {
+        self.viewport
+            .pixel_of(self.view_proj * position.extend(1.0))
+            .expect("a parallel view of the gizmo draws the whole of it")
     }
 
-    /// The same, in the box's own coordinates — what a shape is placed in and
-    /// where the pointer arrives.
-    fn at(&self, direction: Vec3) -> UiVec2 {
-        self.boxed(self.flat(direction))
-    }
-
-    /// A point already laid flat, moved into the box's own corner.
-    fn boxed(&self, flat: Vec2) -> UiVec2 {
-        let middle = self.theme.chrome.cube * 0.5;
-        UiVec2::new(flat.x + middle, flat.y + middle)
-    }
-
-    /// The pointer, measured from the middle of the box like everything else.
-    fn local(&self, pointer: UiVec2) -> Vec2 {
-        let middle = self.theme.chrome.cube * 0.5;
-        Vec2::new(pointer.x - middle, pointer.y - middle)
-    }
-
-    /// The outline of `facet`, laid flat into `flat`.
+    /// The outline of `facet`, laid into `flat`.
     fn outline(&self, facet: Facet, ring: &mut Vec<Vec3>, flat: &mut Vec<Vec2>) {
-        facet.ring(self.theme.chrome.cube_chamfer, ring);
+        facet.ring(self.chamfer, ring);
         flat.clear();
-        flat.extend(ring.iter().map(|&at| self.flat(at)));
+        flat.extend(ring.iter().map(|&at| self.at(at)));
     }
 
     /// What the point `at` in the box is over, if anything.
@@ -375,149 +379,6 @@ fn inside(ring: &[Vec2], at: Vec2) -> bool {
     true
 }
 
-/// Every piece of the solid turned toward the eye, filled and lit, into `mesh`.
-///
-/// Nothing is sorted, because pieces pointing at the eye cannot overlap each
-/// other — the same fact the picking above rests on.
-fn solid(
-    mesh: &mut Mesh,
-    seen: &Seen<'_>,
-    ring: &mut Vec<Vec3>,
-    flat: &mut Vec<Vec2>,
-    under: Option<Facet>,
-) {
-    mesh.clear();
-    for facet in facet::EVERY {
-        if !seen.shows(facet) {
-            continue;
-        }
-        seen.outline(facet, ring, flat);
-        fan(
-            mesh,
-            seen,
-            flat,
-            lit(seen.theme, facet, under == Some(facet)),
-        );
-    }
-}
-
-/// Every piece run round with a stroke of its own colour.
-///
-/// **What makes the solid's edges smooth.** A mesh is rasterized by whether a
-/// pixel's centre falls inside a triangle and by nothing else, so every
-/// boundary it draws is a staircase — which on a gizmo of two dozen small
-/// facets is most of what you see. A stroke is drawn with analytic coverage.
-/// Run round each piece in the very shade that piece is filled with, it changes
-/// no colour at all and feathers every boundary: the silhouette against the
-/// drawing, and the join between one facet and the next.
-///
-/// The ring is closed by repeating where it began, because a stroke has two
-/// ends and an outline has none.
-fn edges(
-    ui: &mut Ui,
-    seen: &Seen<'_>,
-    ring: &mut Vec<Vec3>,
-    flat: &mut Vec<Vec2>,
-    stroke: &mut Vec<UiVec2>,
-    under: Option<Facet>,
-) {
-    for facet in facet::EVERY {
-        if !seen.shows(facet) {
-            continue;
-        }
-        seen.outline(facet, ring, flat);
-        stroke.clear();
-        stroke.extend(flat.iter().map(|&at| seen.boxed(at)));
-        stroke.push(stroke[0]);
-        ui.add_shape(
-            Shape::polyline(
-                stroke,
-                PolylineColors::Single(lit(seen.theme, facet, under == Some(facet))),
-                1.0,
-            )
-            .join(LineJoin::Miter),
-        );
-    }
-}
-
-/// One outline, as the fan of triangles it is — sharing their vertices, so no
-/// cut inside it is a boundary anything antialiases against.
-fn fan(mesh: &mut Mesh, seen: &Seen<'_>, ring: &[Vec2], color: Color) {
-    let [first, second] = [0, 1].map(|at| mesh.vertex(seen.boxed(ring[at]), color));
-    let mut last = second;
-    for &at in &ring[2..] {
-        let next = mesh.vertex(seen.boxed(at), color);
-        mesh.triangle(first, last, next);
-        last = next;
-    }
-}
-
-/// What a piece turned this way is filled with.
-///
-/// Lit in the world rather than picked off a table, so a piece keeps its shade
-/// as the cube turns — see [`LIGHT`]. It is also the whole of what makes the
-/// chamfers read: a bevel faces halfway between its two neighbours, so the
-/// light gives it a shade of its own and the edge between them becomes a facet
-/// rather than a line.
-fn lit(theme: &Theme, facet: Facet, under: bool) -> Color {
-    let chrome = &theme.chrome;
-    if under {
-        return chrome.chip_held;
-    }
-    let light = facet.normal().dot(LIGHT).max(0.0);
-    chrome.cube_low.lerp(chrome.cube_high, light)
-}
-
-/// The name of every face turned far enough toward the eye to read, written in
-/// the plane of the face itself.
-///
-/// **In the face and not on the screen**, which is the one thing about the
-/// lettering worth saying. A run of shaped text is a rectangle of pixels the
-/// compositor sets square to the screen, and a word set square on a face that
-/// is not reads as a sticker on a photograph. These are strokes — see
-/// [`letters`] — so every point of every letter goes through the same
-/// projection the outline under it did, and the word leans with the face.
-fn names(ui: &mut Ui, seen: &Seen<'_>, stroke: &mut Vec<UiVec2>, under: Option<Facet>) {
-    let chrome = &seen.theme.chrome;
-    // One height for all six — see [`NAMING`].
-    let widest = facet::SIDES
-        .into_iter()
-        .map(|side| letters::width(side.name))
-        .fold(0.0, f32::max);
-    // The face is what is left of the cube's own after the cut, and the word
-    // takes a share of that.
-    let em = (1.0 - chrome.cube_chamfer) * 2.0 * NAMING / widest;
-    for side in facet::SIDES {
-        let facet = side.facet();
-        if facet.normal().dot(seen.eye) < READS {
-            continue;
-        }
-        // The pill's own dark where the face under it has gone light, so the
-        // word survives being pointed at rather than disappearing into it.
-        let ink = match under == Some(facet) {
-            true => chrome.on_held,
-            false => chrome.ink_lit,
-        };
-        let mut pen = em * letters::width(side.name) * -0.5;
-        for letter in side.name.bytes() {
-            for run in letters::strokes(letter) {
-                stroke.clear();
-                stroke.extend(run.iter().map(|point| {
-                    let across = pen + point.x * letters::NARROW * em;
-                    let up = (point.y - 0.5) * em;
-                    seen.at(facet.out() + side.u * across + side.v * up)
-                }));
-                ui.add_shape(
-                    Shape::polyline(stroke, PolylineColors::Single(ink), chrome.cube_letter)
-                        .cap(LineCap::Round)
-                        .join(LineJoin::Round),
-                );
-            }
-            pen += (letters::NARROW + letters::TRACKING) * em;
-        }
-    }
-}
-
 /// The two arrows that step the view a quarter turn to either side.
 ///
 /// **A step in yaw, not a roll.** A cube in a modeller that carries one usually
@@ -525,7 +386,6 @@ fn names(ui: &mut Ui, seen: &Seen<'_>, stroke: &mut Vec<UiVec2>, under: Option<F
 /// and a pitch and no roll at all, and giving it one reaches the projection,
 /// the ray cast and which way up a name is written. A quarter turn is the
 /// useful nine tenths of what the arrows are for.
-///
 fn arrows(ui: &mut Ui, theme: &Theme) {
     const RISE: f32 = 4.5;
     const RUN: f32 = 5.0;
@@ -554,15 +414,21 @@ mod tests {
     use aperture::Camera;
     use glam::Vec2;
 
-    /// Where a press at `at` in the cube's box would point the camera, or
+    /// The middle of the gizmo's box, which every press below is measured from.
+    fn middle() -> Vec2 {
+        Vec2::splat(Theme::default().chrome.cube * 0.5)
+    }
+
+    /// Where a press `off` the middle of the box would point the camera, or
     /// `None` where that point is off the solid.
     ///
     /// The whole of what these tests need: the drawing is judged by eye and the
     /// arithmetic is judged here, so a piece that stopped resolving to its own
     /// view fails without a frame being rendered.
-    fn aimed(camera: Camera, at: Vec2) -> Option<Bearing> {
+    fn aimed(camera: Camera, off: Vec2) -> Option<Bearing> {
         let (mut ring, mut flat) = (Vec::new(), Vec::new());
-        let facet = Seen::of(&Theme::default(), camera).facet_at(at, &mut ring, &mut flat)?;
+        let facet =
+            Seen::of(&Theme::default(), camera).facet_at(middle() + off, &mut ring, &mut flat)?;
         Some(Bearing::from(facet.out()))
     }
 
@@ -696,8 +562,8 @@ mod tests {
         // The bevel joining FRONT and RIGHT, at the middle of its own outline.
         let bevel = piece(Vec3::new(1.0, 0.0, 1.0));
         seen.outline(bevel, &mut ring, &mut flat);
-        let middle = flat.iter().sum::<Vec2>() / flat.len() as f32;
-        let aim = aimed(camera, middle).expect("the bevel is in view");
+        let at = flat.iter().sum::<Vec2>() / flat.len() as f32;
+        let aim = aimed(camera, at - middle()).expect("the bevel is in view");
         // Half-way between a yaw of zero and a quarter turn, and level: the
         // eye offset runs `(sin yaw, ·, cos yaw)`, so `(1, 0, 1)` is an eighth
         // of a turn round and no pitch at all.

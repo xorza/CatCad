@@ -1,6 +1,7 @@
 //! What the orientation gizmo is a solid of: a cube with every edge and every
 //! corner cut away.
 
+use aperture::Tag;
 use glam::{IVec3, Vec3};
 
 /// One flat piece of the chamfered cube — a face, an edge bevel or a corner
@@ -58,13 +59,15 @@ impl Facet {
         self.out().normalize()
     }
 
-    /// The points bounding it, in ring order, written into `into`.
+    /// The points bounding it, written into `into`: neighbours in order, and
+    /// wound counter-clockwise seen from outside.
     ///
-    /// **Ring order and not a winding.** Nothing downstream asks which way
-    /// round it runs: a fan fills the same triangles either way, palantir culls
-    /// no faces, and the test for a point inside asks whether the crossings
-    /// agree rather than which sign they agree on. What it does owe is that
-    /// consecutive points are neighbours, so the outline does not cross itself.
+    /// **The winding is settled here rather than by each of the three kinds
+    /// below.** Every one of them is built in an axis frame that falls out of
+    /// the direction, and half of those frames are left-handed — so a ring that
+    /// read counter-clockwise for one sign read clockwise for the other. What
+    /// culls the solid's back faces reads the winding, so a ring that got it
+    /// wrong would be a piece that vanished from one side.
     ///
     /// **Every point of the solid reaches the full half-cube on one axis, stops
     /// short of the edge on the next and short of the corner on the third** —
@@ -139,23 +142,44 @@ impl Facet {
                 }
             }
         }
+        // Three points settle it, the ring being flat and convex: the turn from
+        // the first edge to the second either agrees with the way the piece
+        // looks out or is the reverse of it.
+        if (into[1] - into[0]).cross(into[2] - into[1]).dot(sign) < 0.0 {
+            into.reverse();
+        }
+    }
+
+    /// What the gizmo's scene names this piece.
+    ///
+    /// The direction packed into a number, so a piece names itself: each
+    /// component runs `-1..=1`, which is one digit of three in base three. The
+    /// middle of that range is the direction no piece has, so the numbers a
+    /// facet takes are the twenty-seven less one.
+    pub(super) fn tag(self) -> Tag {
+        Tag::new(packed(self.0))
     }
 }
 
-/// One of the six named faces: which way it looks, and the frame a word on it
-/// is set in.
+/// A direction of whole numbers in `-1..=1` as one of twenty-seven numbers.
+fn packed(out: IVec3) -> u64 {
+    let digits = out + IVec3::ONE;
+    (digits.x * 9 + digits.y * 3 + digits.z) as u64
+}
+
+/// One of the six named faces: which way it looks, the line its word is set
+/// along, and the word.
 ///
-/// The axes travel with the direction rather than being worked out from it,
-/// because a word has a way up: `u` runs along the line of the letters and `v`
-/// rises through them, and which of the four quarter turns of the face that is
-/// is a decision rather than a derivation. The top of a cube reads front-to-back
-/// and the bottom reads the other way, so that a turn from one to the other does
-/// not pass through a word standing on its head.
+/// The line travels with the direction rather than being worked out from it,
+/// because which of the four quarter turns of a face a word is set at is a
+/// decision rather than a derivation. Which way *up* is not stated beside it:
+/// a laid run settles that from the projection, so a face turning past the back
+/// of the cube brings its word round rather than standing it on its head — see
+/// [`Turn`](aperture::Turn).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Side {
     out: IVec3,
     pub(super) u: Vec3,
-    pub(super) v: Vec3,
     pub(super) name: &'static str,
 }
 
@@ -169,37 +193,31 @@ pub(super) const SIDES: [Side; 6] = [
     Side {
         out: IVec3::Y,
         u: Vec3::X,
-        v: Vec3::NEG_Z,
         name: "TOP",
     },
     Side {
         out: IVec3::NEG_Y,
         u: Vec3::X,
-        v: Vec3::Z,
         name: "BOTTOM",
     },
     Side {
         out: IVec3::Z,
         u: Vec3::X,
-        v: Vec3::Y,
         name: "FRONT",
     },
     Side {
         out: IVec3::NEG_Z,
         u: Vec3::NEG_X,
-        v: Vec3::Y,
         name: "BACK",
     },
     Side {
         out: IVec3::X,
         u: Vec3::NEG_Z,
-        v: Vec3::Y,
         name: "RIGHT",
     },
     Side {
         out: IVec3::NEG_X,
         u: Vec3::Z,
-        v: Vec3::Y,
         name: "LEFT",
     },
 ];
@@ -208,6 +226,24 @@ impl Side {
     /// The facet this face is.
     pub(super) fn facet(self) -> Facet {
         Facet(self.out)
+    }
+
+    /// Which way it looks, which is also where the middle of the face is: every
+    /// face reaches the whole half-cube along its own axis.
+    pub(super) fn out(self) -> Vec3 {
+        self.out.as_vec3()
+    }
+
+    /// What the gizmo's scene names the word on this face.
+    ///
+    /// A name of its own beside the piece's, so that a face lit under the
+    /// pointer can take one look and the word on it another — one colour for
+    /// both would be a word that vanished into the face it names.
+    ///
+    /// The piece's number and twenty-seven, which is one past the last a facet
+    /// can take. See [`Facet::tag`].
+    pub(super) fn tag(self) -> Tag {
+        Tag::new(27 + packed(self.out))
     }
 }
 
@@ -270,14 +306,13 @@ mod tests {
     }
 
     /// Every named face is one of the six, no two share a direction, and each
-    /// writes its word in its own plane.
+    /// sets its word along a line its own plane has.
     ///
     /// What keeps the naming honest in the two places it could rot quietly. A
     /// [`Side`] whose direction is not one of the six would put a word on a
-    /// bevel, which has no room for one. And the frame a word is set in is
-    /// *stated* rather than derived from the direction — which is what lets the
-    /// top read front-to-back and the bottom read the other way — so nothing
-    /// but this says the pair still lies in the face they belong to.
+    /// bevel, which has no room for one. And the line a word is set along is
+    /// *stated* rather than derived from the direction, so nothing but this
+    /// says it still lies in the face it belongs to.
     #[test]
     fn every_named_face_is_one_of_the_six_and_writes_in_its_own_plane() {
         for side in SIDES {
@@ -289,11 +324,15 @@ mod tests {
                 side.name
             );
             assert!(EVERY.contains(&facet), "{} is not on the solid", side.name);
-            assert!(side.u.dot(side.v).abs() < 1e-6, "{}'s axes lean", side.name);
             assert!(
-                side.u.cross(side.v).dot(facet.normal()).abs() > 0.999,
-                "{}'s word is not written in its own plane",
+                side.u.dot(facet.normal()).abs() < 1e-6,
+                "{}'s word leans out of its own face",
                 side.name,
+            );
+            assert!(
+                (side.u.length() - 1.0).abs() < 1e-6,
+                "{}'s line is not unit",
+                side.name
             );
         }
         for (at, one) in SIDES.iter().enumerate() {
@@ -304,6 +343,51 @@ mod tests {
                     one.name, two.name
                 );
                 assert_ne!(one.name, two.name, "two faces answer to {}", one.name);
+            }
+        }
+    }
+
+    /// **Every piece names itself, and no two pieces share a name.**
+    ///
+    /// A tag is what the gizmo's scene lights a piece by, so two pieces sharing
+    /// one would light the wrong facet — quietly, and only from the angles that
+    /// show both. The words are checked in the same sweep: a word takes the
+    /// number of the face it is on plus a step past the last a piece can take,
+    /// so a step too short would light a face and a word together and the word
+    /// would disappear into it.
+    #[test]
+    fn every_piece_and_every_word_answers_to_a_name_of_its_own() {
+        let mut taken = std::collections::HashSet::new();
+        for facet in EVERY {
+            assert!(taken.insert(facet.tag()), "{facet:?} shares a name");
+        }
+        for side in SIDES {
+            assert!(
+                taken.insert(side.tag()),
+                "{}'s word shares a name",
+                side.name
+            );
+        }
+        assert_eq!(taken.len(), EVERY.len() + SIDES.len());
+    }
+
+    /// Every ring winds counter-clockwise seen from the way its piece looks.
+    ///
+    /// What the solids pass culls on, so a ring that wound the other way is a
+    /// piece drawn from the inside — visible from behind the cube and absent
+    /// from in front. The turn from one edge to the next is what says it, and a
+    /// convex flat ring gives the same answer at every corner: all of them are
+    /// asked, so a ring that folded would be caught as well.
+    #[test]
+    fn every_ring_winds_the_way_its_piece_looks() {
+        let mut ring = Vec::new();
+        for facet in EVERY {
+            facet.ring(0.25, &mut ring);
+            for at in 0..ring.len() {
+                let edge = ring[(at + 1) % ring.len()] - ring[at];
+                let next = ring[(at + 2) % ring.len()] - ring[(at + 1) % ring.len()];
+                let turn = edge.cross(next).dot(facet.normal());
+                assert!(turn > 0.0, "{facet:?} turns {turn} at corner {at}");
             }
         }
     }

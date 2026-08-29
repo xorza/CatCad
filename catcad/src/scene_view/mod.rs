@@ -1,5 +1,6 @@
 //! The 3D view, and everything the pointer does to it.
 
+use crate::hud::cube::Gizmo;
 use aperture::{Camera, Extent};
 use palantir::{Configure, GpuView, Sense, Sizing, Ui, WidgetId};
 use silverpoint::Entity;
@@ -29,6 +30,12 @@ mod pointing;
 /// The renderer is built holding it, so it is the first — and whatever is
 /// pushed over it is furniture, which the drawing is not.
 pub(crate) const DRAWING: usize = 0;
+
+/// Which pane the orientation gizmo is.
+///
+/// Pushed over the drawing, so it reads over whatever the model does — see
+/// [`Renderer::push_pane`](aperture::Renderer::push_pane).
+pub(crate) const GIZMO: usize = 1;
 
 /// Radians of orbit per logical pixel of drag.
 ///
@@ -175,6 +182,7 @@ impl SceneView {
         build: &Build,
         theme: &Theme,
         session: &Session,
+        gizmo: Gizmo<'_>,
     ) {
         // How the drawing is looked at now this frame's edits have landed,
         // which is what the controls are cut against and what the hover is
@@ -203,6 +211,7 @@ impl SceneView {
         let pointed = self.pointing.settled(&self.picture, lens);
         self.picture.light(theme, pointed, session.selection());
         self.picture.aimed_through(document.camera());
+        self.picture.gizmo(gizmo, theme, document.camera());
     }
 
     /// Where a form open against the drawing stands, or `None` where the view is

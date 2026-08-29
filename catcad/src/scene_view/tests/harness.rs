@@ -5,6 +5,7 @@ use crate::demo;
 use crate::document::Document;
 use crate::drawing::{Drawing, Grip};
 use crate::history::History;
+use crate::hud::cube::Gizmo;
 use crate::intent::{Choice, Intent, Intents};
 use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
@@ -69,7 +70,7 @@ impl RaisedView {
         if let Some(extent) = view.extent() {
             document.camera_mut().frame(extent);
         }
-        view.settle(&document, &build, &theme, &session);
+        view.settle(&document, &build, &theme, &session, Gizmo::NOWHERE);
         let mut raised = Self {
             document,
             history: History::default(),
@@ -120,7 +121,7 @@ impl RaisedView {
             // Drawn after, exactly as the application draws it: the view paints
             // the drawing this frame's gestures have already reached.
             view.draw(ui);
-            view.settle(document, build, theme, session);
+            view.settle(document, build, theme, session, Gizmo::NOWHERE);
             // **The paint the application would have done, in the one respect a
             // pick depends on it.** A label's box is filled by the pass that
             // lays its glyphs out, and this harness records without ever

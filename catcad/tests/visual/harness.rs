@@ -195,6 +195,10 @@ pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Pane)) -> Frame {
 /// golden that makes renaming a tool a rendering failure, and it puts chrome in
 /// the way of anything that sweeps the frame counting pixels of a colour.
 ///
+/// The orientation gizmo stays, and is the one piece of furniture that does:
+/// it is a pane of the renderer rather than a widget over it, so what leaves
+/// with the HUD is its two turn arrows and nothing else.
+///
 /// Recorded once and then painted again through a bare pane, which is what
 /// separates this from [`painted`]. The controls and the lines a dimension is
 /// drawn with are built *against the camera*, so they are right only for the

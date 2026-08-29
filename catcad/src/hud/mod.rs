@@ -4,7 +4,7 @@ use aperture::Camera;
 use palantir::{Align, Background, Configure, InternedStr, Panel, Sizing, Spacing, Ui, WidgetId};
 use std::hash::Hash;
 
-use crate::hud::cube::Cube;
+use crate::hud::cube::{Cube, Gizmo};
 use crate::intent::Intents;
 use crate::look::Theme;
 use crate::look::icons::Icons;
@@ -16,7 +16,7 @@ use crate::tool::Tool;
 use silverpoint::Constraint;
 
 mod camera;
-mod cube;
+pub(crate) mod cube;
 mod papers;
 mod rail;
 mod readout;
@@ -129,6 +129,16 @@ impl Hud {
             &mut self.draft,
             intents,
         );
+    }
+
+    /// Where the orientation gizmo landed and what the pointer is on it, for
+    /// the picture that draws its pane.
+    ///
+    /// **Read after the overlay has recorded**, which is what makes the answer
+    /// this frame's: the cube resolves the hover as it senses, and where its box
+    /// sits is what the last arrangement put it.
+    pub(crate) fn gizmo(&self) -> Gizmo<'_> {
+        self.cube.gizmo()
     }
 }
 

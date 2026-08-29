@@ -65,6 +65,17 @@ pub(crate) struct Theme {
     dressed: OnceCell<Dressed>,
 }
 
+/// A theme colour as the renderer takes one: linear RGB, with the alpha
+/// dropped.
+///
+/// The overlay is drawn in palantir's own [`Color`] and the scene in a bare
+/// vector, so a colour spent on both crosses here. The one statement of it —
+/// [`Swatch::ink`](crate::look::palette::swatch::Swatch::ink) is a palette
+/// entry taking the same step and comes through here to take it.
+pub(crate) const fn ink(color: Color) -> glam::Vec3 {
+    glam::Vec3::new(color.r, color.g, color.b)
+}
+
 /// What a colour composites to over what is behind it, and how far apart the
 /// two land.
 ///

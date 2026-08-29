@@ -205,7 +205,10 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &build, &theme, &session);
+        // The overlay before the settle, which wants what the overlay knows:
+        // nothing yet, the gizmo having neither arranged nor been pointed at.
+        let hud = Hud::default();
+        view.settle(&document, &build, &theme, &session, hud.gizmo());
         Self {
             document,
             history: History::default(),
@@ -213,7 +216,7 @@ impl CatCad {
             build,
             view,
             session,
-            hud: Hud::default(),
+            hud,
             icons: None,
             theme,
             filing: Filing::default(),
@@ -638,8 +641,13 @@ impl App for CatCad {
                 self.apply();
                 self.draw(ui);
                 self.apply();
-                self.view
-                    .settle(&self.document, &self.build, &self.theme, &self.session);
+                self.view.settle(
+                    &self.document,
+                    &self.build,
+                    &self.theme,
+                    &self.session,
+                    self.hud.gizmo(),
+                );
             });
     }
 }
@@ -808,8 +816,13 @@ pub(crate) mod internals {
         /// showing.
         pub fn enter_first_sketch(&mut self) {
             self.session.enter_first_sketch(&self.document, &self.build);
-            self.view
-                .settle(&self.document, &self.build, &self.theme, &self.session);
+            self.view.settle(
+                &self.document,
+                &self.build,
+                &self.theme,
+                &self.session,
+                self.hud.gizmo(),
+            );
         }
 
         /// Open the form that decides the depth of a solid grown off `region`

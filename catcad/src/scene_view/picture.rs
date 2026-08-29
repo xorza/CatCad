@@ -5,6 +5,11 @@ use std::rc::Rc;
 
 use aperture::{Aim, Camera, Extent, Hit, Lit, Pane, Placement, Renderer};
 
+use crate::hud::cube;
+use crate::hud::cube::Gizmo;
+use crate::scene_view::GIZMO;
+
+use glam::Vec3;
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
@@ -51,6 +56,18 @@ pub(super) struct Picture {
     /// rebuilt every settle. Kept for its room rather than its contents, so a
     /// frame that lights the same set as the last asks the heap for nothing.
     lit: Vec<Lit>,
+    /// Where the eye stood when the gizmo's faces were last named.
+    ///
+    /// A name is a run the shaper lays out and the six of them are written
+    /// afresh whenever the bearing moves — see [`cube::drawn::name`] — so a
+    /// still frame would otherwise re-shape six words to arrive at the six it
+    /// already had. Starts at zero, which is a direction no eye stands in.
+    ///
+    /// Compared for exact equality, which is what a memo of a value wants: what
+    /// is asked is whether the bearing arrived a second time bit for bit, not
+    /// whether it moved far enough to matter. A camera nobody turned answers
+    /// with the very float it answered with last frame.
+    named: Vec3,
 }
 
 impl Picture {
@@ -97,10 +114,18 @@ impl Picture {
         let scene = paint::scene(models, theme, &mut layout);
         let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
         renderer.set_ground(theme.drawing.ground);
+        // The gizmo over the drawing, with nowhere to stand until the overlay
+        // has arranged once — a pane with no room draws nothing.
+        let nth = renderer.push_pane(Pane::new(
+            cube::drawn::scene(theme),
+            Placement::At(Rect::new(0.0, 0.0, 0.0, 0.0)),
+        ));
+        debug_assert_eq!(nth, GIZMO, "the gizmo went somewhere else");
         Self {
             renderer: Rc::new(RefCell::new(renderer)),
             layout,
             lit: Vec::new(),
+            named: Vec3::ZERO,
         }
     }
 
@@ -187,6 +212,27 @@ impl Picture {
             self.lit.push(Lit { tag, look });
         }
         self.renderer.borrow_mut().highlight_all(DRAWING, &self.lit);
+    }
+
+    /// Put the gizmo where the overlay says it is, aimed the way the document
+    /// is, and lit wherever the pointer is on it.
+    ///
+    /// **All three every frame, unasked.** Where the box sits and what is under
+    /// the pointer are the overlay's answers and it re-answers them each frame;
+    /// the bearing is the document's. None of the three dirties anything it did
+    /// not change — a camera moves no geometry, a placement moves no vertex, and
+    /// a highlight already in force is compared before it is written.
+    pub(super) fn gizmo(&mut self, gizmo: Gizmo<'_>, theme: &Theme, camera: Camera) {
+        let mut renderer = self.renderer.borrow_mut();
+        let pane = renderer.pane_mut(GIZMO);
+        pane.placement = Placement::At(gizmo.at);
+        pane.camera = cube::drawn::camera(theme, camera);
+        let eye = cube::drawn::eye(&pane.camera);
+        if self.named != eye {
+            self.named = eye;
+            cube::drawn::name(theme, eye, &mut pane.scene.texts);
+        }
+        renderer.highlight_all(GIZMO, gizmo.lit);
     }
 
     /// Paint what is here through `camera` from now on.

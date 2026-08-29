@@ -89,17 +89,20 @@ pub struct Pane {
 }
 
 pub enum Placement {
-    /// The whole target — what a viewport is.
+    /// The whole view — what a viewport is.
     Fill,
-    /// A box of a stated size, pinned to a corner and inset from it, in
-    /// **logical** pixels. What furniture wants: a gizmo is the same size
-    /// whatever the window is.
-    Pinned { at: Corner, size: Vec2, inset: Vec2 },
-    /// A share of the target. What a second picture of the same scene wants,
-    /// because it should grow with the room it has.
-    Share(Rect),
+    /// Exactly this rect of it, in **logical** pixels.
+    At(Rect),
 }
 ```
+
+The second arm was a `Pinned { corner, size, inset }` until the gizmo was built
+against it. A host with a layout engine already knows where its furniture goes —
+CatCad's gizmo sits in a stack above a pill, so how much room the corner leaves
+is the overlay's answer and not a corner and an inset. A placement that pinned
+itself would be a second layout, agreeing with the first until one of them
+changed. The cost is one frame of lag on a resize, the layout being arranged
+after it is recorded.
 
 The ground stays on the renderer rather than moving to the pane, and that is the
 one thing about a pane that is *not* its own: what is behind everything is drawn
@@ -192,29 +195,22 @@ same size read one entry.
 ### 3.5 Picking
 
 `Scene::nearest(aim)` does not change. What changes is that a caller must first
-say *which* pane, and aperture is the only place that knows where the panes
-landed:
+say *which* pane, and then aim in that pane's own box rather than in the view's.
 
-```rust
-impl Renderer {
-    /// Which pane a point of the view falls in, frontmost first.
-    pub fn pane_at(&self, at: Vec2, view: Vec2) -> Option<PaneAt>;
-}
+This proposed a `Renderer::pane_at(at, view)` for the first half, on the grounds
+that aperture is the only place that knows where the panes landed. Building the
+gizmo showed otherwise. A host with a layout engine routes its own pointer — the
+gizmo's box is a palantir widget, so palantir claims the press and hands the
+widget a position already local to it — and `Placement::rect` is public, so a
+host that does route its own can ask each pane where it is. The door was built,
+tested, and taken out again for having no caller, on the terms §8 leaves
+`Placement::Share` out on.
 
-pub struct PaneAt { pub nth: usize, pub tag: Option<Tag>, pub local: Vec2 }
-```
-
-Frontmost first, because that is the order the eye reads them in: a pointer over
-the gizmo is over the gizmo and not over the model behind it.
-
-Both lengths are **logical** pixels — what a pointer arrives in, and what a
-pinned pane states its size in. The frame is the one place the raster scale is
-spent, and it spends it on the rect it draws rather than on the arithmetic that
-places one, so picking and drawing cannot become two placements.
-
-A pane is free to be picked some other way. The orientation cube resolves a press
-against the projected outlines of its own facets — exact, cheap and already
-tested — and nothing here asks it to stop.
+What a pane *does* owe its picking is that the projection be the same one it was
+drawn through. The orientation cube resolves a press against the projected
+outlines of its own facets, and it builds that projection by asking for the
+pane's camera rather than by restating the bearing — which is what keeps what is
+pressed and what was drawn from being two answers.
 
 ---
 
@@ -240,8 +236,8 @@ Nothing in this reaches the parts of aperture that carry the weight.
 The test of the design is whether the second thing is easier than the first.
 
 - **An orientation cube.** A chamfered solid, six turned runs of text, an
-  orthographic camera following the document's yaw and pitch. `Pinned` to a
-  corner.
+  orthographic camera following the document's yaw and pitch, `At` the rect the
+  overlay laid out for it. Built.
 - **An axis triad.** The same, smaller, and with three curves instead of a solid.
 - **A top-view inset.** The *document's own* scene, a second camera looking
   straight down, `Share`d into a corner. Nothing new at all.
@@ -256,28 +252,26 @@ with a real argument behind it and no caller yet; §8 keeps it.
 
 ---
 
-## 6. Implementation plan
+## 6. What is built
 
-The renderer side is built: `Pane`, `Placement`, `Mirror`, the pane list, the
-partitioned pass and `pane_at`. What is left is the thing it was for.
+All of it. The renderer hosts panes, and the orientation gizmo is one: a
+chamfered solid of twenty-six objects with a flat normal apiece, six runs of
+text laid into the faces they name, and an orthographic camera taking the
+document's yaw and pitch.
 
-**Step 6 — CatCad: the gizmo becomes a pane.**
-- Build the chamfered solid as an `Object`. Vertices split per facet, because a
-  bevel wants a flat shade and a shared vertex would average it away.
-- Six `Text`s at `Facing::Turned`, which retires `hud/cube/letters.rs` and its
-  sixteen hand-drawn capitals.
-- An orthographic `Camera` taking the document camera's yaw and pitch, at a
-  fixed distance and field.
-- `Placement::Pinned` at the bottom right, sized `chrome.cube`.
-- The facet picking stays where it is: it is exact, it needs no GPU, and it is
-  already under test. What it reads changes from the HUD's box to the pane's,
-  which `Renderer::pane_at` answers.
-*Check:* the cube's existing tests pass unchanged — they are about the
-arithmetic, not the drawing — and the frame is looked at.
+What the widget kept is the half a scene cannot do. It senses its box, resolves
+which piece a press landed on — through the pane's own projection, so what is
+pressed and what was drawn cannot disagree — eases the camera round to it, and
+draws the two turn arrows. What it hands the picture is where its box landed and
+what is lit on it.
 
-**Step 7 — retire the palantir-mesh cube.**
-`Shape::mesh`, the stroked outlines that were standing in for antialiasing, and
-the stroke alphabet all go. The multisampling is aperture's.
+Two things fell out of the move rather than being carried across. The names are
+shaped runs now, so `hud/cube/letters.rs` and its sixteen hand-drawn capitals
+are gone; their size follows the face's foreshortening, because a run laid into
+a plane is *set* at the size it would have had square to the viewer and a word
+painted on a cube is not. And the shading is the mesh pass's — a key light and a
+hemisphere ambient, fixed in the world — so the cube keeps one colour and the
+renderer decides which face reads bright.
 
 ## 7. What it costs
 
@@ -311,9 +305,13 @@ handles colour.
 - **Panes in a window of their own.** A pane is a rect of one target. A second
   window is a second `GpuView` and a second renderer, and that is the case where
   a transparent clear becomes worth building.
+- **A `pane_at` that says which pane a point is in.** See §3.5: palantir routes
+  the pointer, so nothing asked. The day a host draws panes and routes its own
+  press, it is the frontmost-first walk over `Placement::rect` and a dozen
+  lines.
 - **`Placement::Share`, a rect stated as a fraction of the view.** What a second
   picture of the same scene wants, because it should grow with the room it has —
-  and what a top-view inset would be placed by. `Fill` and `Pinned` are what the
-  two panes that exist are, and a third arm with no caller is a published surface
+  and what a top-view inset would be placed by. `Fill` and `At` are what the two
+  panes that exist are, and a third arm with no caller is a published surface
   nothing has ever answered a question about. It costs five lines the day the
   inset lands.

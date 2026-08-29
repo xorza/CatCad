@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::look;
 use glam::Vec3;
 use palantir::Color;
 use serde::de::{Error, Unexpected, Visitor};
@@ -39,8 +40,7 @@ impl Swatch {
     /// The same linearisation and then a reinterpretation, since a shade the
     /// renderer strokes with is the three channels [`Color`] already holds.
     pub(crate) const fn ink(self) -> Vec3 {
-        let color = self.color();
-        Vec3::new(color.r, color.g, color.b)
+        look::ink(self.color())
     }
 
     /// This colour at `alpha`, where `255` is opaque.
