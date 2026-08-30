@@ -68,6 +68,22 @@ fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
     // no reason a user could see.
     assert_eq!(hit.screen, 0.0);
 
+    // **A preview standing nearer takes nothing.** What a ghost stands for is
+    // the thing a form is deciding, so a press on one would be a press on the
+    // question rather than on the drawing — and the form's own controls are
+    // what answer it. Nearer than the sheet and covering the same pixel, so a
+    // walk that counted it would answer this rather than the sheet below.
+    scene.ghosts.push(Object {
+        mesh: Mesh::cube(1.0),
+        tag: Some(Tag::new(9)),
+        ..Object::default()
+    });
+    let through = scene
+        .nearest(Aim::new(&camera, middle, viewport, 6.0))
+        .expect("the cursor is still over the sheet");
+    assert_eq!(through.tag, sheet, "a preview was picked");
+    scene.ghosts.clear();
+
     // Well off it answers nothing, however wide the aim.
     assert!(
         scene

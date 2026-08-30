@@ -110,6 +110,12 @@ impl Mirror {
             relight,
             Gpu::faces_order(camera.eye()),
         );
+        cpu.ghosts.refresh(
+            &mut scene.ghosts,
+            highlights,
+            relight,
+            Gpu::ghosts_order(camera.eye()),
+        );
         cpu.gizmos.refresh(&mut scene.gizmos, highlights, relight);
         cpu.curves.refresh(&mut scene.curves, highlights, relight);
         cpu.rings.refresh(&mut scene.rings, highlights, relight);

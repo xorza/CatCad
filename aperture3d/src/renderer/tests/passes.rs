@@ -55,9 +55,13 @@ fn every_pipeline_builds() {
         Held::new(&gpu.device, &built),
     ] {
         // Meshes are the one kind whose list changes, so a mirror grows its own
-        // beside its records and there is nothing in either yet.
-        assert_eq!(mirror.solids.index_count, 0);
-        assert!(mirror.solids.indices.buffer().is_none());
+        // beside its records and there is nothing in either yet. All three of
+        // them: a solid, a face and a ghost are one shader told apart by
+        // pipeline state — see [`Pass::mesh`](crate::renderer::pass::Pass).
+        for mesh in [&mirror.solids, &mirror.faces, &mirror.ghosts] {
+            assert_eq!(mesh.index_count, 0);
+            assert!(mesh.indices.buffer().is_none());
+        }
         for pass in [
             &mirror.curves.ordinary,
             &mirror.curves.lit,
@@ -74,6 +78,7 @@ fn every_pipeline_builds() {
         for pass in [
             &mirror.solids,
             &mirror.faces,
+            &mirror.ghosts,
             &mirror.curves.ordinary,
             &mirror.curves.lit,
             &mirror.rings.ordinary,
@@ -206,4 +211,72 @@ fn the_frame_is_cleared_to_the_ground_the_renderer_was_given() {
             "the ground reached the clear as {got:?}"
         );
     }
+}
+
+/// **A ghost behind a solid still reaches the frame, and the same body drawn
+/// as a solid does not.**
+///
+/// The whole of what the ghost pass is for. Both things one is drawn for stand
+/// *inside* the model — a tool sitting where it would cut, and a cut whose
+/// answer is buried in the part — so a preview that took the depth test would
+/// be hidden in exactly the two cases it exists for. See
+/// [`GHOST_OPACITY`](crate::renderer::gpu::GHOST_OPACITY).
+///
+/// One scene and one pixel, with the far quad moved between the two batches and
+/// nothing else changed. Anything that answered by pass order rather than by
+/// the depth test gives the same pixel twice.
+#[test]
+fn a_ghost_behind_a_solid_is_drawn_through_it_where_a_solid_would_be_hidden() {
+    /// Far apart in hue, so a blend of the two cannot be mistaken for either.
+    const PART: Vec3 = Vec3::new(0.80, 0.10, 0.10);
+    const TOOL: Vec3 = Vec3::new(0.10, 0.10, 0.80);
+    /// The camera looks down −Z from +Z, so a greater z is nearer the eye.
+    const NEAR: f32 = 1.0;
+    const FAR: f32 = -1.0;
+
+    let gpu = headless_test_gpu();
+    // Straight down the axis, so both quads land on the middle pixel whatever
+    // their depth — which is what lets one pixel answer for the pair.
+    let mut view = Framed::new(&gpu, square_on());
+
+    let mut behind = |ghosted: bool| {
+        view.edit(|scene| {
+            scene.clear();
+            scene
+                .solids
+                .push(Object::new(facing_quad()).colored(PART).at(Vec3::Z * NEAR));
+            let tool = Object::new(facing_quad()).colored(TOOL).at(Vec3::Z * FAR);
+            match ghosted {
+                true => scene.ghosts.push(tool),
+                false => scene.solids.push(tool),
+            };
+        });
+        view.paint(1.0);
+        view.middle()
+    };
+
+    let ghosted = behind(true);
+    let solid = behind(false);
+
+    // Drawn as a solid the tool is behind the part, loses the depth test, and
+    // contributes nothing — so the pixel is the part alone.
+    // Drawn as a ghost it takes no test and blends over the part.
+    assert_ne!(
+        ghosted, solid,
+        "the same body behind the same part gave one pixel either way, so the \
+         ghost took the depth test the part had already written",
+    );
+    assert!(
+        ghosted[2] > solid[2],
+        "no more of the tool's colour reached the frame as a ghost \
+         ({ghosted:?}) than as a solid behind the part ({solid:?})",
+    );
+    // And it is a ghost rather than a replacement: the part is still the
+    // stronger of the two, which is what says the pass composited rather than
+    // painted over.
+    assert!(
+        ghosted[0] > ghosted[2],
+        "a ghost over the part ({ghosted:?}) reads stronger than the part it \
+         is shown through",
+    );
 }

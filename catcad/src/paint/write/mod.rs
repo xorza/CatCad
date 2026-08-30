@@ -22,7 +22,7 @@ use aperture::{
     Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Turn, Vertex,
 };
 use glam::{Mat4, Vec2, Vec3};
-use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
+use silverpoint::{Body, Circle, CircleId, Constraint, Named, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
 use crate::look::Theme;
@@ -546,6 +546,21 @@ pub(super) fn faces(
     );
 }
 
+/// The two batches a body can be written into.
+///
+/// A bundle on the terms [`Raising`] states: both are lent for the length of
+/// one call, and two `&mut`s in a row at the call site would be two chances to
+/// hand over the wrong one. Which of them a body goes in is what that body
+/// *is* — see [`solids`], where that is decided.
+#[derive(Debug)]
+pub(super) struct Shaping<'a> {
+    /// The model, and an answer that already holds it.
+    pub(super) solid: &'a mut Batch<Object>,
+    /// A proposal standing inside the model, drawn through it rather than
+    /// hidden by it.
+    pub(super) ghost: &'a mut Batch<Object>,
+}
+
 /// An object per face of every solid the document has grown.
 ///
 /// One object per *face* rather than one per solid, which is what makes a solid
@@ -568,8 +583,9 @@ pub(super) fn solids(
     sheets: &mut Sheets,
     growing: Option<Growing>,
     sagitta: f64,
-    into: &mut Batch<Object>,
+    shaping: Shaping<'_>,
 ) {
+    let Shaping { solid, ghost } = shaping;
     let Sheets {
         mesher,
         patch,
@@ -597,6 +613,18 @@ pub(super) fn solids(
     // two copies of one surface fighting for one depth. Every other answer
     // leaves the document drawn as it always is.
     let standing = (showing != Deciding::Answer).then(|| models.solids());
+    // **Which batch the one being decided goes in is what it *is*.** An answer
+    // holds the model and stands where the model stands, so it is a solid. A
+    // tool standing beside it is a proposal about material that is not there
+    // yet — and it sits *inside* the part, whether because it is the cut it
+    // would make or because a frame had no time to combine it. Drawn as a
+    // solid it would be hidden by the very part it is about. See
+    // [`Scene::ghosts`](aperture::Scene).
+    let (answered, faintly) = match showing {
+        Deciding::Answer => (Some(&*deciding), None),
+        Deciding::Beside => (None, Some(&*deciding)),
+        Deciding::Nothing => (None, None),
+    };
     // One walk and nothing gathered: a body hands out its faces as an iterator,
     // so the whole of a document's solids is written straight into the batch. A
     // list of them first would be an allocation a frame, which is exactly what
@@ -609,9 +637,9 @@ pub(super) fn solids(
         .into_iter()
         .flatten()
         .map(|(_, body)| body)
-        .chain((showing != Deciding::Nothing).then_some(&*deciding))
-        .flat_map(|body| body.names().map(move |face| (body, face)));
-    into.refill(faces, |object, (body, face)| {
+        .chain(answered)
+        .flat_map(per_face);
+    let mut shape = |object: &mut Object, (body, face): (&Body, Named)| {
         mesher.cut(body, face, sagitta, patch);
         remesh(
             &mut object.mesh,
@@ -641,7 +669,20 @@ pub(super) fn solids(
                 face: face.grown,
             })
         });
-    });
+    };
+    solid.refill(faces, &mut shape);
+    // Refilled whether there is a ghost or not, so a form closing takes the
+    // last one away rather than leaving it standing over the model.
+    ghost.refill(faintly.into_iter().flat_map(per_face), &mut shape);
+}
+
+/// Every face of `body`, each carrying the body it was read off.
+///
+/// A face knows what grew it and nothing about what it is part of, and cutting
+/// one wants both — so the pair is made here rather than at each of the two
+/// walks that wants it.
+fn per_face(body: &Body) -> impl Iterator<Item = (&Body, Named)> {
+    body.names().map(move |face| (body, face))
 }
 
 /// Write `corners` and the `triangles` over them into `mesh`.

@@ -39,6 +39,7 @@ use crate::renderer::record::{CurveInstance, PointInstance, RingInstance};
 pub(crate) struct Cpu {
     pub(crate) solids: Triangles,
     pub(crate) faces: Triangles,
+    pub(crate) ghosts: Triangles,
     /// The controls, which are strokes like the drawing's own — their own
     /// buffer because they are their own pass, on their own rung.
     pub(crate) gizmos: Records<CurveInstance>,

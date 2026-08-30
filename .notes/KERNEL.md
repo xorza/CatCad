@@ -340,7 +340,7 @@ gates are a strict zero on every frame the pointer can be in the middle of.
 **An arm arrives with the routine that produces it, and never before.** A tier
 with nothing on it and a curve nothing writes are both a surface nobody can
 answer a question about. `Curve::Quartic` is the one arm still owed, and it
-lands with the route that makes it — §9.2.
+lands with the route that makes it — §9.1.
 
 ```rust
 /// The exact tier and the fitted tier, told apart by the type.
@@ -829,8 +829,8 @@ that does it. What follows is what is not, in the order to take it in.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written. Step 1 has a consumer in the
-tree today. Steps 2 to 4 do not, and each waits for the thing that makes one.
+meets is worse than a routine nobody has written. Nothing left here has a
+consumer in the tree, so each step waits for the thing that makes one.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -838,20 +838,7 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 Step 1 — a ghost
-
-Not the kernel's, and it wants work in `aperture3d` rather than in `solid/`. An
-`Object` carries a `Vec3` colour and the only translucent mesh pass is the flat
-sheets a drawing's regions are filled with, so there is nothing for a solid to
-be drawn faintly *in*.
-
-**Both consumers are already wired.** `paint::LIVE_FACES` falls back to showing
-the tool where the tool has more faces than a frame can combine, and a cut whose
-result is hidden behind the part from the current camera shows nothing at all.
-Neither is worth a pass of its own, so the work is an alpha the mesh pass
-carries rather than a second pass.
-
-### 9.2 Step 2 — the general quartic
+### 9.1 Step 1 — the general quartic
 
 `Curve` carries `Line`, `Circle`, `Ellipse`, `Saddle` and `Marched`. It does not
 carry `Quartic`, and `Meeting::Algebraic` is the refusal a pair wanting one
@@ -879,7 +866,7 @@ The general case is research-grade but published, complete and proven, which is
 the difference between hard and open-ended. §12 names the two papers to read
 first.
 
-### 9.3 Step 3 — the rest of the fitted tier
+### 9.2 Step 2 — the rest of the fitted tier
 
 Two gaps, and nothing built today reaches either. Both wait for a producer, the
 way the coaxial cone rows waited for the revolve that turns a taper.
@@ -895,7 +882,7 @@ the whole cut — so `Cut::between` refuses that join rather than closing it wit
 a chord. The pieces of a plane-torus meeting stand in different quarters of the
 ring, and on the plane itself they are closed loops the boundary never meets.
 
-### 9.4 Step 4 — M7, fillet, chamfer, STEP
+### 9.3 Step 3 — M7, fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-

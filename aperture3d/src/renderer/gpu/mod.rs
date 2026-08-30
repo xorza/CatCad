@@ -66,6 +66,26 @@ const FACE_BIAS: i32 = 2048;
 /// [`Held::draw`]: crate::renderer::held::Held::draw
 const FACE_OPACITY: f32 = 0.45;
 
+/// How solid a body shown as a *preview* reads.
+///
+/// **A ghost, and it declines the depth test** — see
+/// [`PassSpec::depth_test`](super::pass::PassSpec). Both things a ghost is
+/// drawn for stand *inside* the model: a tool too detailed to combine on a
+/// frame's clock is a tool sitting where it would cut, and a cut whose answer
+/// is buried in the part is buried by definition. A ghost that took the test
+/// would be hidden in exactly the two cases it exists for.
+///
+/// **What that costs is that a ghost reads as though it were in front**, which
+/// is a lie about where it is, and it is the price of the thing being visible
+/// at all. What keeps it from being read as a lie is how faint it is: nothing
+/// else in the scene is drawn this way, so a body this pale reads as *not
+/// really there* rather than as one standing in front.
+///
+/// Fainter than a face, and for a different reason. A face is a region shown
+/// over the model and has the model behind it to be read against; a ghost is
+/// drawn over everything, so it has to give way to all of it.
+pub(super) const GHOST_OPACITY: f32 = 0.28;
+
 /// The flat controls, which lie on a datum among the faces rather than over the
 /// drawing.
 ///
@@ -177,6 +197,7 @@ impl Twin {
 pub(super) struct Gpu {
     pub(super) solids: wgpu::RenderPipeline,
     pub(super) faces: wgpu::RenderPipeline,
+    pub(super) ghosts: wgpu::RenderPipeline,
     pub(super) gizmos: Twin,
     pub(super) curves: Twin,
     pub(super) rings: Twin,
@@ -196,21 +217,32 @@ pub(super) struct Gpu {
 
 impl Gpu {
     /// What order the faces have to reach the target in, seen from `eye`.
-    ///
-    /// Read off the one thing that decides it. A pass you can see through has to
-    /// be drawn after whatever shows through it, because blending mixes with
-    /// what is *already* there — so this and the blend the pipeline takes are
-    /// two consequences of `FACE_OPACITY` rather than two things to remember.
-    /// Made opaque again, both go away together.
-    ///
-    /// Here rather than where it is called: the constant is this file's, and a
-    /// caller deciding for itself is exactly the second declaration this exists
-    /// to avoid.
     pub(super) fn faces_order(eye: Vec3) -> Order {
-        if pass::translucent(FACE_OPACITY) {
-            Order::BackToFront(eye)
-        } else {
-            Order::Given
+        Self::mesh_order(FACE_OPACITY, eye)
+    }
+
+    /// The same for the ghosts.
+    pub(super) fn ghosts_order(eye: Vec3) -> Order {
+        Self::mesh_order(GHOST_OPACITY, eye)
+    }
+
+    /// What order a mesh pass at `opacity` has to reach the target in.
+    ///
+    /// Read off the one thing that decides it. A pass you can see through has
+    /// to be drawn after whatever shows through it, because blending mixes with
+    /// what is *already* there — so this and the blend the pipeline takes are
+    /// two consequences of the opacity rather than two things to remember. Made
+    /// opaque again, both go away together.
+    ///
+    /// Here rather than where it is called: the constants are this file's, and
+    /// a caller deciding for itself is exactly the second declaration this
+    /// exists to avoid. Which is also why the two above pass their own rather
+    /// than taking one: a caller that named an opacity could name the wrong
+    /// one.
+    fn mesh_order(opacity: f32, eye: Vec3) -> Order {
+        match pass::translucent(opacity) {
+            true => Order::BackToFront(eye),
+            false => Order::Given,
         }
     }
 
@@ -325,6 +357,7 @@ impl Gpu {
             blend: None,
             depth_bias: 0,
             opacity: 1.0,
+            depth_test: true,
             depth_write: true,
         });
         // The same shader as the solids, and the same growing triangle list —
@@ -338,6 +371,20 @@ impl Gpu {
             blend: None,
             depth_bias: FACE_BIAS,
             opacity: FACE_OPACITY,
+            depth_test: true,
+            depth_write: false,
+        });
+        // A solid shown as a preview: the solids' own shader and culling — it is
+        // modelled geometry and wound the same way — over the faces' own
+        // compositing. What is neither's is the depth test, which it declines.
+        let ghosts = pipelines.build::<GpuVertex>(PassSpec {
+            name: MESH,
+            cull: Some(wgpu::Face::Back),
+            alpha_to_coverage: false,
+            blend: None,
+            depth_bias: 0,
+            opacity: GHOST_OPACITY,
+            depth_test: false,
             depth_write: false,
         });
         // Strokes like the drawing's own, on a rung of their own: a control is
@@ -392,6 +439,7 @@ impl Gpu {
         Self {
             solids,
             faces,
+            ghosts,
             gizmos,
             curves,
             rings,

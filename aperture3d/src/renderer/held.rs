@@ -2,7 +2,7 @@
 
 use crate::renderer::cpu::Cpu;
 use crate::renderer::cpu::records::Records;
-use crate::renderer::gpu::{Gpu, MESH, Twin};
+use crate::renderer::gpu::{Gpu, Twin};
 use crate::renderer::pass::Pass;
 use crate::renderer::record::Record;
 use crate::renderer::uniforms::Uniforms;
@@ -78,6 +78,7 @@ impl Passes {
 pub(super) struct Held {
     pub(super) solids: Pass,
     pub(super) faces: Pass,
+    pub(super) ghosts: Pass,
     pub(super) gizmos: Passes,
     pub(super) curves: Passes,
     pub(super) rings: Passes,
@@ -100,10 +101,9 @@ impl Held {
         Self {
             bind: gpu.bind(device, &uniforms),
             uniforms,
-            // Both mesh passes are labelled for the one shader they share; what
-            // tells a solid from a face is pipeline state — see [`MESH`].
-            solids: Pass::growing(&format!("aperture.{MESH}"), gpu.solids.clone()),
-            faces: Pass::growing(&format!("aperture.{MESH}"), gpu.faces.clone()),
+            solids: Pass::mesh(&gpu.solids),
+            faces: Pass::mesh(&gpu.faces),
+            ghosts: Pass::mesh(&gpu.ghosts),
             gizmos: Passes::of(&gpu.gizmos),
             curves: Passes::of(&gpu.curves),
             rings: Passes::of(&gpu.rings),
@@ -142,6 +142,7 @@ impl Held {
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(uniforms));
         self.solids.upload_mesh(device, queue, &mut cpu.solids);
         self.faces.upload_mesh(device, queue, &mut cpu.faces);
+        self.ghosts.upload_mesh(device, queue, &mut cpu.ghosts);
         self.gizmos.upload(device, queue, &mut cpu.gizmos);
         self.curves.upload(device, queue, &mut cpu.curves);
         self.rings.upload(device, queue, &mut cpu.rings);
@@ -168,6 +169,13 @@ impl Held {
     pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_bind_group(0, &self.bind, &[]);
         self.solids.draw(pass);
+        // The ghosts straight after the solids, which is what they are shown
+        // *through*: a blend mixes with what is already in the target, so the
+        // model has to be there first. Before the drawing's own strokes and
+        // markers rather than after, because what a preview must never do is
+        // dim the thing being drawn — a ghost takes no depth test, so nothing
+        // else could put those back over it.
+        self.ghosts.draw(pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.

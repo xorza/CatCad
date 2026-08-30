@@ -291,6 +291,21 @@ fn the_extent_covers_transformed_meshes_and_curves() {
     assert_eq!(cube.min, Vec3::new(9.0, -1.0, -1.0));
     assert_eq!(cube.max, Vec3::new(11.0, 1.0, 1.0));
 
+    // A preview drags it out the same way. What a form is deciding is on
+    // screen and has to be framed, whatever batch it is drawn from.
+    scene
+        .ghosts
+        .push(Object::new(Mesh::cube(2.0)).at(Vec3::new(-10.0, 0.0, 0.0)));
+    let ghosted = scene.extent().unwrap();
+    assert_eq!(ghosted.min, Vec3::new(-11.0, -1.0, -1.0));
+    assert_eq!(ghosted.max, Vec3::new(11.0, 1.0, 1.0));
+    scene.ghosts.clear();
+    assert_eq!(
+        scene.extent().unwrap(),
+        cube,
+        "the ghost was not taken back"
+    );
+
     // A curve reaching past the cube drags the extent out with it.
     scene
         .curves

@@ -357,7 +357,10 @@ pub(crate) fn redraw(
             sheets,
             showing.growing,
             made.chorded.sagitta(),
-            &mut into.solids,
+            write::Shaping {
+                solid: &mut into.solids,
+                ghost: &mut into.ghosts,
+            },
         );
     }
     if from <= Stage::Marks {

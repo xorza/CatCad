@@ -627,7 +627,7 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
 /// The whole of the table [`Meeting::coaxial`] answers for a cone — a cylinder,
 /// a sphere either side of the apex, and a second cone — where the plane above
 /// is answered one row up. Everything off-axis stands one storey up and still
-/// says so, for which see `.notes/KERNEL.md` §9.2.
+/// says so, for which see `.notes/KERNEL.md` §9.1.
 #[test]
 fn a_cone_meets_a_coaxial_surface_in_the_circles_its_half_angle_sets() {
     let cone = taper();

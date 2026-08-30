@@ -35,6 +35,20 @@ pub struct Scene {
     /// as their own pass, so a drag that redraws every face leaves the solids
     /// standing beside it untouched.
     pub faces: Batch<Object>,
+    /// Solids shown as a *preview* rather than as part of the model: what a
+    /// step being decided would grow, before anything commits it.
+    ///
+    /// Its own batch on the terms [`Scene::faces`] states, and one more. It is
+    /// written on the schedule a form is typed in rather than the one a
+    /// document changes on, so a digit typed into a depth rewrites this and
+    /// leaves the model's own solids alone. And it is drawn without the depth
+    /// test, which nothing else here is — the argument is at `GHOST_OPACITY`,
+    /// which is the pass that draws it.
+    ///
+    /// **Not picked.** A preview is what a form is *about*, so a press on one
+    /// would be a press on the thing being decided rather than on the drawing —
+    /// and the form's own controls are what decide it.
+    pub ghosts: Batch<Object>,
     pub curves: Batch<Curve>,
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
@@ -132,6 +146,7 @@ impl Scene {
         let mut reach = Reach::default();
         reach.cover(&self.solids);
         reach.cover(&self.faces);
+        reach.cover(&self.ghosts);
         reach.cover(&self.curves);
         reach.cover(&self.rings);
         reach.cover(&self.points);
@@ -250,6 +265,8 @@ impl Scene {
     /// A mesh is picked by casting the ray at every triangle it holds, which is
     /// worth halving.
     fn occluders(&self, aim: &Aim) -> Occluders {
+        // The ghosts are left out: a preview is what a form is deciding, not
+        // something to take hold of — see [`Scene::ghosts`].
         let meshes = || self.faces.iter().chain(self.solids.iter());
         let mut front = f32::INFINITY;
         let mut ranked: Option<Hit> = None;
@@ -366,6 +383,7 @@ mod emptying {
             let Self {
                 solids,
                 faces,
+                ghosts,
                 curves,
                 rings,
                 points,
@@ -374,6 +392,7 @@ mod emptying {
             } = self;
             solids.clear();
             faces.clear();
+            ghosts.clear();
             curves.clear();
             rings.clear();
             points.clear();

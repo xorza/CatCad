@@ -165,7 +165,7 @@ pub struct CatCad {
 
 impl CatCad {
     /// What `WinitHost` calls. The host's arguments say nothing this app
-    /// needs, so the work is all in [`CatCad::dressed`] — which is also what
+    /// needs, so the work is all in `CatCad::dressed` — which is also what
     /// lets the offscreen harness raise the same app without a window, in
     /// colours of its own.
     pub fn new(_ui: &mut Ui, _handle: HostHandle<Self>) -> Self {

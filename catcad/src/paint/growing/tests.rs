@@ -2,14 +2,17 @@
 
 use crate::build::Build;
 use crate::document::Document;
+use crate::look::Theme;
 use crate::model::Models;
 use crate::paint::growing::*;
+use crate::paint::{Layout, Showing, redraw};
 use crate::profile::Profile;
 use crate::prompt::Form;
 use crate::timeline::FeatureId;
 use crate::timeline::Sweep;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
+use aperture::Scene;
 use glam::DVec2;
 use silverpoint::Sketch;
 
@@ -245,4 +248,50 @@ fn undrawn(staged: &Staged) -> Profile {
     let named = model.arrangement().faces()[0].named();
     assert!(named.len() > 1, "a region of one side cannot be cut down");
     Profile::of(staged.tool, [&named[..named.len() - 1]].into_iter())
+}
+
+/// **A preview standing beside the model is written as a ghost, and one that
+/// holds the model is written as a solid.**
+///
+/// Which batch it lands in is what it *is* — see
+/// [`write::solids`](crate::paint::write::solids). A tool standing beside the
+/// part sits inside it, so drawn as a solid it would be hidden by the very
+/// thing it is about. An answer already holds the model and stands where the
+/// model stands, so it is the model.
+///
+/// The two fixtures above, taken one stage further: a first step that joins
+/// alone is [`Deciding::Beside`] and its six faces are the tool's own, and the
+/// same square over a standing block is [`Deciding::Answer`] and its eleven are
+/// the answer's. Both counts are the ones the tests above hand-compute.
+#[test]
+fn a_preview_beside_the_model_is_ghosted_and_an_answer_is_not() {
+    let written = |stands: bool| {
+        let staged = staged(square(1.0, 1.0, 1.0), stands);
+        let profile = tooled(&staged);
+        let mut scene = Scene::default();
+        redraw(
+            staged.document.models(&staged.build, Some(staged.tool)),
+            &Theme::default(),
+            &mut Layout::default(),
+            Showing {
+                growing: Some(Growing {
+                    form: Form::default(),
+                    profile: &profile,
+                    sweep: Sweep::Carried(4.0),
+                    operation: Operation::Join,
+                }),
+                ..Showing::default()
+            },
+            None,
+            &mut scene,
+        );
+        (scene.solids.len(), scene.ghosts.len())
+    };
+
+    // Nothing stands, so the tool is the whole preview and every one of its six
+    // faces is faint. No solid is drawn at all — there is none.
+    assert_eq!(written(false), (0, 6));
+    // A block stands, the join combines, and the answer holds both — so all
+    // eleven faces are the model and nothing is a ghost.
+    assert_eq!(written(true), (11, 0));
 }

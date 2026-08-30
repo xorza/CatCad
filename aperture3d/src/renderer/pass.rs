@@ -2,6 +2,7 @@
 
 use crate::renderer::band;
 use crate::renderer::cpu::triangles::Triangles;
+use crate::renderer::gpu::MESH;
 use crate::renderer::record::Record;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
@@ -111,6 +112,19 @@ pub(super) struct PassSpec {
     /// in the order it happens to be held in, looks almost right, and "almost
     /// right" is what a second declaration somewhere else buys.
     pub(super) opacity: f32,
+    /// Whether the pass is hidden by what stands in front of it.
+    ///
+    /// **Every pass but one takes the test**, because a renderer that drew what
+    /// is behind a surface over it would be drawing a lie about where things
+    /// are. The exception is the ghost — see
+    /// [`GHOST_OPACITY`](super::gpu::GHOST_OPACITY), which is where the trade
+    /// is argued.
+    ///
+    /// Apart from [`PassSpec::depth_write`], which is a different question: a
+    /// pass that declines the test still has depth written *over* it by
+    /// whatever comes after, and a blended pass that declines to write still
+    /// reads what came before.
+    pub(super) depth_test: bool,
     /// Whether the pass writes what it draws into the depth buffer.
     ///
     /// Every opaque pass does, and the blended one must not: two blended
@@ -138,6 +152,7 @@ impl PassSpec {
             blend: None,
             depth_bias: 0,
             opacity: 1.0,
+            depth_test: true,
             depth_write: true,
         }
     }
@@ -204,7 +219,10 @@ impl Pipelines<'_> {
                     depth_write_enabled: Some(spec.depth_write),
                     // Reversed depth: the camera puts the near plane at 1, so
                     // nearer is greater. See [`Camera::view_proj`].
-                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    depth_compare: Some(match spec.depth_test {
+                        true => wgpu::CompareFunction::Greater,
+                        false => wgpu::CompareFunction::Always,
+                    }),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState {
                         constant: spec.depth_bias,
@@ -242,11 +260,15 @@ impl Pass {
     /// A pass that grows its own triangle list, which is meshes and only
     /// meshes: what a mesh draws *is* its list, so every mirror needs one.
     ///
-    /// `stem` labels both buffers, so a capture tool names them for the pass
-    /// they feed. Nothing else reads a label.
-    pub(super) fn growing(stem: &str, pipeline: wgpu::RenderPipeline) -> Self {
+    /// **Labelled for the one shader all three of them share**, because that is
+    /// what they are: a solid, a face and a ghost differ by pipeline state and
+    /// not by one line of WGSL — see [`MESH`](super::gpu::MESH). A label is
+    /// read by a capture tool and by nothing else, so it names the shader
+    /// rather than telling the three apart.
+    pub(super) fn mesh(pipeline: &wgpu::RenderPipeline) -> Self {
+        let stem = format!("aperture.{MESH}");
         Self {
-            pipeline,
+            pipeline: pipeline.clone(),
             records: Retained::growable(format!("{stem}.records"), wgpu::BufferUsages::VERTEX),
             indices: Retained::growable(format!("{stem}.indices"), wgpu::BufferUsages::INDEX),
             index_count: 0,
