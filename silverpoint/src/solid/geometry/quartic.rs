@@ -13,6 +13,7 @@
 #![allow(dead_code)]
 
 use crate::inline::Inline;
+use crate::math::arc;
 use crate::math::quartic;
 use crate::number::exact::field::Field;
 use crate::number::exact::quadratic::Quadratic;
@@ -338,6 +339,100 @@ impl Quartic {
     }
 }
 
+/// A curve of the exact tier, written down rather than laid out.
+///
+/// **The handle, on the terms [`Marched`](super::marchings::Marched) states.**
+/// What holds the construction is [`Quartics`], which a body keeps beside its
+/// topology; what is here is which component of it, and the two numbers a
+/// reader answers without reaching for the store.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Quartered {
+    /// Which component of the body's own store it is.
+    pub(crate) run: u32,
+    /// What it is filed under — see
+    /// [`Curve::key`](super::curve::Curve::key).
+    pub(crate) key: u64,
+    /// How large the numbers reading it work in.
+    pub(crate) reach: f64,
+}
+
+/// How one component of a quartic closes on itself.
+///
+/// **The two shapes a component comes in**, and which it is turns on whether
+/// `Δ` reaches nought — see [`Quartic::real`], where the arcs are cut.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Closing {
+    /// Both branches of one arc, walked out on the near and back on the far.
+    ///
+    /// The two shut on each other at the arc's ends, `Δ` being nought there and
+    /// a root of nought leaving one place rather than two.
+    Round,
+    /// One branch of the whole circle, closed on itself.
+    ///
+    /// What a `Δ` with no real root leaves: the branches never meet, so each is
+    /// a loop of its own and the pair meets in *two*. Two crossing cylinders
+    /// are the case — `y² ≤ 4` on one puts `z² ≥ 5` on the other, so nothing
+    /// they share crosses the middle.
+    Alone { far: bool },
+}
+
+impl Closing {
+    /// Where round the loop the parameter `t` stands: how far along the arc,
+    /// and on which branch.
+    ///
+    /// `t` wraps, a component being closed — the same standing a circle's angle
+    /// takes.
+    fn walk(self, t: f64) -> Walk {
+        let t = t.rem_euclid(1.0);
+        match self {
+            // Out on the near branch and back on the far, so the halves meet at
+            // both ends of the arc and the whole is one loop.
+            Self::Round => match t < 0.5 {
+                true => Walk {
+                    part: t * 2.0,
+                    far: false,
+                },
+                false => Walk {
+                    part: 2.0 - t * 2.0,
+                    far: true,
+                },
+            },
+            Self::Alone { far } => Walk { part: t, far },
+        }
+    }
+}
+
+/// Where a walk of a component stands: how far along its arc, and which branch.
+#[derive(Debug, Clone, Copy)]
+struct Walk {
+    part: f64,
+    far: bool,
+}
+
+/// One component of one quartic, and what a reader answers without evaluating
+/// it.
+#[derive(Debug)]
+struct Filed {
+    curve: Quartic,
+    arc: Stretch,
+    closing: Closing,
+    /// Which parts of the arc read, as [`Filed::trimmed`] found them.
+    ///
+    /// **Held beside the arc rather than written into it.** What the trim
+    /// finds is which parts of the arc read, and that is a fact about the
+    /// reading rather than about where the arc is — an arc rewritten to its
+    /// own trim would have to name the hair in the affine chart, where the
+    /// place at infinity has no name.
+    holds: [f64; 2],
+    /// How hard the loop can turn, which is what a chord count is taken
+    /// against — see [`arc::chords`], and
+    /// [`Saddle::bending`](super::saddle::Saddle), which works its own out
+    /// where this measures.
+    bending: f64,
+    /// How large the numbers reading it work in.
+    reach: f64,
+}
+
 /// Every quartic one body's curves are cut from.
 ///
 /// **Not flat, where [`Marchings`](super::marchings::Marchings) is**, and that
@@ -352,8 +447,26 @@ impl Quartic {
 /// worth a second representation of an exact curve to avoid.
 #[derive(Debug, Default)]
 pub(crate) struct Quartics {
-    held: Vec<Quartic>,
+    held: Vec<Filed>,
 }
+
+/// How many places a component is measured at when it is filed.
+///
+/// **Enough to bound a bend rather than to draw one.** What the two numbers
+/// below are for is a chord count and a size, both of which want the worst of
+/// the loop and neither of which wants it to a digit. Thirty-two is a
+/// hundredth of a turn's error on a circle, and a quartic bends no more sharply
+/// than the tightest circle through three of its places.
+const MEASURED: usize = 32;
+
+/// How many times a search over the parameter halves what it is looking in.
+///
+/// **What an `f64` holds between two ends**, which is the same standing
+/// [`bisect`](crate::math::bisect) takes: halved until the middle is one of the
+/// two, and no tolerance anywhere in it. Both readers below are bisections —
+/// one for the last part of an arc that reads, one for the parameter nearest a
+/// place — and neither wants a bound of its own.
+const HALVINGS: usize = 60;
 
 impl Quartics {
     /// Forget every curve, keeping the room they took.
@@ -366,20 +479,150 @@ impl Quartics {
         self.held.len() as u32
     }
 
-    /// File `curve` as one of its own, and say which it is.
-    pub(crate) fn add(&mut self, curve: Quartic) -> u32 {
+    /// File one component of `curve` — the `arc` it runs over, closed as
+    /// `closing` says — and say which it is.
+    ///
+    /// **Measured on the way in**, which is the arrangement
+    /// [`Marchings::add`](super::marchings::Marchings) keeps and for the same
+    /// reason: how hard the loop turns and how large its numbers work are
+    /// asked on every walk over it, and working either out from the
+    /// construction each time would be a walk inside a walk.
+    pub(crate) fn add(&mut self, curve: Quartic, arc: Stretch, closing: Closing) -> u32 {
+        let mut filed = Filed {
+            curve,
+            arc,
+            closing,
+            holds: [0.0, 1.0],
+            bending: 0.0,
+            reach: 0.0,
+        };
+        // In that order: a measurement outside what reads would be a
+        // measurement of nothing.
+        filed.holds = filed.trimmed();
+        filed.bending = filed.bending();
+        filed.reach = filed.reaching();
         let at = self.len();
-        self.held.push(curve);
+        self.held.push(filed);
         at
     }
 
-    /// The curve filed at `at`.
+    /// Where the parameter `t` of the component at `run` lands.
+    pub(crate) fn at(&self, run: u32, t: f64) -> DVec3 {
+        self.held[run as usize]
+            .place(t)
+            .expect("a trimmed arc reads everywhere")
+    }
+
+    /// How large the numbers reading the component at `run` work in.
+    pub(crate) fn reach(&self, run: u32) -> f64 {
+        self.held[run as usize].reach
+    }
+
+    /// How many chords of the component at `run` a `span` of it wants.
+    pub(crate) fn steps(&self, run: u32, span: f64, sagitta: f64) -> usize {
+        arc::chords(self.held[run as usize].bending, span, sagitta)
+    }
+
+    /// Which parameter of the component at `run` stands nearest `at`.
     ///
-    /// Panics on a handle this store never minted, which is a mistake in
-    /// whatever named it rather than a state a reader has to handle — the same
-    /// standing every arena here takes.
-    pub(crate) fn at(&self, at: u32) -> &Quartic {
-        &self.held[at as usize]
+    /// **Searched rather than solved**, which is what caps how finely one may
+    /// be read: what asks is the sewing, putting the places found on a curve in
+    /// the order the curve runs — so an answer has to be monotone along it and
+    /// need not be exact. The same standing
+    /// [`Marchings::nearest`](super::marchings::Marchings) takes, and the same
+    /// cap.
+    ///
+    /// The exact answer is a place written in the ruled member's own corner
+    /// basis, where `p = αA + βB + γC + δD` reads `u` off as `α : γ` — one
+    /// four-by-four solve. Worth building the day something wants a projection
+    /// rather than an order.
+    pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
+        let filed = &self.held[run as usize];
+        let apart = |t: f64| filed.place(t).map_or(f64::INFINITY, |had| had.distance(at));
+        let coarse = (0..MEASURED)
+            .map(|step| step as f64 / MEASURED as f64)
+            .min_by(|one, two| apart(*one).total_cmp(&apart(*two)))
+            .expect("a component is measured at more than nothing");
+        // Halved about the nearest of the sweep, which is within one step of
+        // the answer: the loop is closed, so the two neighbours fence it.
+        let mut span = 1.0 / MEASURED as f64;
+        let mut best = coarse;
+        for _ in 0..HALVINGS {
+            span /= 2.0;
+            for step in [best - span, best + span] {
+                if apart(step) < apart(best) {
+                    best = step;
+                }
+            }
+        }
+        best.rem_euclid(1.0)
+    }
+}
+
+impl Filed {
+    /// Where the parameter `t` lands, or `None` where it names no real place.
+    ///
+    /// **The one walk of a component**, which is what the two measurements
+    /// below and every reader above go through. Two spellings of it would be a
+    /// curve measured on one path and read on another.
+    fn place(&self, t: f64) -> Option<DVec3> {
+        let walk = self.closing.walk(t);
+        let [low, high] = self.holds;
+        self.curve
+            .at(&self.arc.at(low + (high - low) * walk.part), walk.far)
+    }
+
+    /// The parts of the arc that read, each end halved inward until one does.
+    ///
+    /// An end is a root of `Δ` found in floats, so a reading exactly at one
+    /// falls a rounding either side of it — and a hair beyond, the branch is
+    /// not real and there is no place to give. Halved rather than stepped in by
+    /// a tolerance: what is wanted is the last place the curve *is*.
+    fn trimmed(&self) -> [f64; 2] {
+        let reads = |part: f64| self.curve.at(&self.arc.at(part), false).is_some();
+        let inward = |from: f64, toward: f64| {
+            let (mut out, mut held) = (from, toward);
+            if reads(out) {
+                return out;
+            }
+            for _ in 0..HALVINGS {
+                let middle = (out + held) / 2.0;
+                match reads(middle) {
+                    true => held = middle,
+                    false => out = middle,
+                }
+            }
+            held
+        };
+        [inward(0.0, 0.5), inward(1.0, 0.5)]
+    }
+
+    /// How hard the component turns, as a bound on the second derivative of the
+    /// place with the parameter.
+    ///
+    /// Measured rather than worked out: a quartic has no closed form for it the
+    /// way a saddle does, and the construction is evaluable everywhere.
+    fn bending(&self) -> f64 {
+        let step = 1.0 / MEASURED as f64;
+        (0..MEASURED).fold(0.0f64, |most, at| {
+            let t = at as f64 / MEASURED as f64;
+            let (Some(back), Some(here), Some(on)) =
+                (self.place(t - step), self.place(t), self.place(t + step))
+            else {
+                return most;
+            };
+            most.max((back - here * 2.0 + on).length() / (step * step))
+        })
+    }
+
+    /// How far from the origin the component reaches.
+    fn reaching(&self) -> f64 {
+        (0..MEASURED).fold(0.0f64, |most, at| {
+            match self.place(at as f64 / MEASURED as f64) {
+                Some(place) => most.max(place.length()),
+                None => most,
+            }
+        })
     }
 }
 

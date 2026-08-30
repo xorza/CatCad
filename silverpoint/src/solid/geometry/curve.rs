@@ -7,6 +7,7 @@ use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
+use crate::solid::geometry::quartic::Quartered;
 use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
 
@@ -32,6 +33,17 @@ pub(crate) enum Curve {
     ///
     /// What builds one is the boolean, meeting a pair it has to march.
     Marched(Marched),
+    /// The curve a general pair of quadrics meets in, written down exactly —
+    /// see [`Quartered`], and `.notes/KERNEL.md` §7.3 for the route.
+    ///
+    /// What builds one is the boolean, meeting a pair no row of the reducible
+    /// table answers: a cone drilled off its own axis is the first. That
+    /// arrives with the cut the splitter can make from one, which is what the
+    /// arm still waits on — `.notes/KERNEL.md` §9.1, and
+    /// [`Meeting::Algebraic`](crate::solid::meeting::Meeting), which is the
+    /// refusal in the meantime.
+    #[allow(dead_code)]
+    Quartic(Quartered),
 }
 
 impl Curve {
@@ -70,6 +82,7 @@ impl Curve {
             // Worked out where the run was laid down and carried since — see
             // [`Marched::key`], which says why it is not read off the places.
             Self::Marched(marched) => marched.key,
+            Self::Quartic(of) => of.key,
         }
     }
 
@@ -98,6 +111,7 @@ impl Curve {
             }
             Self::Saddle(saddle) => saddle.along(at),
             Self::Marched(of) => carried.marched.along(of.run, at),
+            Self::Quartic(of) => carried.quartics.along(of.run, at),
         }
     }
 
@@ -110,7 +124,13 @@ impl Curve {
     /// result carries — and what the edge on it stands for.
     pub(crate) fn strays(&self, carried: &Carried) -> f64 {
         match self {
-            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) | Self::Saddle(_) => 0.0,
+            // A quartic is written down rather than walked, so it strays
+            // nowhere at all — which is what puts it in the exact tier.
+            Self::Line(_)
+            | Self::Circle(_)
+            | Self::Ellipse(_)
+            | Self::Saddle(_)
+            | Self::Quartic(_) => 0.0,
             Self::Marched(of) => carried.marched.strayed(of.run).most,
         }
     }
@@ -135,6 +155,7 @@ impl Curve {
             // written on and the other along it.
             Self::Saddle(saddle) => saddle.axis.origin.length() + saddle.reach + saddle.across,
             Self::Marched(of) => of.reach,
+            Self::Quartic(of) => of.reach,
         }
     }
 
@@ -146,6 +167,7 @@ impl Curve {
             Self::Ellipse(ellipse) => ellipse.at(t),
             Self::Saddle(saddle) => saddle.at(t),
             Self::Marched(of) => carried.marched.at(of.run, t),
+            Self::Quartic(of) => carried.quartics.at(of.run, t),
         }
     }
 
@@ -173,6 +195,9 @@ impl Curve {
             // laid down again — see [`Marchings::steps`] — and how far its own
             // stray from the curve is what the edge on it carries.
             Self::Marched(of) => carried.marched.steps(of.run, span),
+            // Its own measured bound rather than a radius, a quartic having
+            // no circle it bends no harder than and no closed form for one.
+            Self::Quartic(of) => carried.quartics.steps(of.run, span, sagitta),
         }
     }
 }

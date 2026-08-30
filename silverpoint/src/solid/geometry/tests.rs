@@ -16,7 +16,7 @@ use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
-use crate::solid::geometry::quartic::{Quartic, Stretch};
+use crate::solid::geometry::quartic::{Closing, Quartered, Quartic, Stretch};
 use crate::solid::geometry::ruled::Ruled;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
@@ -2194,5 +2194,115 @@ fn an_arc_through_the_charts_edge_is_one_arc() {
                 );
             }
         }
+    }
+}
+
+/// **A quartic answers every question a curve is asked**, and the two ways a
+/// component closes answer them alike.
+///
+/// The arm the whole algebraic route was for. A cone drilled off its own axis
+/// gives arcs whose branches shut on each other at the ends — one loop apiece,
+/// walked out and back — and two crossing cylinders give a whole circle whose
+/// branches never meet, so each is a loop of its own. Nothing a reader asks
+/// knows which it has.
+///
+/// **What is checked is that the walk stays on the curve and closes.** Every
+/// place of it is on both surfaces, whatever `t`; the loop comes back to where
+/// it started; a place handed back is found again by [`Quartics::along`]; and
+/// the chord count falls as the sagitta does.
+#[test]
+fn a_quartic_answers_as_a_curve() {
+    let cone = Quadric::of(&Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    let drill = Quadric::of(&Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(2.0, 0.0, 0.0), DVec3::Y, DVec3::X),
+        radius: 0.4,
+    }));
+    let bored = Quartic::of(cone, drill).expect("a cone drilled off-axis");
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Natural::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let crossing = Quartic::of(pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0))
+        .expect("crossing cylinders");
+
+    let mut carried = Carried::default();
+    // A loop of each kind, which is the whole of what the arm has to carry.
+    let arcs = bored.real();
+    let round = carried.quartics.add(bored, arcs.all()[0], Closing::Round);
+    let whole = crossing.real();
+    let alone = carried
+        .quartics
+        .add(crossing, whole.all()[0], Closing::Alone { far: false });
+
+    // On the cone and its drill, and on the two cylinders. Written as the
+    // surfaces themselves rather than as places, so a walk that wandered has
+    // nowhere to hide.
+    const READ: f64 = 1e-8;
+    /// One component, and how far a place stands off each surface it came from.
+    struct Held<'a> {
+        run: u32,
+        off: &'a dyn Fn(DVec3) -> [f64; 2],
+    }
+    for Held { run, off: on } in [
+        Held {
+            run: round,
+            off: &|p: DVec3| {
+                let out = p.x - 2.0;
+                [
+                    p.x * p.x + p.z * p.z - p.y * p.y,
+                    out * out + p.z * p.z - 0.16,
+                ]
+            },
+        },
+        Held {
+            run: alone,
+            off: &|p: DVec3| [p.x * p.x + p.y * p.y - 4.0, p.y * p.y + p.z * p.z - 9.0],
+        },
+    ] {
+        let curve = Curve::Quartic(Quartered {
+            run,
+            key: 0x51,
+            reach: carried.quartics.reach(run),
+        });
+        assert_eq!(curve.key(), 0x51, "the key is not the store's to give");
+        assert_eq!(curve.strays(&carried), 0.0, "an exact curve strayed");
+        assert!(curve.reach(0.0) > 0.0, "the component reaches nowhere");
+
+        for step in 0..24 {
+            let t = f64::from(step) / 24.0;
+            let at = curve.at(t, &carried);
+            for (which, off) in on(at).into_iter().enumerate() {
+                assert!(off.abs() < READ, "{at:?} is off surface {which} at {t}");
+            }
+        }
+
+        // Closed, which is what makes it a loop rather than an arc: a whole
+        // turn of the parameter comes back to where it began.
+        let (start, round_again) = (curve.at(0.0, &carried), curve.at(1.0, &carried));
+        assert!(
+            start.abs_diff_eq(round_again, 1e-9),
+            "{start:?} and {round_again:?} are not one place",
+        );
+
+        // And a place handed back is found again. Read at a third of the way
+        // round, which is on the far branch of one loop and the near of the
+        // other, so neither answer can be the parameter it was handed.
+        let third = curve.at(1.0 / 3.0, &carried);
+        let found = curve.along(third, &carried);
+        assert!(
+            curve.at(found, &carried).abs_diff_eq(third, 1e-6),
+            "{third:?} was found at {found}, which is somewhere else",
+        );
+
+        // A finer sagitta wants more chords, which is what says the bound was
+        // measured rather than made up.
+        let coarse = curve.steps(1.0, 1e-2, &carried);
+        let fine = curve.steps(1.0, 1e-5, &carried);
+        assert!(fine > coarse, "{fine} chords is no more than {coarse}");
     }
 }
