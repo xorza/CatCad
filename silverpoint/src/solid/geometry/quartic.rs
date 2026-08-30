@@ -49,19 +49,38 @@ pub(crate) struct Stretch {
 }
 
 impl Stretch {
-    /// A parameter strictly inside it, which is where a sign is asked.
+    /// Where the branch stands `part` of the way along it, as the projective
+    /// parameter [`Quartic::at`] takes.
     ///
-    /// A step in from an infinite end rather than the middle of one: what is
-    /// wanted is any place the stretch holds, and the middle of an unbounded
-    /// one is not a number.
-    fn inside(self) -> [Rational; 2] {
-        let at = match (self.from.is_finite(), self.to.is_finite()) {
-            (true, true) => (self.from + self.to) / 2.0,
-            (true, false) => self.from + 1.0,
-            (false, true) => self.to - 1.0,
-            (false, false) => 0.0,
-        };
-        [Rational::of(at), Rational::ONE]
+    /// **Walked round the projective line rather than along the chart.** A
+    /// stretch may reach either way without end — two crossing cylinders meet
+    /// in one loop that closes through the ruling's own place at infinity — and
+    /// a walk in the affine parameter can never arrive there. Written as
+    /// `[cos θ, sin θ]` every place of the line is a finite angle, and the one
+    /// at infinity is `θ = 0` like any other.
+    ///
+    /// `u = cot θ`, so the angle falls where the chart rises and the start of a
+    /// stretch is its *larger* angle. Nothing here reverses for it — the two
+    /// ends are read in the order they are stated and interpolated between —
+    /// and what it buys is that no reader anywhere has to know the chart has an
+    /// edge.
+    pub(super) fn at(self, part: f64) -> [Rational; 2] {
+        let (start, end) = (Self::angle(self.from), Self::angle(self.to));
+        let (sin, cos) = (start + (end - start) * part).sin_cos();
+        [Rational::of(cos), Rational::of(sin)]
+    }
+
+    /// The angle on the projective line the affine parameter `u` stands at.
+    ///
+    /// **`atan2` of the pair rather than `π/2` less the angle of `u`**, which
+    /// is the same number and not the same answer. The subtraction cancels
+    /// exactly where the angle is small: at `u = 10⁸` it keeps seven digits of
+    /// it, and at `10³⁰⁰` it keeps none — rounding a far but finite end onto
+    /// the place at infinity, which is a different place. Asked of the pair the
+    /// angle is computed rather than differenced, and an infinite `u` answers
+    /// nought and `π` like any other.
+    fn angle(u: f64) -> f64 {
+        1.0f64.atan2(u)
     }
 }
 
@@ -202,7 +221,10 @@ impl Quartic {
                 from: pair[0],
                 to: pair[1],
             };
-            if self.met(&stretch.inside()).is_some() {
+            // Half way round it in angle, which is strictly inside whatever
+            // ends it has: the middle of an unbounded stretch is not a number
+            // where the middle of its arc is.
+            if self.met(&stretch.at(0.5)).is_some() {
                 found.push(stretch);
             }
         }

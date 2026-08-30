@@ -1960,3 +1960,139 @@ fn a_cone_drilled_off_its_axis_meets_it_in_two_bounded_branches() {
         }
     }
 }
+
+/// **A branch is walked round the projective line**, so a loop that closes
+/// through the ruling's place at infinity is walked like any other.
+///
+/// What [`Stretch::at`] is for. Two crossing cylinders meet in one loop whose
+/// affine parameter never ends — `Δ` keeps its sign the whole way — so a walk
+/// along the chart could only ever run away. Written as an angle every place of
+/// the line is finite, and the one the chart cannot name is the angle nought.
+///
+/// **Both fixtures, because they are the two shapes a stretch comes in.** The
+/// cylinders' is the whole line and the cone's is a bounded piece of it, and
+/// what has to hold for both is that the ends are the ends and every place
+/// between them is on both surfaces.
+#[test]
+fn a_branch_walks_the_projective_line_from_end_to_end() {
+    let pipe = |origin: DVec3, direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Natural::Cylinder(Cylinder {
+            axis: Axis::new(origin, direction, reference),
+            radius,
+        }))
+    };
+    let crossing = Quartic::of(
+        pipe(DVec3::ZERO, DVec3::Z, DVec3::X, 2.0),
+        pipe(DVec3::ZERO, DVec3::X, DVec3::Y, 3.0),
+    )
+    .expect("crossing cylinders");
+    let whole = crossing.real();
+    let [whole] = whole.all() else {
+        panic!("{:?} is not one stretch", whole.all());
+    };
+
+    // Every step of the walk is on both cylinders, the ends included — and the
+    // ends are the place at infinity, which the affine chart has no name for.
+    const READ: f64 = 1e-9;
+    for step in 0..=8 {
+        let u = whole.at(f64::from(step) / 8.0);
+        for branch in [false, true] {
+            let Some(at) = crossing.at(&u, branch) else {
+                // The place at infinity has no finite reading, which is the one
+                // thing an end of this stretch can honestly answer.
+                assert!(step == 0 || step == 8, "no place at step {step}");
+                continue;
+            };
+            assert!(
+                (at.x * at.x + at.y * at.y - 4.0).abs() < READ,
+                "{at:?} is off the upright cylinder at step {step}",
+            );
+            assert!(
+                (at.y * at.y + at.z * at.z - 9.0).abs() < READ,
+                "{at:?} is off the sideways cylinder at step {step}",
+            );
+        }
+    }
+
+    // **And it runs up the chart once**, which is the property a walk owes and
+    // two sampled places cannot say. Nought is `from` and one is `to`, so this
+    // stretch begins at minus infinity, passes the affine nought half way, and
+    // ends at plus — every step further along than the last.
+    //
+    // Uniform in the *angle* rather than in the chart, which is what the two
+    // ends cost: a quarter of the way round stands at an affine `−1`, where a
+    // walk along the chart would have to have started somewhere.
+    let read = |part: f64| {
+        let [x, y] = whole.at(part);
+        x.nearest() / y.nearest()
+    };
+    assert!(
+        read(0.5).abs() < 1e-9,
+        "the middle is not the affine nought"
+    );
+    // The ends read on the *pair* rather than through the division, which is
+    // the whole point of carrying one: the place at infinity is a second
+    // coordinate of nought, and `sin π` is nought to a rounding rather than
+    // exactly — so the chart answers `−8·10¹⁵` where the projective line
+    // answers a place like any other.
+    for (part, name) in [(0.0, "begins"), (1.0, "ends")] {
+        let [_, across] = whole.at(part);
+        assert!(
+            across.nearest().abs() < 1e-15,
+            "the walk {name} at an affine place, not at infinity",
+        );
+    }
+    let mut last = f64::NEG_INFINITY;
+    for step in 1..32 {
+        let had = read(f64::from(step) / 32.0);
+        assert!(had > last, "step {step} read {had}, back down the chart");
+        last = had;
+    }
+
+    // **A bounded stretch walks the same way**, which is the other shape one
+    // comes in: the cone drilled off its axis meets the drill in two pieces
+    // with four finite ends between them. Nothing about the walk knows which it
+    // is on.
+    let cone = Quadric::of(&Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    let drill = Quadric::of(&Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(2.0, 0.0, 0.0), DVec3::Y, DVec3::X),
+        radius: 0.4,
+    }));
+    let bored = Quartic::of(cone, drill).expect("a cone drilled off-axis");
+    let pieces = bored.real();
+    for piece in pieces.all() {
+        let (mut last, mut apart) = (f64::NEG_INFINITY, f64::INFINITY);
+        for step in 1..16 {
+            let part = f64::from(step) / 16.0;
+            let u = piece.at(part);
+            let along = u[0].nearest() / u[1].nearest();
+            assert!(along > last, "{piece:?} turned back at {part}");
+            last = along;
+            let (near, far) = (bored.at(&u, false), bored.at(&u, true));
+            let (Some(near), Some(far)) = (near, far) else {
+                panic!("{piece:?} has no place at {part}");
+            };
+            for at in [near, far] {
+                assert!(
+                    (at.x * at.x + at.z * at.z - at.y * at.y).abs() < READ,
+                    "{at:?} is off the cone",
+                );
+            }
+            // **And the two branches shut on each other at the ends**, which is
+            // what makes a stretch one loop rather than two arcs: `Δ` is nought
+            // where the piece stops, and a root of nought leaves the two roots
+            // the same place. Read from the middle outward, so the first half
+            // is the two at their widest.
+            if part > 0.5 {
+                let now = near.distance(far);
+                assert!(now < apart, "the branches did not close by {part}");
+                apart = now;
+            } else if part == 0.5 {
+                apart = near.distance(far);
+            }
+        }
+    }
+}
