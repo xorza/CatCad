@@ -47,7 +47,7 @@ impl<T: Field> Roots<T> {
     /// independent ones will do.
     pub(crate) fn of(alpha: &T, beta: &T, gamma: &T) -> Option<Self> {
         let twice = |of: &T| of.clone() + of.clone();
-        let delta = beta.clone() * beta.clone() - twice(&twice(&(alpha.clone() * gamma.clone())));
+        let delta = Self::discriminant(alpha, beta, gamma);
         if delta.sign() == Ordering::Less {
             return None;
         }
@@ -86,6 +86,25 @@ impl<T: Field> Roots<T> {
             ]
         };
         Some(Self { under, at })
+    }
+
+    /// `β² − 4αγ`, whose sign says how many real roots the form has.
+    ///
+    /// **Its own function because two callers read it**, and one of them is not
+    /// the roots: a quartic's `Δ` is this as a function of the parameter, read
+    /// for its sign where the curve is real and for its coefficients where the
+    /// branches end — see
+    /// [`Quartic::under_at`](super::quartic::Quartic). Two spellings would be a
+    /// curve walked where its discriminant said one thing and its roots said
+    /// another.
+    ///
+    /// The signed value rather than the answer above it. [`Roots::of`] folds a
+    /// square into the roots and refuses a negative outright, which is right
+    /// for a caller wanting places and useless to one wanting to know *where*
+    /// the sign turns.
+    pub(crate) fn discriminant(alpha: &T, beta: &T, gamma: &T) -> T {
+        let twice = |of: &T| of.clone() + of.clone();
+        beta.clone() * beta.clone() - twice(&twice(&(alpha.clone() * gamma.clone())))
     }
 }
 

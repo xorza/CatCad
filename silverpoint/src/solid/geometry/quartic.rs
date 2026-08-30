@@ -7,11 +7,14 @@
 //! §7.4.
 #![allow(dead_code)]
 
+use crate::inline::Inline;
+use crate::math::quartic;
 use crate::number::exact::field::Field;
 use crate::number::exact::quadratic::Quadratic;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
+use crate::solid::geometry::roots::{Along, Roots};
 use crate::solid::geometry::ruled::Ruled;
 use glam::DVec3;
 
@@ -29,6 +32,33 @@ use glam::DVec3;
 /// origin answers for the cross-drilled pair. A bound that is reached is a pair
 /// worth looking at rather than one to widen the bound for.
 const CANDIDATES: i64 = 4;
+
+/// A stretch of the parameter a branch of the curve is real over.
+///
+/// Either end may be infinite, a quartic being a projective curve that a chart
+/// of the line does not close.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Stretch {
+    pub(crate) from: f64,
+    pub(crate) to: f64,
+}
+
+impl Stretch {
+    /// A parameter strictly inside it, which is where a sign is asked.
+    ///
+    /// A step in from an infinite end rather than the middle of one: what is
+    /// wanted is any place the stretch holds, and the middle of an unbounded
+    /// one is not a number.
+    fn inside(self) -> [Rational; 2] {
+        let at = match (self.from.is_finite(), self.to.is_finite()) {
+            (true, true) => (self.from + self.to) / 2.0,
+            (true, false) => self.from + 1.0,
+            (false, true) => self.to - 1.0,
+            (false, false) => 0.0,
+        };
+        [Rational::of(at), Rational::ONE]
+    }
+}
 
 /// The curve two quadrics meet in, parameterized exactly.
 ///
@@ -102,14 +132,123 @@ impl Quartic {
         })
     }
 
+    /// Where the ruling at `u` meets the other quadric, or `None` where it
+    /// misses it.
+    ///
+    /// **The whole of the substitution, stated once.** Both a place on the
+    /// curve and the question of whether there is one at `u` come off this, and
+    /// two spellings of it would be a curve that could be walked where it does
+    /// not exist. [`Roots::of`](super::roots::Roots) refuses a negative
+    /// discriminant, so a `None` here *is* the answer that `u` names no real
+    /// place.
+    fn met(&self, u: &[Rational; 2]) -> Option<Along<Quadratic<Rational>>> {
+        let [from, along] = self.ruling(u);
+        self.against
+            .met_by(&from, &along, &|of: &Rational| self.lift(of))
+    }
+
+    /// Where the ruling stands at `u`: a place on it, and the way it runs.
+    fn ruling(&self, u: &[Rational; 2]) -> [[Quadratic<Rational>; 4]; 2] {
+        self.ruled.ruling(&[self.lift(&u[0]), self.lift(&u[1])])
+    }
+
+    /// A rational carried into the field the ruling is written over.
+    ///
+    /// **One statement of how this curve's numbers enter its own field.**
+    /// Written out at each reader, a curve read through one field and cut
+    /// against another would be a curve nobody could hold against either.
+    ///
+    /// [`Quartic::of`] keeps its own, and has to: it lifts while the field is
+    /// still a local and there is no curve yet to ask.
+    fn lift(&self, of: &Rational) -> Quadratic<Rational> {
+        self.field.at(of.clone(), Rational::ZERO)
+    }
+
+    /// The stretches of the affine parameter the curve is real over.
+    ///
+    /// **A quartic's branches are what `Δ ≥ 0` cuts out of the line.** `Δ` is
+    /// degree four in `u` — the ruling is linear in it and the substitution
+    /// squares that — so it changes sign at most four times, and the stretches
+    /// where it does not are the pieces of curve there are to walk. At a root
+    /// of it the two branches meet, which is what closes a piece into a loop
+    /// rather than leaving two ends.
+    ///
+    /// **Bracketed in floats and decided exactly.** The roots come off
+    /// [`quartic::roots`](crate::math::quartic), which isolates and bisects
+    /// rather than solving in closed form; which side of each bracket is real
+    /// is then asked of [`Quartic::met`], where the arithmetic has no digits to
+    /// lose. So where a stretch *ends* is as good as a float, and *which*
+    /// stretches there are is exact.
+    ///
+    /// The line rather than the projective line, so a curve running through the
+    /// ruling's own place at infinity comes back as a stretch with an infinite
+    /// end. Nothing may walk to one — see [`Quartic::at`], which has no place
+    /// there to give.
+    pub(crate) fn real(&self) -> Inline<Stretch, 3> {
+        let [e, d, c, b, a] = self.coefficients();
+        let mut fence = Inline::<f64, 6>::one(f64::NEG_INFINITY);
+        for root in quartic::roots(a, b, c, d, e) {
+            fence.push(root);
+        }
+        fence.push(f64::INFINITY);
+        let mut found = Inline::none();
+        for pair in fence.all().windows(2) {
+            let stretch = Stretch {
+                from: pair[0],
+                to: pair[1],
+            };
+            if self.met(&stretch.inside()).is_some() {
+                found.push(stretch);
+            }
+        }
+        found
+    }
+
+    /// `Δ`'s five coefficients, the constant first.
+    ///
+    /// **Interpolated rather than expanded**, which is [`Pencil`]'s own trick
+    /// one degree down: `Δ` is a quartic in `u`, so five readings determine it,
+    /// and five readings are a great deal less arithmetic than a symbolic
+    /// square of a bilinear form. Lagrange over `−2..=2`, whose weights are the
+    /// small fractions below.
+    pub(super) fn coefficients(&self) -> [f64; 5] {
+        // Indexed by the power, so the row and the name agree. Each entry is
+        // what the reading at that node contributes to that coefficient.
+        const WEIGHTS: [[f64; 5]; 5] = [
+            [0.0, 0.0, 1.0, 0.0, 0.0],
+            [1.0 / 12.0, -2.0 / 3.0, 0.0, 2.0 / 3.0, -1.0 / 12.0],
+            [-1.0 / 24.0, 2.0 / 3.0, -1.25, 2.0 / 3.0, -1.0 / 24.0],
+            [-1.0 / 12.0, 1.0 / 6.0, 0.0, -1.0 / 6.0, 1.0 / 12.0],
+            [1.0 / 24.0, -1.0 / 6.0, 0.25, -1.0 / 6.0, 1.0 / 24.0],
+        ];
+        let read: [f64; 5] = std::array::from_fn(|at| self.under_at(at as f64 - 2.0));
+        std::array::from_fn(|power| {
+            std::iter::zip(WEIGHTS[power], read)
+                .map(|(weight, had)| weight * had)
+                .sum()
+        })
+    }
+
+    /// `Δ` at `u`, as a float.
+    ///
+    /// Negative where the ruling misses the other quadric, which is what makes
+    /// it the thing to find the roots of: the curve is real exactly where this
+    /// is not.
+    pub(super) fn under_at(&self, u: f64) -> f64 {
+        let [from, along] = self.ruling(&[Rational::of(u), Rational::ONE]);
+        let form = self
+            .against
+            .spanned(&from, &along, &|of: &Rational| self.lift(of));
+        Roots::discriminant(&form.alpha, &form.beta, &form.gamma).nearest()
+    }
+
     /// Where the curve stands at `u`, on the `far` branch of the root.
     ///
     /// `None` where that place is at infinity, which a projective curve has and
-    /// a modeller has nothing to do with.
+    /// a modeller has nothing to do with, and where `u` names no real place at
+    /// all — see [`Quartic::met`].
     pub(crate) fn at(&self, u: &[Rational; 2], far: bool) -> Option<DVec3> {
-        let lift = |of: &Rational| self.field.at(of.clone(), Rational::ZERO);
-        let [from, along] = self.ruled.ruling(&[lift(&u[0]), lift(&u[1])]);
-        let found = self.against.met_by(&from, &along, &lift)?;
+        let found = self.met(u)?;
         let which = usize::from(far);
         // Over the second storey, which is where the branch lives: the two
         // places share a rootless half and carry opposite roots of `Δ`.

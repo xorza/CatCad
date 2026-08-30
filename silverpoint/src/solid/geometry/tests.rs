@@ -1602,6 +1602,18 @@ fn two_unequal_cylinders_meet_in_a_quartic_every_place_of_which_is_on_both() {
     assert_eq!(walked, 96, "some parameter came back short");
     assert_eq!(apart, 48, "a branch was answered twice somewhere");
 
+    // **And the whole line is one branch**, which is what all forty-eight
+    // parameters answering already said: `Δ` never changes sign, so there is
+    // one stretch and it reaches both ways. The curve closes through the
+    // ruling's own place at infinity, which is why an affine chart of it has no
+    // ends — see [`Quartic::real`].
+    let stretches = curve.real();
+    let [whole] = stretches.all() else {
+        panic!("{:?} is not one stretch", stretches.all());
+    };
+    assert_eq!(whole.from, f64::NEG_INFINITY, "{whole:?}");
+    assert_eq!(whole.to, f64::INFINITY, "{whole:?}");
+
     // A pencil whose characteristic form has a repeated root is no smooth
     // quartic, and two concentric spheres meet nowhere at all.
     let ball = |radius: f64| {
@@ -1812,5 +1824,138 @@ fn a_marched_curve_answers_through_the_store_it_names() {
     assert!(curve.along(DVec3::X, &marchings).abs() < 1e-9);
     for sagitta in [1.0, 1e-9] {
         assert_eq!(curve.steps(TAU, sagitta, &marchings), 16, "{sagitta}");
+    }
+}
+
+/// **`Δ` is a quartic in the parameter, and reading it five times is enough to
+/// have the whole of it.**
+///
+/// What [`Quartic::real`] rests on. The branches of the curve are the stretches
+/// `Δ ≥ 0` cuts out of the line, and finding those means handing its five
+/// coefficients to a root finder — which are interpolated from five readings
+/// rather than expanded symbolically, on the terms [`Pencil`] takes one degree
+/// up.
+///
+/// **Cross-checked rather than restated.** The interpolated coefficients are
+/// evaluated at parameters that are none of the five nodes and held against
+/// `Δ` read directly there. A weight table with a row out of place, or indexed
+/// by the wrong end, reproduces the nodes exactly and misses everywhere else —
+/// so the check is deliberately away from them.
+#[test]
+fn the_discriminant_is_a_quartic_five_readings_pin() {
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Natural::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let curve = Quartic::of(pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0))
+        .expect("two unequal cylinders cross in a smooth quartic");
+
+    let coefficients = curve.coefficients();
+    let at = |u: f64| {
+        coefficients
+            .iter()
+            .rev()
+            .fold(0.0, |sum, &term| sum * u + term)
+    };
+    // Away from `−2..=2`, where an interpolation is right whatever its weights,
+    // and either side of nought so a sign error in an odd power shows.
+    for u in [-7.5, -3.25, 0.5, 2.75, 6.0] {
+        let want = curve.under_at(u);
+        let had = at(u);
+        assert!(
+            (had - want).abs() <= 1e-6 * want.abs().max(1.0),
+            "at {u} the interpolation reads {had} where Δ is {want}",
+        );
+    }
+}
+
+/// **A cone drilled off its own axis meets the drill in two closed loops**, and
+/// the parameter says where each of them is.
+///
+/// The case the whole algebraic route is for, and the one a document reaches:
+/// a revolve turns a taper and a hole goes through it off-centre. No row of the
+/// reducible table answers it — the axes are parallel and not the same, so
+/// nothing is coaxial and no common inscribed sphere cuts it into conics.
+///
+/// **Two stretches rather than one, and that is the geometry.** A 45° cone from
+/// the origin has radius `|y|`, and a drill of radius `0.4` about the line two
+/// out crosses that wall where the radius runs from `1.6` to `2.4`. Both nappes
+/// reach it, so the curve is two loops — one either side of the apex — and each
+/// is a bounded stretch of the parameter with the two branches meeting at its
+/// ends.
+///
+/// **What is asserted is that the stretches are where the curve is.** Inside
+/// one, both branches read a place and each is on both surfaces; outside every
+/// one of them, there is no place to read. That is the claim
+/// [`Quartic::real`] exists to make, and a stretch off by anything fails one
+/// half of it or the other.
+#[test]
+fn a_cone_drilled_off_its_axis_meets_it_in_two_bounded_branches() {
+    let cone = Quadric::of(&Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    let drill = Quadric::of(&Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(2.0, 0.0, 0.0), DVec3::Y, DVec3::X),
+        radius: 0.4,
+    }));
+    let curve = Quartic::of(cone, drill).expect("a cone drilled off-axis meets it in a quartic");
+
+    let stretches = curve.real();
+    let [near, far] = stretches.all() else {
+        panic!("{:?} is not two stretches", stretches.all());
+    };
+    for stretch in [near, far] {
+        assert!(
+            stretch.from.is_finite() && stretch.to.is_finite(),
+            "{stretch:?} runs away, where a loop closes",
+        );
+    }
+
+    // The same rounding the test above allows, and for the same reason: a place
+    // is read out of four homogeneous numbers and divided by the fourth.
+    const READ: f64 = 1e-9;
+    let mut walked = 0;
+    for stretch in [near, far] {
+        // Well inside, so a bracket a rounding wide cannot be what answers.
+        let span = stretch.to - stretch.from;
+        for step in 1..8 {
+            let u = stretch.from + span * f64::from(step) / 8.0;
+            let at = [Rational::of(u), Rational::ONE];
+            for branch in [false, true] {
+                let place = curve.at(&at, branch).expect("a place inside a stretch");
+                // On the cone: at 45° its radius is the distance along the
+                // axis, so `x² + z² = y²`.
+                assert!(
+                    (place.x * place.x + place.z * place.z - place.y * place.y).abs() < READ,
+                    "{place:?} is off the cone",
+                );
+                // And on the drill, whose axis stands two out along `x`.
+                let out = place.x - 2.0;
+                assert!(
+                    (out * out + place.z * place.z - 0.16).abs() < READ,
+                    "{place:?} is off the drill",
+                );
+                walked += 1;
+            }
+        }
+    }
+    assert_eq!(walked, 28, "a parameter inside a stretch read no place");
+
+    // And outside every stretch there is nothing to read, which is the half a
+    // wrong bracket would pass on its own.
+    for u in [-30.0, -10.0, -5.0, 5.0, 30.0] {
+        let at = [Rational::of(u), Rational::ONE];
+        assert!(
+            [near, far]
+                .iter()
+                .all(|stretch| u < stretch.from || u > stretch.to),
+            "{u} was meant to stand outside both stretches",
+        );
+        for branch in [false, true] {
+            assert_eq!(curve.at(&at, branch), None, "a place at {u}, off the curve");
+        }
     }
 }

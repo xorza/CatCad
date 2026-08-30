@@ -45,6 +45,16 @@ use glam::DVec3;
 /// `f64` routines beside it take the unit length on trust, which is the one
 /// place they and this can differ, and they differ by what a normalize left
 /// behind.
+/// The three coefficients a line substituted into a quadric leaves.
+///
+/// A satellite of [`Quadric::spanned`], which is the only thing that makes one.
+#[derive(Debug)]
+pub(crate) struct Spanned<T> {
+    pub(crate) alpha: T,
+    pub(crate) beta: T,
+    pub(crate) gamma: T,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Quadric {
     /// The upper triangle, row by row: `q₀₀ q₀₁ q₀₂ q₀₃ q₁₁ q₁₂ q₁₃ q₂₂ q₂₃
@@ -304,13 +314,31 @@ impl Quadric {
         along: &[T; 4],
         lift: &impl Fn(&Rational) -> T,
     ) -> Option<Along<T>> {
-        let leaning = self.spanning(place, along, lift);
-        let found = Roots::of(
-            &self.spanning(place, place, lift),
-            &(leaning.clone() + leaning),
-            &self.spanning(along, along, lift),
-        )?;
+        let form = self.spanned(place, along, lift);
+        let found = Roots::of(&form.alpha, &form.beta, &form.gamma)?;
         Some(found.along(place, along))
+    }
+
+    /// The form the line through `place` running `along` leaves when it is
+    /// substituted into this.
+    ///
+    /// **`Cμ² + Bμt + At² = 0`**, on the terms [`Quadric::met_by`] states.
+    /// Named because two readers want it and neither wants the other's answer:
+    /// where the line meets this, and the sign of what its discriminant comes
+    /// to — which is a quartic's `Δ`, and is read where there are no places to
+    /// be had at all.
+    pub(crate) fn spanned<T: Field>(
+        &self,
+        place: &[T; 4],
+        along: &[T; 4],
+        lift: &impl Fn(&Rational) -> T,
+    ) -> Spanned<T> {
+        let leaning = self.spanning(place, along, lift);
+        Spanned {
+            alpha: self.spanning(place, place, lift),
+            beta: leaning.clone() + leaning,
+            gamma: self.spanning(along, along, lift),
+        }
     }
 
     /// Its determinant, exactly.
