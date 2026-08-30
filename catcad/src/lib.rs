@@ -529,12 +529,32 @@ impl CatCad {
     /// is the answer that wanted no code — the default already looks at the
     /// origin, and the origin is where the three cross.
     fn start_new(&mut self) {
-        self.document = Document::empty(&mut self.build);
-        self.session = Session::new(self.document.opening());
-        self.history = History::default();
+        let empty = Document::empty(&mut self.build);
+        self.took(empty);
         // Back to a document that has never been anywhere, which is what
         // `Save` then asks about — see [`Filing`](crate::filing::Filing).
         self.filing = Filing::default();
+    }
+
+    /// Take `document` as the one being worked on, and drop everything that
+    /// belonged to the last.
+    ///
+    /// **The one place a document is replaced**, which is what keeps the two
+    /// commands that replace one from differing about what a replacement is.
+    /// Written out at each of them, a field added to this application would be
+    /// a field one of them forgot — which is the shape of the bug this method
+    /// was written from, one door down in `Document::new`.
+    ///
+    /// What it does *not* settle is where the document lives: a new one has
+    /// never been anywhere and a read one is at the path it came from, so
+    /// `filing` is each caller's own answer and the only thing that is.
+    fn took(&mut self, document: Document) {
+        self.document = document;
+        // Nothing that was in hand is in hand, nothing picked out still exists
+        // to be picked out, and what was done to the document that was open
+        // cannot be taken back off the one that replaced it.
+        self.session = Session::new(self.document.opening());
+        self.history = History::default();
     }
 
     /// Ask where to put the document, and put it there.
@@ -570,13 +590,7 @@ impl CatCad {
             Ok(document) => document,
             Err(error) => return self.filing.refused_read(&path, error),
         };
-        self.document = document;
-        // A different document is a different session and a different history.
-        // Nothing that was in hand is in hand, nothing picked out still exists
-        // to be picked out, and what was done to the document that was open
-        // cannot be taken back off the one that replaced it.
-        self.session = Session::new(self.document.opening());
-        self.history = History::default();
+        self.took(document);
         self.filing.opened(path, self.document.edits());
     }
 

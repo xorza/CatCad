@@ -743,3 +743,51 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
         "a turn of nothing swept a solid",
     );
 }
+
+/// **Raising a document over a build is what forgets the last one**, whichever
+/// door it comes through.
+///
+/// The bug this is written from: reading a file reset the build and starting an
+/// empty document did not, so `Ctrl+N` left the closed drawing's faces and
+/// points on screen. Two doors and one obligation is an obligation one of them
+/// can forget, so the reset belongs to the raising rather than to the caller —
+/// see [`Document::new`].
+///
+/// Asked of the empty document, which is the door that forgot. It holds three
+/// planes and no sketch, so nothing it raises can bump the revision on its own
+/// — which is exactly why a view comparing revisions saw no reason to draw
+/// again. The revision is checked first and the forgetting is the panic, on the
+/// terms the test above states.
+#[test]
+#[should_panic(expected = "this sweep has not been built")]
+fn a_new_document_forgets_what_the_last_one_built() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let drawn = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: square(),
+    });
+    let mut build = Build::default();
+    timeline.edit(drawn).opened(&mut build);
+    let profile = Models::new(&timeline, &build, Some(drawn))
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .profile(&[0]);
+    let solid = timeline.add(Feature::Extrude {
+        profile,
+        distance: 1.0,
+        operation: Operation::Join,
+    });
+    let _document = Document::new(&mut build, timeline);
+    let before = build.revision();
+    // Built, so this answers.
+    let _ = build.bodied(solid).regions();
+
+    let _empty = Document::empty(&mut build);
+    assert_ne!(
+        build.revision(),
+        before,
+        "a new document landed on the revision the view had already drawn",
+    );
+    let _ = build.bodied(solid).regions();
+}

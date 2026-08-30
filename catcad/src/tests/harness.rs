@@ -52,6 +52,23 @@ impl Raised {
         Self::over(UiHarness::with_text(HARNESS_SIZE))
     }
 
+    /// The app as a user meets it: raised, drawn once, and in no sketch.
+    ///
+    /// **How a document opens** — see [`Document::opening`](crate::document).
+    /// Every other test here opens the demo's first sketch because that is what
+    /// it is about, and opening one is itself a redraw of everything: the
+    /// picture is resumed from the top whenever the sketch being worked in
+    /// changes. So a test of what a *command* leaves on screen has to ask it of
+    /// an application nothing has clicked into, or the opening hides the answer.
+    pub(super) fn unopened() -> Self {
+        let mut raised = Self {
+            app: CatCad::build(),
+            harness: UiHarness::new(HARNESS_SIZE),
+        };
+        raised.frame();
+        raised
+    }
+
     /// The app raised on `harness`, and one frame recorded.
     ///
     /// The frame is part of raising it: a view has no viewport until it has

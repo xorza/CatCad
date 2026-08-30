@@ -51,7 +51,20 @@ impl Document {
     /// has to fit on screen is what will be *drawn*, and that is not known
     /// until the document has been raised. Whoever raises one is who can
     /// measure it, so whoever raises one is who aims the camera.
+    ///
+    /// **Raising one is what forgets the last**, and that is why the reset is
+    /// here rather than at the two doors that reach it. Everything a [`Build`]
+    /// holds is keyed by [`FeatureId`], and every document numbers its steps
+    /// from zero — so an answer left behind is not stale but *wrong*, a report
+    /// about a sketch that no longer exists filed under the name of one that
+    /// does. See [`Build::reopened`], where that is argued.
+    ///
+    /// It was a caller's to remember once, and one of them forgot: a document
+    /// read from a file reset the build and an empty one did not, so starting a
+    /// new drawing left the closed one on screen. An obligation two callers
+    /// share is one either can drop, and this is the call neither can.
     pub(crate) fn new(build: &mut Build, timeline: Timeline) -> Self {
+        build.reopened();
         let mut document = Self {
             timeline,
             camera: Camera::default(),
@@ -267,12 +280,12 @@ impl Document {
         let saved = Saved::parse(&text)?;
         let timeline = saved.timeline().map_err(LoadError::Fault)?;
         let camera = saved.camera();
-        build.reopened();
         // Through `new`, so a document read from a file is raised exactly as
-        // any other is: every sketch solved, because coordinates arrive as
-        // something the constraints have not been checked against however they
-        // were come by. The camera is written after, being the one thing here
-        // that `new` has an opinion about.
+        // any other is: the build forgets what the last one left, and every
+        // sketch is solved — coordinates arrive as something the constraints
+        // have not been checked against however they were come by. The camera
+        // is written after, being the one thing here that `new` has an opinion
+        // about.
         let mut document = Self::new(build, timeline);
         document.camera = camera;
         Ok(document)

@@ -248,6 +248,7 @@ fn ctrl_n_starts_again_on_a_document_holding_three_planes_and_nothing_drawn() {
 
     assert_eq!(sketches(&raised), 0, "an empty document holds a drawing");
     assert_eq!(raised.solids(), 0, "an empty document holds a solid");
+
     assert_eq!(open(&raised), None, "an empty document opened in a sketch");
     assert_eq!(
         raised.app.session.selection().count(),
@@ -299,5 +300,37 @@ fn ctrl_n_starts_again_on_a_document_holding_three_planes_and_nothing_drawn() {
         sketches(&raised),
         0,
         "an undo reached past the document it was started on"
+    );
+}
+
+/// **Ctrl+N takes the last document off the screen**, and not only out of the
+/// model.
+///
+/// The bug this is written from, and the reason it is asked of an application
+/// nothing has clicked into. A view redraws what has *moved*, and what it reads
+/// to decide is the build's own counter and which sketch is open. Starting a
+/// new document over a build that kept its counter moved neither — so the view
+/// saw no reason to draw again, and the closed drawing's markers stayed on
+/// screen over three bare planes.
+///
+/// The test above cannot see it: it opens the demo's first sketch, and Ctrl+N
+/// closing that sketch is itself a reason to redraw everything. What a user
+/// meets at startup is no sketch at all.
+#[test]
+fn ctrl_n_takes_the_last_documents_drawing_off_the_screen() {
+    let mut raised = Raised::unopened();
+    assert_eq!(open(&raised), None, "the fixture clicked into a sketch");
+    assert!(
+        !raised.markers().is_empty(),
+        "the demo draws no marker to be left behind"
+    );
+
+    raised.ctrl(Key::Char('N'));
+    raised.frame();
+
+    assert!(
+        raised.markers().is_empty(),
+        "the closed document's markers are still drawn: {:?}",
+        raised.markers(),
     );
 }
