@@ -1,4 +1,12 @@
-//! The cut a marched curve makes in a face's own parameters.
+//! The cut a curve makes in a face's own parameters, traced from its own
+//! places.
+//!
+//! **The general shape, where every other here is a closed form.** A cut knows
+//! how far a place stands off it by asking the *other surface*, and lays its
+//! corners down by walking the curve — neither of which asks how the curve was
+//! made. So one cut serves the fitted tier's marched runs and the exact tier's
+//! quartics alike, and the arm that would have been a second copy of this is
+//! the one `.notes/KERNEL.md` §9.1 no longer owes.
 
 use crate::loops::Loops;
 use crate::math::bisect;
@@ -6,7 +14,8 @@ use crate::math::intersect::{self, Span};
 use crate::math::winding;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::corner::{Came, Corner};
-use crate::solid::geometry::marchings::Marchings;
+use crate::solid::geometry::carried::Carried;
+use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::surface::Surface;
 use glam::DVec2;
 use std::f64::consts::TAU;
@@ -114,18 +123,19 @@ impl Clear {
     }
 }
 
-/// One piece of a marched meeting, as it falls in one face's parameters.
+/// One piece of a meeting, as it falls in one face's parameters.
 ///
 /// **A meeting comes in pieces and a cut is the whole of it**, which is what
-/// separates a marched cut from every other shape here. How far a place stands
+/// separates a traced cut from every closed form here. How far a place stands
 /// off one is read off the *other surface* — see [`Traced::side`] — and that
 /// reading comes to nought on every piece at once, so a cut that carried one
 /// piece would call a place on another piece its own. So the pieces are carried
 /// together, and what is per piece is here.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Piece {
-    /// Which run of the operation's own store it was walked as.
-    marched: u32,
+    /// The curve it is a piece of, which is what a place on it is read
+    /// through — see [`Curve::along`].
+    curve: Curve,
     /// Which of the caller's runs its corners are marked with — see
     /// [`Came::Arc`]. One per piece, two pieces of one meeting being two
     /// curves and two edges.
@@ -155,6 +165,13 @@ pub(crate) struct Piece {
     /// Read against [`Traced::inward`] rather than turned over with the cut,
     /// which is what lets the pieces be shared by both ways round.
     forward: bool,
+    /// Which of the cut's own sampled places are its, as the first and the one
+    /// past the last — see [`Traced::sampled`], which is one buffer for every
+    /// piece.
+    ///
+    /// Two numbers rather than a `Range`, which is not [`Copy`] and this is:
+    /// every corner of every region asks a piece about itself by value.
+    taken: [usize; 2],
     /// Whether it closes inside the face rather than running across it.
     ///
     /// A curve that is closed in space is not closed in a face's parameters
@@ -172,13 +189,15 @@ impl Piece {
     pub(crate) fn of(
         on: &Surface,
         other: &Surface,
-        marchings: &Marchings,
+        sampled: &[Sampled],
+        taken: [usize; 2],
         laid: Laid,
-        marched: u32,
+        curve: Curve,
         run: u32,
     ) -> Option<Self> {
+        let sampled = &sampled[taken[0]..taken[1]];
         let about = laid.middle();
-        let mut walked = flattened(on, marchings, marched, about, DVec2::ZERO);
+        let mut walked = flattened(on, sampled, about, DVec2::ZERO);
         let (first, second) = (walked.next()?, walked.next()?);
         // A step to the left of the way it runs, which is where the side kept
         // has to be. One chord long: shorter than the curve's own bending, so
@@ -194,7 +213,7 @@ impl Piece {
 
         let mut fills = Laid::default();
         let mut last = first;
-        for (along, at) in flattened(on, marchings, marched, about, DVec2::ZERO) {
+        for (along, at) in flattened(on, sampled, about, DVec2::ZERO) {
             fills.hold(at);
             last = (along, at);
         }
@@ -214,7 +233,7 @@ impl Piece {
             return None;
         }
         let mut clear = Clear::default();
-        for (along, at) in flattened(on, marchings, marched, about, shift) {
+        for (along, at) in flattened(on, sampled, about, shift) {
             if laid.holds(at) {
                 clear.shut();
             } else {
@@ -223,7 +242,8 @@ impl Piece {
         }
         clear.shut();
         Some(Self {
-            marched,
+            curve,
+            taken,
             run,
             phase: clear.middle,
             shift,
@@ -257,7 +277,7 @@ struct Found {
 /// [`Traced::grazes`] read them; the rest do not.
 ///
 /// **Borrowed rather than carried**, which is the opposite of what
-/// [`Curve`](crate::solid::geometry::curve::Curve) does one shelf down and is
+/// [`Curve`] does one shelf down and is
 /// the right way round here: a curve is *stored* — in an edge, in the imprints
 /// — so a lifetime on one would reach the whole topology, where a cut lives for
 /// the one call that splits by it. Carried, two surfaces and a list of pieces
@@ -270,8 +290,13 @@ pub(crate) struct Traced<'a> {
     /// The surface it meets there, which is what says which side of it a place
     /// falls on.
     other: &'a Surface,
-    /// Where the runs the pieces were walked as are filed.
-    marchings: &'a Marchings,
+    /// What a place on one of the pieces is read through — see
+    /// [`Curve::along`], which every arm answers and which is the only thing
+    /// here that knows how a curve was made.
+    carried: &'a Carried,
+    /// The places every piece was sampled at, one buffer for the lot — see
+    /// [`Piece::taken`], which is how each names its own.
+    sampled: &'a [Sampled],
     /// The stretch of its own parameters the face was laid out in — see
     /// [`Laid`], which both the carrying and the laying of corners read.
     laid: Laid,
@@ -293,14 +318,16 @@ impl<'a> Traced<'a> {
     pub(crate) fn of(
         on: &'a Surface,
         other: &'a Surface,
-        marchings: &'a Marchings,
+        carried: &'a Carried,
+        sampled: &'a [Sampled],
         laid: Laid,
         pieces: &'a [Piece],
     ) -> Self {
         Self {
             on,
             other,
-            marchings,
+            carried,
+            sampled,
             laid,
             pieces,
             inward: true,
@@ -366,15 +393,10 @@ impl<'a> Traced<'a> {
         };
         let mut off = f64::INFINITY;
         for (at, piece) in self.pieces.iter().enumerate() {
-            let near = self.marchings.nearest(piece.marched, place);
-            if near.off < off {
-                (off, found) = (
-                    near.off,
-                    Found {
-                        piece: at,
-                        along: near.along,
-                    },
-                );
+            let along = piece.curve.along(place, self.carried);
+            let near = piece.curve.at(along, self.carried).distance(place);
+            if near < off {
+                (off, found) = (near, Found { piece: at, along });
             }
         }
         found
@@ -589,8 +611,7 @@ impl<'a> Traced<'a> {
     fn flattened(self, piece: Piece) -> impl Iterator<Item = (f64, DVec2)> + 'a {
         flattened(
             self.on,
-            self.marchings,
-            piece.marched,
+            &self.sampled[piece.taken[0]..piece.taken[1]],
             self.laid.middle(),
             piece.shift,
         )
@@ -604,8 +625,8 @@ fn within(on: &Surface, other: &Surface, at: DVec2) -> f64 {
     (other.at(there) - place).dot(other.normal(there))
 }
 
-/// The places of the run at `marched` in `on`'s own parameters, in the order it
-/// was walked.
+/// The places `walked` stands at in `on`'s own parameters, in the order the
+/// curve runs.
 ///
 /// **Carried on rather than read afresh**, in whichever parameters the surface
 /// runs round: an inversion answers in a half turn either side of the
@@ -615,15 +636,14 @@ fn within(on: &Surface, other: &Surface, at: DVec2) -> f64 {
 /// the same reason and started off the turn the face itself was laid out in.
 fn flattened<'a>(
     on: &'a Surface,
-    marchings: &'a Marchings,
-    marched: u32,
+    walked: &'a [Sampled],
     about: DVec2,
     shift: DVec2,
 ) -> impl Iterator<Item = (f64, DVec2)> + 'a {
     let mut last = about;
-    marchings.sampled(marched).map(move |(along, place)| {
-        last = on.carried(on.uv(place), last);
-        (along, last + shift)
+    walked.iter().map(move |sampled| {
+        last = on.carried(on.uv(sampled.at), last);
+        (sampled.along, last + shift)
     })
 }
 
@@ -632,17 +652,21 @@ mod tests {
     use super::*;
     use crate::solid::geometry::axis::Axis;
     use crate::solid::geometry::fitted::Fitted;
+    use crate::solid::geometry::marchings::Marched;
     use crate::solid::geometry::natural::Natural;
     use crate::solid::geometry::torus::Torus;
     use crate::solid::meeting::marching::Marching;
     use crate::solid::meeting::seeding;
     use glam::DVec3;
 
-    /// Every piece of one meeting, laid down.
+    /// Every piece of one meeting, laid down and sampled.
     #[derive(Debug)]
     struct Walked {
-        marchings: Marchings,
-        runs: Vec<u32>,
+        carried: Carried,
+        curves: Vec<Curve>,
+        /// Every piece's places in one buffer, each naming its own.
+        sampled: Vec<Sampled>,
+        taken: Vec<[usize; 2]>,
     }
 
     /// The ring every cut below is made on: three out to the tube's own centre,
@@ -692,15 +716,27 @@ mod tests {
         let seeds = seeding::seeded(other, &torus).expect("the pair has a reading");
         let mut marching = Marching::default();
         let mut walked = Walked {
-            marchings: Marchings::default(),
-            runs: Vec::new(),
+            carried: Carried::default(),
+            curves: Vec::new(),
+            sampled: Vec::new(),
+            taken: Vec::new(),
         };
         for &seed in seeds.all() {
             let strayed = marching
                 .walk(&round, other, seed, 1e-4)
                 .expect("the walk did not close");
-            let run = walked.marchings.add(marching.walked(), strayed);
-            walked.runs.push(run);
+            let run = walked.carried.marched.add(marching.walked(), strayed);
+            let curve = Curve::Marched(Marched {
+                run,
+                key: u64::from(run),
+                reach: walked.carried.marched.strayed(run).reach,
+            });
+            let from = walked.sampled.len();
+            let mut into = Vec::new();
+            curve.sample(TAU, 1e-4, &walked.carried, &mut into);
+            walked.sampled.append(&mut into);
+            walked.taken.push([from, walked.sampled.len()]);
+            walked.curves.push(curve);
         }
         walked
     }
@@ -709,12 +745,21 @@ mod tests {
     /// each parameter sees them.
     fn pieces(other: &Surface, walked: &Walked) -> Vec<Piece> {
         walked
-            .runs
+            .curves
             .iter()
+            .zip(&walked.taken)
             .enumerate()
-            .map(|(at, &run)| {
-                Piece::of(&ring(), other, &walked.marchings, laid(), run, at as u32)
-                    .expect("the piece reaches the face")
+            .map(|(at, (&curve, &taken))| {
+                Piece::of(
+                    &ring(),
+                    other,
+                    &walked.sampled,
+                    taken,
+                    laid(),
+                    curve,
+                    at as u32,
+                )
+                .expect("the piece reaches the face")
             })
             .collect()
     }
@@ -739,7 +784,14 @@ mod tests {
         };
         let walked = walked(&plane);
         let pieces = pieces(&plane, &walked);
-        let traced = Traced::of(&round, &plane, &walked.marchings, laid(), &pieces);
+        let traced = Traced::of(
+            &round,
+            &plane,
+            &walked.carried,
+            &walked.sampled,
+            laid(),
+            &pieces,
+        );
         for step in 0..64 {
             let uv = DVec2::new(TAU * (step % 8) as f64 / 8.0, TAU * (step / 8) as f64 / 8.0);
             let place = round.at(uv);
@@ -778,7 +830,15 @@ mod tests {
         let leaning = pieces(&across, &over);
         assert_eq!(leaning.len(), 2, "a leaning plane cuts two pieces");
         assert!(
-            !Traced::of(&round, &across, &over.marchings, laid(), &leaning).closed(),
+            !Traced::of(
+                &round,
+                &across,
+                &over.carried,
+                &over.sampled,
+                laid(),
+                &leaning
+            )
+            .closed(),
             "a piece that wraps closed",
         );
 
@@ -786,7 +846,14 @@ mod tests {
         let walked = walked(&plane);
         let pieces = pieces(&plane, &walked);
         assert_eq!(pieces.len(), 1, "a grazing plane cuts one piece");
-        let traced = Traced::of(&round, &plane, &walked.marchings, laid(), &pieces);
+        let traced = Traced::of(
+            &round,
+            &plane,
+            &walked.carried,
+            &walked.sampled,
+            laid(),
+            &pieces,
+        );
         assert!(traced.closed(), "a small piece is a loop of the parameters");
         let mut loops = Loops::default();
         traced.walk(&mut loops);
@@ -833,7 +900,14 @@ mod tests {
         let plane = leaning();
         let walked = walked(&plane);
         let pieces = pieces(&plane, &walked);
-        let traced = Traced::of(&round, &plane, &walked.marchings, laid(), &pieces);
+        let traced = Traced::of(
+            &round,
+            &plane,
+            &walked.carried,
+            &walked.sampled,
+            laid(),
+            &pieces,
+        );
         let mut met = [0, 0];
         // Both halves of the turn, the two pieces standing one in each.
         for step in 0..16 {
@@ -870,7 +944,14 @@ mod tests {
         let plane = grazing();
         let walked = walked(&plane);
         let pieces = pieces(&plane, &walked);
-        let traced = Traced::of(&round, &plane, &walked.marchings, laid(), &pieces);
+        let traced = Traced::of(
+            &round,
+            &plane,
+            &walked.carried,
+            &walked.sampled,
+            laid(),
+            &pieces,
+        );
         let mut loops = Loops::default();
         traced.walk(&mut loops);
         let laid = loops.get(0);

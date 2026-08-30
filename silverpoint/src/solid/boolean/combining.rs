@@ -23,11 +23,12 @@ use crate::solid::boolean::splitting::traced::{Laid, Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
-use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::quartic::{Quartered, Quartic};
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
@@ -37,6 +38,7 @@ use crate::solid::topology::body::Body;
 use crate::solid::topology::face::{Face, FaceId};
 use glam::{DVec2, DVec3};
 use std::f64::consts::FRAC_PI_2;
+use std::f64::consts::TAU;
 use std::ops::Range;
 
 /// What the sewing reads of an operation that has finished cutting — see
@@ -47,6 +49,15 @@ pub(super) struct Sewn<'a> {
     pub(super) loops: &'a Loops<Corner>,
     pub(super) imprints: &'a Imprints,
     pub(super) carried: &'a mut Carried,
+}
+
+/// What the `nth` curve of the meeting between `on` and `other` is filed under.
+///
+/// **Over the two surfaces and which piece rather than over the places**, which
+/// is what makes a crossing met from either side key alike — see
+/// [`Marched::key`], and [`pairing`], where the pair's own half is worked out.
+fn named(on: &Surface, other: &Surface, nth: u32) -> u64 {
+    pairing(on, other).word(u64::from(nth)).done()
 }
 
 /// One region of one face that a boolean kept, and what it inherited.
@@ -88,6 +99,14 @@ pub(super) struct Combining {
     /// handful rather than from every pair marched so far.
     pairs: Vec<Paired>,
     paired: Buckets,
+    /// Every curve either store was asked for, in the stretches [`Paired`]
+    /// names.
+    ///
+    /// **Cached with the pair rather than built per face**, because a handle is
+    /// a name and not a reading: which store a curve is in, what it is filed
+    /// under and how large its numbers work are settled the once the meeting is
+    /// worked out, and two faces meeting one pair would otherwise key it twice.
+    curves: Vec<Curve>,
     kept: Vec<Kept>,
     scratch: Scratch,
 }
@@ -104,7 +123,8 @@ pub(super) struct Combining {
 struct Paired {
     on: Surface,
     other: Surface,
-    /// The stretch of [`Combining::carried`] the pieces were filed in.
+    /// The stretch of [`Combining::curves`] the meeting's own handles were
+    /// filed in.
     from: u32,
     upto: u32,
 }
@@ -148,6 +168,9 @@ struct Scratch {
     /// of those, saying which edge put each place there.
     traced: Vec<DVec3>,
     marks: Vec<Came>,
+    /// Every place every piece of one meeting was sampled at, each piece naming
+    /// the stretch that is its — see [`Combining::trace`].
+    sampled: Vec<Sampled>,
     walk: Vec<DVec2>,
     corners: Vec<Corner>,
     /// The stretch of its own parameters the face being cut was laid out in —
@@ -211,6 +234,7 @@ impl Combining {
         self.carried.clear();
         self.pairs.clear();
         self.paired.clear();
+        self.curves.clear();
         // Every curved edge of either body takes a curve in the imprint list
         // and a run per face that walks it, before one crossing has been found
         // — see [`Imprints::reserve`].
@@ -332,10 +356,20 @@ impl Combining {
                     // *stands* — or grazing at a point, which is a place rather
                     // than a line and divides no face.
                     Meeting::Apart | Meeting::Same | Meeting::Touching(_) => continue,
-                    // They meet along a quartic no `Cut` has a shape for. Not
-                    // nothing, and saying so is the whole of what that arm is
-                    // for — see [`Meeting::Algebraic`].
-                    Meeting::Algebraic => return false,
+                    // They meet along a quartic no row of the reducible table
+                    // writes down. It is written down *here* rather than by
+                    // [`Meeting::of`], on the same division the marched arm
+                    // keeps: what produces one is the caller that knows which
+                    // faces it has to be long enough for.
+                    Meeting::Algebraic => {
+                        let Some(curves) = self.quartics(&on, &other) else {
+                            return false;
+                        };
+                        if !self.trace(&on, &other, curves) {
+                            return false;
+                        }
+                        continue;
+                    }
                     // They meet along a curve nothing can write down, which is
                     // walked here rather than by [`Meeting::of`] — see
                     // `.notes/KERNEL.md` §7.3, where that division is argued.
@@ -380,22 +414,17 @@ impl Combining {
     }
 
     /// Walk every piece of the curve `on` and `other` meet in and file it, or
-    /// hand back the runs a face already asked for.
+    /// hand back the handles a face already asked for.
     ///
     /// `None` refuses the boolean, and it means one of two things: no seeding
     /// is written for the pair, or a walk was seeded and did not come back. A
     /// pair that genuinely *misses* is neither — it comes back with no runs at
     /// all, and divides nothing.
     fn march(&mut self, on: &Surface, other: &Surface) -> Option<Range<u32>> {
-        let key = pairing(on, other).done();
-        let found = self.paired.under(key).find(|&at| {
-            let it = &self.pairs[at as usize];
-            (it.on == *on && it.other == *other) || (it.on == *other && it.other == *on)
-        });
-        if let Some(at) = found {
-            let it = &self.pairs[at as usize];
-            return Some(it.from..it.upto);
+        if let Some(had) = self.filed(on, other) {
+            return Some(had);
         }
+        let from = self.curves.len() as u32;
         // Which of the two is the ring. A pair of them has no reading written
         // for it, and falls out of the seeding rather than being turned away
         // here — see [`seeding::seeded`].
@@ -408,19 +437,49 @@ impl Combining {
             | (surface, Surface::Fitted(Fitted::Torus(torus))) => (surface, *torus),
             _ => return None,
         };
-        let from = self.carried.marched.len();
         for seed in seeding::seeded(surface, &torus)? {
             // **Walked at the classification tolerance**, which is as fine as a
             // marched edge can be drawn: nothing downstream can lay a run down
             // again, so the sagitta here is the one the edge carries — see
             // [`Marchings::steps`].
             let strayed = self.scratch.marching.walk(on, other, seed, CHORDED)?;
-            self.carried
+            let run = self
+                .carried
                 .marched
                 .add(self.scratch.marching.walked(), strayed);
+            self.curves.push(Curve::Marched(Marched {
+                run,
+                // Over the two surfaces and which piece rather than over the
+                // places — see [`Marched::key`], and [`pairing`], which is what
+                // makes a crossing met from either side key alike.
+                key: named(on, other, self.curves.len() as u32 - from),
+                reach: self.carried.marched.strayed(run).reach,
+            }));
         }
-        let upto = self.carried.marched.len();
-        let slot = self.paired.file(key);
+        Some(self.file(on, other, from))
+    }
+
+    /// The handles already filed for the meeting of `on` and `other`, where it
+    /// has been worked out before.
+    ///
+    /// **One cache for both tiers**, because what it holds is neither's: a
+    /// stretch of [`Combining::curves`], which says nothing about how the
+    /// curves in it were made. A pair is met once per face of each body, and
+    /// working it out twice would be a walk or an algebraic route run twice.
+    fn filed(&self, on: &Surface, other: &Surface) -> Option<Range<u32>> {
+        let key = pairing(on, other).done();
+        let at = self.paired.under(key).find(|&at| {
+            let it = &self.pairs[at as usize];
+            (it.on == *on && it.other == *other) || (it.on == *other && it.other == *on)
+        })?;
+        let it = &self.pairs[at as usize];
+        Some(it.from..it.upto)
+    }
+
+    /// File the handles pushed since `from` as what `on` and `other` meet in.
+    fn file(&mut self, on: &Surface, other: &Surface, from: u32) -> Range<u32> {
+        let upto = self.curves.len() as u32;
+        let slot = self.paired.file(pairing(on, other).done());
         debug_assert_eq!(slot as usize, self.pairs.len(), "the index lost step");
         self.pairs.push(Paired {
             on: *on,
@@ -428,11 +487,40 @@ impl Combining {
             from,
             upto,
         });
-        Some(from..upto)
+        from..upto
+    }
+
+    /// The components of the quartic `on` and `other` meet in, filed and named.
+    ///
+    /// **The pair to [`Combining::march`] one tier down**, and cached the same
+    /// way: a pair met from both its faces is worked out once, and what a face
+    /// asks for afterwards is the stretch of handles it left behind.
+    ///
+    /// `None` for a pair the algebraic route cannot write down, which is a
+    /// meeting the boolean has been told exists and cannot build on — the same
+    /// refusal a seeding nobody has written gives one tier up.
+    fn quartics(&mut self, on: &Surface, other: &Surface) -> Option<Range<u32>> {
+        if let Some(had) = self.filed(on, other) {
+            return Some(had);
+        }
+        let from = self.curves.len() as u32;
+        let curve = Quartic::of(on.quadric()?, other.quadric()?)?;
+        for component in curve.components().all() {
+            let run = self
+                .carried
+                .quartics
+                .add(curve.clone(), component.arc, component.closing);
+            self.curves.push(Curve::Quartic(Quartered {
+                run,
+                key: named(on, other, self.curves.len() as u32 - from),
+                reach: self.carried.quartics.reach(run),
+            }));
+        }
+        Some(self.file(on, other, from))
     }
 
     /// Cut the face being worked on by what `on` and `other` meet in, which is
-    /// the pieces filed at `runs`.
+    /// the curves filed at `curves`.
     ///
     /// **One cut for the whole meeting rather than one per piece**, which is
     /// what its reading asks for: how far a place stands off a traced cut is
@@ -441,26 +529,28 @@ impl Combining {
     /// its own. See [`Traced`].
     ///
     /// Nothing at all where no piece reaches the face, which divides nothing.
-    fn trace(&mut self, on: &Surface, other: &Surface, runs: Range<u32>) -> bool {
+    fn trace(&mut self, on: &Surface, other: &Surface, curves: Range<u32>) -> bool {
         self.scratch.pieces.clear();
-        for run in runs.clone() {
-            let curve = Curve::Marched(Marched {
-                run,
-                // Over the two surfaces and which piece rather than over the
-                // places — see [`Marched::key`], and [`pairing`], which is
-                // what makes a crossing met from either side key alike.
-                key: pairing(on, other).word((run - runs.start) as u64).done(),
-                reach: self.carried.marched.strayed(run).reach,
-            });
+        self.scratch.sampled.clear();
+        for at in curves {
+            let curve = self.curves[at as usize];
+            // **Every piece's places in one buffer, each naming its own.** A
+            // cut is asked about a place by every corner of every region, so
+            // the walk it reads is laid down once for the whole meeting rather
+            // than kept per piece — the arrangement [`Loops`] keeps a face's
+            // own loops in.
+            let from = self.scratch.sampled.len();
+            curve.sample(TAU, CHORDED, &self.carried, &mut self.scratch.sampled);
             // Numbered whether or not it reaches this face, so that a piece
             // carries the one number wherever it is imprinted.
             let numbered = self.imprints.crossing(curve);
             let piece = Piece::of(
                 on,
                 other,
-                &self.carried.marched,
+                &self.scratch.sampled,
+                [from, self.scratch.sampled.len()],
                 self.scratch.laid,
-                run,
+                curve,
                 numbered,
             );
             if let Some(piece) = piece {
@@ -473,7 +563,8 @@ impl Combining {
         let cut = Cut::Traced(Traced::of(
             on,
             other,
-            &self.carried.marched,
+            &self.carried,
+            &self.scratch.sampled,
             self.scratch.laid,
             &self.scratch.pieces,
         ));

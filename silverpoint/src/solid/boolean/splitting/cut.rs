@@ -66,8 +66,9 @@ pub(crate) enum Cut<'a> {
     /// its own [`Bow::closed`] says — see [`Bow`], which is the one shape here
     /// that is either.
     Bow(Bow),
-    /// A cut along a curve that was walked rather than written down, which is
-    /// the fitted tier's own — see [`Traced`].
+    /// A cut traced from a curve's own places, which is what any curve with no
+    /// closed form above gets — see [`Traced`]. A marched run and a general
+    /// quartic both land here.
     Traced(Traced<'a>),
 }
 

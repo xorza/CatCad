@@ -11,6 +11,16 @@ use crate::solid::geometry::quartic::Quartered;
 use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
 
+/// One place a curve was sampled at, and where along it that place stands.
+///
+/// What a cut laid off a curve puts its corners at — see [`Curve::sample`].
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Sampled {
+    /// The curve's own parameter, which is an angle round a closed one.
+    pub(crate) along: f64,
+    pub(crate) at: DVec3,
+}
+
 /// One of the curves an edge may lie on.
 ///
 /// Three conics, because three is what a sketch and the reducible meetings off
@@ -156,6 +166,44 @@ impl Curve {
             Self::Saddle(saddle) => saddle.axis.origin.length() + saddle.reach + saddle.across,
             Self::Marched(of) => of.reach,
             Self::Quartic(of) => of.reach,
+        }
+    }
+
+    /// The places a cut laid off this curve puts its corners at, in the order
+    /// the curve runs.
+    ///
+    /// **A marched run hands back its own**, whatever is asked, on the same
+    /// terms [`Curve::steps`] answers for one: the run *is* the curve, and
+    /// reading it at even steps of the parameter would lay corners on the
+    /// chords between its places rather than on the walk that made them — see
+    /// [`Marchings::at`](super::marchings::Marchings), which interpolates by
+    /// how far round a place stands. Every other curve is written down, and is
+    /// walked at the chords it asks for.
+    ///
+    /// **Appended to `into` rather than handed back**, and appended rather than
+    /// written over: a cut is laid off every piece of one meeting and reads
+    /// them from one buffer, so each piece adds its own and names the stretch
+    /// it added. A caller wanting the buffer to itself empties it first.
+    pub(crate) fn sample(
+        &self,
+        span: f64,
+        sagitta: f64,
+        carried: &Carried,
+        into: &mut Vec<Sampled>,
+    ) {
+        if let Self::Marched(of) = self {
+            let walked = carried.marched.sampled(of.run);
+            into.extend(walked.map(|(along, at)| Sampled { along, at }));
+            return;
+        }
+        let steps = self.steps(span, sagitta, carried);
+        into.reserve(steps + 1);
+        for step in 0..=steps {
+            let along = span * step as f64 / steps as f64;
+            into.push(Sampled {
+                along,
+                at: self.at(along, carried),
+            });
         }
     }
 

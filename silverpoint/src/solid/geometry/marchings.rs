@@ -66,15 +66,6 @@ pub(crate) struct Marched {
     pub(crate) reach: f64,
 }
 
-/// Where a run passes nearest a place, and how near it comes.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Nearest {
-    /// The parameter of the nearest place on the run — a whole turn to a lap,
-    /// as [`Marchings::at`] reads it.
-    pub(crate) along: f64,
-    pub(crate) off: f64,
-}
-
 /// Every marched curve a body stands on, laid end to end.
 ///
 /// **Flat, so that nothing an arena holds owns a heap block.** A body is
@@ -175,47 +166,31 @@ impl Marchings {
     ///
     /// The place has to be on the run, which every caller has — see
     /// [`Curve::along`](super::curve::Curve::along), where that rule is stated.
-    pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
-        self.nearest(run, at).along
-    }
-
-    /// How near the run at `run` passes `at`, and at what parameter.
     ///
     /// **Walked rather than searched**, and that is what caps how finely a run
     /// may be laid down: a place says nothing about where round it stands, so
     /// the chord nearest it is every chord. The arena that would lift that cap
     /// is `.notes/KERNEL.md` §9.1's.
-    ///
-    /// How far off is what tells one run of a meeting from another, several
-    /// runs being one cut — see the boolean's own `Traced`.
-    pub(crate) fn nearest(&self, run: u32, at: DVec3) -> Nearest {
+    pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
         let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
-        let mut found = Nearest {
-            along: 0.0,
-            off: f64::INFINITY,
-        };
+        let (mut along, mut off) = (0.0, f64::INFINITY);
         for pair in samples.windows(2) {
-            let (from, along) = (pair[0], pair[1].at - pair[0].at);
-            let chord = along.length_squared();
+            let (from, way) = (pair[0], pair[1].at - pair[0].at);
+            let chord = way.length_squared();
             let share = if chord == 0.0 {
                 0.0
             } else {
-                ((at - from.at).dot(along) / chord).clamp(0.0, 1.0)
+                ((at - from.at).dot(way) / chord).clamp(0.0, 1.0)
             };
-            let off = at.distance(from.at + along * share);
-            if off < found.off {
-                found = Nearest {
-                    along: from.round + share * chord.sqrt(),
-                    off,
-                };
+            let apart = at.distance(from.at + way * share);
+            if apart < off {
+                (along, off) = (from.round + share * chord.sqrt(), apart);
             }
         }
-        if strayed.round != 0.0 {
-            found.along *= TAU / strayed.round;
-        } else {
-            found.along = 0.0;
+        match strayed.round == 0.0 {
+            true => 0.0,
+            false => along * TAU / strayed.round,
         }
-        found
     }
 
     /// Every place of the run at `run`, with the parameter it stands at.

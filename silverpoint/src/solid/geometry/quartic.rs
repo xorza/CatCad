@@ -275,6 +275,43 @@ impl Quartic {
         joined
     }
 
+    /// The closed pieces this curve comes in.
+    ///
+    /// **Two shapes, and which it is turns on whether `Δ` reaches nought.**
+    /// Where it does, its roots cut the projective line into arcs and each arc
+    /// is one loop — the near branch out and the far branch back, the two
+    /// shutting on each other at the ends. Where it does not, the line is one
+    /// arc with no end to shut at, and each branch closes on itself: the pair
+    /// meets in *two* loops rather than one.
+    ///
+    /// Measured rather than reasoned — see the fixtures in `solid::geometry`,
+    /// where both shapes are walked. Two crossing cylinders are the second: `y²
+    /// ≤ 4` on one puts `z² ≥ 5` on the other, so nothing they share crosses
+    /// the middle.
+    pub(crate) fn components(&self) -> Inline<Component, 3> {
+        let arcs = self.real();
+        let mut found = Inline::none();
+        match arcs.all() {
+            [whole] if !whole.from.is_finite() && !whole.to.is_finite() => {
+                for far in [false, true] {
+                    found.push(Component {
+                        arc: *whole,
+                        closing: Closing::Alone { far },
+                    });
+                }
+            }
+            held => {
+                for arc in held {
+                    found.push(Component {
+                        arc: *arc,
+                        closing: Closing::Round,
+                    });
+                }
+            }
+        }
+        found
+    }
+
     /// `Δ`'s five coefficients, the constant first.
     ///
     /// **Interpolated rather than expanded**, which is [`Pencil`]'s own trick
@@ -357,16 +394,27 @@ pub(crate) struct Quartered {
     pub(crate) reach: f64,
 }
 
+/// One closed piece of a quartic: the arc it runs over, and how it closes.
+///
+/// **What a body files, one edge apiece** — see [`Quartics::add`], and
+/// [`Quartic::components`], which is the only thing that makes one.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Component {
+    pub(crate) arc: Stretch,
+    pub(crate) closing: Closing,
+}
+
 /// How one component of a quartic closes on itself.
 ///
 /// **The two shapes a component comes in**, and which it is turns on whether
 /// `Δ` reaches nought — see [`Quartic::real`], where the arcs are cut.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum Closing {
     /// Both branches of one arc, walked out on the near and back on the far.
     ///
     /// The two shut on each other at the arc's ends, `Δ` being nought there and
     /// a root of nought leaving one place rather than two.
+    #[default]
     Round,
     /// One branch of the whole circle, closed on itself.
     ///
