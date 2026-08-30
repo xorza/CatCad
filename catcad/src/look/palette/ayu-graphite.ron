@@ -28,10 +28,10 @@
 
     // Drawing — what the geometry and the solids beside it are painted in.
     solid:        "#ebebeb",  // line_number_hover  gray_7
-    determined:   "#20acfd",  // syn_type           blue_bright
-    partly:       "#ccab00",  // warning            yellow_bright
-    free:         "#f5912b",  // syn_keyword        orange_bright
-    pinned:       "#ff8a78",  // error              red_bright
+    determined:   "#59bafe",  // syn_type           blue_bright
+    partly:       "#d5b848",  // warning            yellow_bright
+    free:         "#f8a45c",  // syn_keyword        orange_bright
+    pinned:       "#ff9f8f",  // error              red_bright
     dormant:      "#a4a4a4",  // text_muted         gray_6
     dormant_face: "#003c5e",  // info_bg            blue_dim
     face:         "#0072ad",  // info_border        blue_normal
@@ -41,12 +41,12 @@
     sheet_side:   "#b65345",  // ansi_red           red_normal
     sheet_datum:  "#525252",  // line_number        gray_5
     mark:         "#aa5e00",  // ansi_magenta       orange_normal
-    redundant:    "#ff8a78",  // ansi_bright_red    red_bright
+    redundant:    "#ff9f8f",  // ansi_bright_red    red_bright
     depth_arrow:  "#ebebeb",  // selection_fg       gray_7
 
     // Lighting — what singling something out looks like.
     hovered:      "#ffffff",  // ansi_bright_white  white
-    selected:     "#69bc56",  // success            green_bright
+    selected:     "#83c774",  // success            green_bright
 
     // Form — the answers a prompt standing on the drawing offers.
     goes:         "#3e7f2f",  // success_border     green_normal
