@@ -582,14 +582,20 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
     assert_eq!(Meeting::of(&cylinder, &aside), Meeting::Algebraic);
 }
 
+/// The 45° cone every check below is asked about: its apex at the origin, its
+/// axis up the world's `y`, and its radius equal to its height.
+fn taper() -> Surface {
+    Surface::Natural(Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }))
+}
+
 /// **A plane square across a cone cuts a circle** whose radius the half angle
 /// sets, and catches the apex alone where it passes through it.
 #[test]
 fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
-    let cone = Surface::Natural(Natural::Cone(Cone {
-        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
-        half_angle: FRAC_PI_4,
-    }));
+    let cone = taper();
 
     // At 45° the radius equals the height, so three up is a circle of three.
     let across = facing(DVec3::Y * 3.0, DVec3::Y);
@@ -609,10 +615,166 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
         Meeting::Touching(DVec3::ZERO)
     );
 
-    // Anything else against a cone waits for something that can make one.
+    // A plane that leans cuts a conic no reducible row writes down.
     let leaning = facing(DVec3::ZERO, DVec3::new(0.0, 1.0, 1.0));
     assert_eq!(Meeting::of(&leaning, &cone), Meeting::Algebraic);
-    assert_eq!(Meeting::of(&cone, &upright(2.0)), Meeting::Algebraic);
+}
+
+/// **A cone meets a coaxial surface in circles the half angle sets**, which is
+/// the case a bore reaches: a revolve turns a taper and the hole goes up its
+/// own axis.
+///
+/// The whole of the table [`Meeting::coaxial`] answers for a cone — a cylinder,
+/// a sphere either side of the apex, and a second cone — where the plane above
+/// is answered one row up. Everything off-axis stands one storey up and still
+/// says so, for which see `.notes/KERNEL.md` §9.2.
+#[test]
+fn a_cone_meets_a_coaxial_surface_in_the_circles_its_half_angle_sets() {
+    let cone = taper();
+
+    // **A coaxial cylinder cuts both nappes**, which is the whole reason a
+    // cone is a V in the half-plane rather than a run. At 45° a cylinder of
+    // two meets it two up and two down, and a route holding one nappe would
+    // hand back half of that.
+    let bored = Meeting::of(&cone, &upright(2.0));
+    let Meeting::Along(along) = bored else {
+        panic!("{bored:?} is not a curve");
+    };
+    let [Curve::Circle(near), Curve::Circle(far)] = along.all() else {
+        panic!("{:?} is not two circles", along.all());
+    };
+    let mut heights = [near.axis.origin.y, far.axis.origin.y];
+    heights.sort_by(f64::total_cmp);
+    assert!(
+        (heights[0] + 2.0).abs() < NEAR && (heights[1] - 2.0).abs() < NEAR,
+        "{heights:?} are not the two the half angle sets",
+    );
+    for circle in [near, far] {
+        assert!((circle.radius - 2.0).abs() < NEAR, "{circle:?}");
+    }
+    lies_on(bored, &cone, &upright(2.0), "a bored cone");
+
+    // **A coaxial sphere the apex sits inside cuts both nappes too**, and one
+    // standing clear of the apex cuts the nappe it reaches twice or not at
+    // all. A sphere of three about the origin holds the apex, so at 45° the
+    // crossings stand at `3/√2` either way.
+    let ball = |middle: DVec3, radius: f64| {
+        Surface::Natural(Natural::Sphere(Sphere {
+            axis: Axis::new(middle, DVec3::Y, DVec3::X),
+            radius,
+        }))
+    };
+    let around = ball(DVec3::ZERO, 3.0);
+    let held = Meeting::of(&cone, &around);
+    let Meeting::Along(both) = held else {
+        panic!("{held:?} is not a curve");
+    };
+    assert_eq!(both.all().len(), 2, "{:?}", both.all());
+    for curve in both.all() {
+        let Curve::Circle(circle) = curve else {
+            panic!("{curve:?} is not a circle");
+        };
+        let want = 3.0 / 2.0f64.sqrt();
+        assert!((circle.radius - want).abs() < NEAR, "{circle:?}");
+        assert!(
+            (circle.axis.origin.y.abs() - want).abs() < NEAR,
+            "{circle:?}"
+        );
+    }
+    lies_on(held, &cone, &around, "a cone inside a sphere");
+
+    // A sphere clear of the apex reaches one nappe, and only while it is near
+    // enough the axis to be cut at all: the upper ray meets it where
+    // `2t² − 2mt + m² − r² = 0`, which has two roots for `r < m < r√2` and
+    // none once the sphere stands wholly inside the cone. At `m = 1.2` and
+    // `r = 1` the two are `(m ± √(2r² − m²))/2`, and the lower ray has none.
+    let (middle, radius) = (1.2, 1.0);
+    let clear = ball(DVec3::Y * middle, radius);
+    let above = Meeting::of(&cone, &clear);
+    let Meeting::Along(twice) = above else {
+        panic!("{above:?} is not a curve");
+    };
+    let half = (2.0 * radius * radius - middle * middle).sqrt();
+    let mut heights: Vec<f64> = twice
+        .all()
+        .iter()
+        .map(|curve| {
+            let Curve::Circle(circle) = curve else {
+                panic!("{curve:?} is not a circle");
+            };
+            // At 45° the radius is the height, so a circle that disagrees is
+            // one this read off the wrong nappe.
+            assert!(
+                (circle.radius - circle.axis.origin.y).abs() < NEAR,
+                "{circle:?}"
+            );
+            circle.axis.origin.y
+        })
+        .collect();
+    heights.sort_by(f64::total_cmp);
+    let want = [(middle - half) / 2.0, (middle + half) / 2.0];
+    assert_eq!(heights.len(), 2, "{heights:?}");
+    for (had, want) in std::iter::zip(&heights, want) {
+        assert!((had - want).abs() < NEAR, "{heights:?} against {want:?}");
+    }
+    lies_on(
+        above,
+        &cone,
+        &clear,
+        "a cone through a sphere above its apex",
+    );
+
+    // And a sphere wholly inside the cone is met nowhere, which is the same
+    // arithmetic with no root.
+    assert_eq!(
+        Meeting::of(&cone, &ball(DVec3::Y * 6.0, 1.0)),
+        Meeting::Apart
+    );
+
+    // **Two cones sharing an apex touch there and nowhere else**, which is the
+    // one place a coaxial pair crosses *on* the axis: every other surface here
+    // stands clear of the line it is spun about.
+    let steeper = Surface::Natural(Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4 / 2.0,
+    }));
+    assert_eq!(Meeting::of(&cone, &steeper), Meeting::Touching(DVec3::ZERO));
+
+    // Apart along the axis they cross once, at the height where the two half
+    // angles reach the same radius: the 45° cone from the origin and a second
+    // 45° cone hanging from four up meet halfway, at two out and two up.
+    let hanging = Surface::Natural(Natural::Cone(Cone {
+        axis: Axis::new(DVec3::Y * 4.0, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    let facing_pair = Meeting::of(&cone, &hanging);
+    let Meeting::Along(one) = facing_pair else {
+        panic!("{facing_pair:?} is not a curve");
+    };
+    let [Curve::Circle(waist)] = one.all() else {
+        panic!("{:?} is not one circle", one.all());
+    };
+    assert!((waist.radius - 2.0).abs() < NEAR, "{waist:?}");
+    assert!((waist.axis.origin.y - 2.0).abs() < NEAR, "{waist:?}");
+    lies_on(facing_pair, &cone, &hanging, "two cones facing");
+
+    // **The same cone framed the other way round is the same surface.** Its
+    // profile is a V, which is symmetric about the apex, so reversing the axis
+    // says nothing — and the pair is not equal bit for bit, so this is the
+    // coaxial row answering rather than the equality in front of it.
+    let reversed = Surface::Natural(Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, -DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    assert_ne!(cone, reversed);
+    assert_eq!(Meeting::of(&cone, &reversed), Meeting::Same);
+
+    // A cylinder off the axis is not a coaxial pair at all, and says so.
+    let beside = Surface::Natural(Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::X * 5.0, DVec3::Y, DVec3::X),
+        radius: 2.0,
+    }));
+    assert_eq!(Meeting::of(&cone, &beside), Meeting::Algebraic);
 }
 
 /// **Every surface meets itself, whatever else is known about the pair.**

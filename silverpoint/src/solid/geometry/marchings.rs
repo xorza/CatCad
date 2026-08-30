@@ -184,7 +184,7 @@ impl Marchings {
     /// **Walked rather than searched**, and that is what caps how finely a run
     /// may be laid down: a place says nothing about where round it stands, so
     /// the chord nearest it is every chord. The arena that would lift that cap
-    /// is `.notes/KERNEL.md` §9.1's.
+    /// is `.notes/KERNEL.md` §9.2's.
     ///
     /// How far off is what tells one run of a meeting from another, several
     /// runs being one cut — see the boolean's own `Traced`.

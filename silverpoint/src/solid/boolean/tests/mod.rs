@@ -8,6 +8,7 @@ use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use crate::solid::boolean::combining::Kept;
 use crate::solid::build::builder::Extrusion;
+use crate::solid::build::revolving::{Revolution, Sector};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::curve::Curve;
@@ -1337,4 +1338,78 @@ fn a_cut_that_removes_everything_leaves_a_body_with_nothing_in_it() {
     let mut kept = Body::default();
     assert!(boolean.combine(&small, &large, Operation::Intersect, &mut kept));
     assert_eq!(Mesher::default().volume(&kept, 1e-6), 1.0);
+}
+
+/// **A turned taper can be bored**, which is what the coaxial cone rows are
+/// for.
+///
+/// The gesture a document reaches first once a revolve exists: spin a profile
+/// with a leaning side into a taper, then drill up its own axis. Before the
+/// coaxial rows the boolean answered `Meeting::Algebraic` for every pair with a
+/// cone in it and refused the cut outright.
+///
+/// **The taper is the trapezoid `(1,0) → (3,0) → (2,2) → (1,2)` spun**, which
+/// is the fixture `Revolution`'s own tests measure: a cone outside running from
+/// a radius of three at the bottom to two at the top, a cylinder of one inside,
+/// and an annulus at each end. The drill is a rod of `2.5` about the same line,
+/// through the whole of it.
+///
+/// **What is left is worked out by an integral over the height.** The body
+/// stands between the drill and the taper wherever the taper is wider, which is
+/// `3 − y/2 > 2.5`, so `y < 1` — and the answer is
+/// `π∫₀¹((3 − y/2)² − 2.5²) dy`. Substituting `u = 3 − y/2` turns the first
+/// term into `2∫₂ᐟ⁵³u² du = 2(27 − 15.625)/3`, which is `22.75/3`; the second is
+/// `6.25`. So the volume is `π(22.75/3 − 18.75/3)`, or `4π/3`.
+///
+/// The drill's wall crosses the cone at `y = 1`, so what the cut leaves comes to
+/// an edge there rather than to a face — a knife edge, and the reason this is
+/// held to a genus and a volume rather than to a face count.
+#[test]
+fn a_turned_taper_is_bored_up_its_own_axis() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (2.0, 2.0), (1.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    let taper = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        CUBE,
+    )
+    .body();
+    assert!(taper.exact(), "a cylinder, a cone and two annuli are exact");
+
+    // Clear of both ends, so no cap of the drill plays any part.
+    let drill = rod(raised(-1.0), DVec2::ZERO, 2.5, 4.0, TOOL);
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&taper, &drill.body, Operation::Cut, &mut into),
+        "a turned taper was refused its bore",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 1, "a bored ring is a ring: {reckoning:?}");
+    assert!(into.exact(), "nothing here leaves the exact tier");
+    assert!(
+        into.holds(drill.wall),
+        "the drill's own wall is what the bore is walled with",
+    );
+
+    let want = 4.0 * PI / 3.0;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-4, 1e-5, 1e-6] {
+        // The cone and the drill's wall are both chorded round a whole turn,
+        // over the height each of them keeps. What a chord cuts off goes as two
+        // thirds of the sagitta times the area it spans.
+        let slack = (2.0 / 3.0) * sagitta * TAU * 3.0 * (5.0f64.sqrt() + 1.0);
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last");
+        last = off;
+    }
 }

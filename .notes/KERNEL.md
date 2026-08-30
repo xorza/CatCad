@@ -340,7 +340,7 @@ gates are a strict zero on every frame the pointer can be in the middle of.
 **An arm arrives with the routine that produces it, and never before.** A tier
 with nothing on it and a curve nothing writes are both a surface nobody can
 answer a question about. `Curve::Quartic` is the one arm still owed, and it
-lands with the route that makes it — §9.1.
+lands with the route that makes it — §9.2.
 
 ```rust
 /// The exact tier and the fitted tier, told apart by the type.
@@ -825,14 +825,33 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 ## 9. What is left, in order
 
 M0 through M6 are in the tree, and the reason each piece works is in the code
-that does it. What follows is what is not. Verification per house rule, one `-p`
-per crate touched:
+that does it. What follows is what is not, in the order to take it in.
+
+**The order is §10's first rule applied.** A case a document can already reach
+comes before one nothing produces, whatever either costs — a refusal a user
+meets is worse than a routine nobody has written. Step 1 has a consumer in the
+tree today. Steps 2 to 4 do not, and each waits for the thing that makes one.
+
+Verification per house rule, one `-p` per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 The general quartic
+### 9.1 Step 1 — a ghost
+
+Not the kernel's, and it wants work in `aperture3d` rather than in `solid/`. An
+`Object` carries a `Vec3` colour and the only translucent mesh pass is the flat
+sheets a drawing's regions are filled with, so there is nothing for a solid to
+be drawn faintly *in*.
+
+**Both consumers are already wired.** `paint::LIVE_FACES` falls back to showing
+the tool where the tool has more faces than a frame can combine, and a cut whose
+result is hidden behind the part from the current camera shows nothing at all.
+Neither is worth a pass of its own, so the work is an alpha the mesh pass
+carries rather than a second pass.
+
+### 9.2 Step 2 — the general quartic
 
 `Curve` carries `Line`, `Circle`, `Ellipse`, `Saddle` and `Marched`. It does not
 carry `Quartic`, and `Meeting::Algebraic` is the refusal a pair wanting one
@@ -840,9 +859,9 @@ gets.
 
 **The arm and a general cut it can be made into are one piece of work rather
 than two.** The arm alone is a curve the boolean still refuses, and §10's first
-rule says the pair lands together or not at all. Both wait until a pair needs
-them — cylinder against cone is the first that will, and nothing builds one
-today.
+rule says the pair lands together or not at all. What produces one is an
+*off-axis* feature on a cone — the coaxial rows answer the bore a revolve
+reaches, and nothing builds anything off that axis today.
 
 The route to the curve is in. `Quadric`, `Pencil`, `Quadric::rulings`,
 `Quadric::met_by`, `Ruled` and `Quartic` take two quadrics to
@@ -850,16 +869,20 @@ The route to the curve is in. `Quadric`, `Pencil`, `Quadric::rulings`,
 caps the tower at. What it lacks is somewhere for its answer to live: `Cut` and
 `Curve` are both `Copy` value types and a general quartic holds some ninety heap
 blocks, so it goes in neither by value. It wants an arena and a `Copy` handle
-apiece, §4.5's own shape — and a marched curve wants the same arena rather than
-the run it carries today.
+apiece, §4.5's own shape.
+
+**The arena pays twice**, which is the reason it is one step and not two: a
+marched curve wants the same store rather than the run it carries today, and
+`Marchings::nearest` names that cap in its own doc.
 
 The general case is research-grade but published, complete and proven, which is
 the difference between hard and open-ended. §12 names the two papers to read
 first.
 
-### 9.2 The rest of the fitted tier
+### 9.3 Step 3 — the rest of the fitted tier
 
-Two gaps, and nothing built today reaches either.
+Two gaps, and nothing built today reaches either. Both wait for a producer, the
+way the coaxial cone rows waited for the revolve that turns a taper.
 
 **Seeding a pair whose ends are not a closed form.** `meeting::seeding::Against`
 covers a plane at any lean and a cylinder parallel to the torus axis. A cylinder
@@ -872,16 +895,7 @@ the whole cut — so `Cut::between` refuses that join rather than closing it wit
 a chord. The pieces of a plane-torus meeting stand in different quarters of the
 ring, and on the plane itself they are closed loops the boundary never meets.
 
-### 9.3 A ghost
-
-Not the kernel's, and it wants work in `aperture3d` rather than in `solid/`. An
-`Object` carries a `Vec3` colour and the only translucent mesh pass is the flat
-sheets a drawing's regions are filled with, so there is nothing for a solid to
-be drawn faintly *in*. Worth having for two cases — a tool too detailed to
-combine, and a cut whose result is hidden behind the part from the current
-camera — and neither is worth a pass on its own yet.
-
-### 9.4 M7 — fillet, chamfer, STEP
+### 9.4 Step 4 — M7, fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-

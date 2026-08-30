@@ -160,12 +160,19 @@ impl Meeting {
                 Self::sphere_sphere(one, two)
             }
             // A cone against anything curved, the same cone twice over having
-            // been answered above. Coaxial pairs of these reduce to circles as
-            // readily as the rest, and are left until something can *make* a
-            // cone — a revolve, roadmap item 6 — because a case with no
-            // producer is a case with no way of knowing it is right.
-            (Surface::Natural(Natural::Cone(_)), _) | (_, Surface::Natural(Natural::Cone(_))) => {
-                Self::Algebraic
+            // been answered above.
+            //
+            // **Coaxial first**, which is the case a bore reaches: a revolve
+            // turns a taper and the hole goes up its own axis, and two
+            // surfaces of revolution about one line meet in circles about it.
+            // Everything else stands one storey up — see [`Meeting::Algebraic`]
+            // — and `.notes/KERNEL.md` §9.2 is where that route is argued.
+            (one @ Surface::Natural(Natural::Cone(cone)), other)
+            | (other, one @ Surface::Natural(Natural::Cone(cone))) => {
+                match Self::coaxial(one, other, cone.axis) {
+                    Self::Marched => Self::Algebraic,
+                    answered => answered,
+                }
             }
         }
     }
@@ -226,16 +233,35 @@ impl Meeting {
                 radius: at.x,
             })
         };
-        // On the axis is a place rather than a circle. No pair that reaches
-        // here crosses there — a torus never comes within its own major radius
-        // of the axis, and one is always in the pair — so a crossing that did
-        // would be a surface this was asked of and should not have been.
-        match here.crossed(there).all() {
-            [at] if at.x > 0.0 => Self::Along(Curves::one(round(*at))),
-            [near, far] if near.x > 0.0 && far.x > 0.0 => {
-                Self::Along(Curves::two(round(*near), round(*far)))
-            }
-            _ => Self::Apart,
+        // **On the axis is a place rather than a circle**, which only a cone
+        // reaches: it is the one surface here that touches the line it is spun
+        // about. A point divides no face, so it is dropped where a circle also
+        // came back and is the whole answer where none did.
+        //
+        // Held to [`PLACED`] rather than to nought, and both ways: a circle of
+        // a radius under the tolerance a place is held to is a point, and a
+        // crossing the arithmetic left a rounding off the axis is the apex. A
+        // profile that crosses at a *negative* radius is neither — a circle
+        // reaching the other side of the half-plane is the same circle already
+        // answered for, so it is dropped as it always was.
+        let crossings = here.crossed(there);
+        let mut round = crossings
+            .all()
+            .iter()
+            .filter(|at| at.x > PLACED)
+            .map(|at| round(*at));
+        let (first, second) = (round.next(), round.next());
+        match (first, second, round.next()) {
+            // More circles than a meeting carries, which a coaxial cone and
+            // torus genuinely make. Handed on rather than cut down — see
+            // [`Meeting::Marched`], which is what the caller does with it.
+            (Some(_), Some(_), Some(_)) => Self::Marched,
+            (Some(near), Some(far), None) => Self::Along(Curves::two(near, far)),
+            (Some(only), None, None) => Self::Along(Curves::one(only)),
+            _ => match crossings.all().iter().find(|at| at.x.abs() <= PLACED) {
+                Some(apex) => Self::Touching(axis.origin + axis.direction * apex.y),
+                None => Self::Apart,
+            },
         }
     }
 

@@ -21,7 +21,9 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Laid, Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
+use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::marchings::{Marched, Marchings};
 use crate::solid::geometry::natural::Natural;
@@ -681,24 +683,36 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, laid: Laid) -> Option<
                 run: run.expect("a circle is numbered"),
             }))
         }
-        // A circle on a cylinder square to its axis is a *straight* cut in the
-        // cylinder's own parameters: every place on it stands the same distance
-        // along the axis, so it is the line `v = that`. Which is what the end of
-        // a block does to a bore through it, and the reason a bore needs no cut
-        // shape a plane did not already need.
+        // A circle on a cylinder or a cone square to its axis is a *straight*
+        // cut in that surface's own parameters: every place on it stands the
+        // same distance along the axis, so it is the line `v = that`. Which is
+        // what the end of a block does to a bore through it, and the reason a
+        // bore needs no cut shape a plane did not already need.
         //
-        // Square to the axis or not at all: a circle on a cylinder that is not
-        // is no circle at all, and one whose plane is tilted meets it in an
+        // **One arm for the two**, because how far out the parameter reaches is
+        // the whole of what separates them and a cut in parameter space never
+        // asks. A cone's `v` is measured from its apex where a cylinder's is
+        // measured from its origin, which is the axis each states.
+        //
+        // Square to the axis or not at all: a circle on either that is not is
+        // no circle at all, and one whose plane is tilted meets it in an
         // ellipse, which arrives here as [`Curve::Ellipse`] and falls through.
-        (Surface::Natural(Natural::Cylinder(tube)), Curve::Circle(circle))
-            if predicate::parallel(circle.axis.direction, tube.axis.direction) =>
-        {
-            Some(Cut::Straight {
-                at: DVec2::new(0.0, tube.axis.along(circle.axis.origin)),
-                along: DVec2::X,
-                run,
-            })
-        }
+        //
+        // **Both of a cone's nappes arrive here**, a cone being both. The
+        // circle of the far one lands at a `v` of the other sign, where a face
+        // covering one nappe has nothing for it to cross, and the splitter
+        // leaves that face whole. It is a cut that cuts nothing rather than a
+        // case to keep out.
+        (
+            Surface::Natural(
+                Natural::Cylinder(Cylinder { axis, .. }) | Natural::Cone(Cone { axis, .. }),
+            ),
+            Curve::Circle(circle),
+        ) if predicate::parallel(circle.axis.direction, axis.direction) => Some(Cut::Straight {
+            at: DVec2::new(0.0, axis.along(circle.axis.origin)),
+            along: DVec2::X,
+            run,
+        }),
         // A ruling line on a cylinder is a cut at a constant angle, which is a
         // straight cut in a parameter that *wraps*: `θ = that`, and which turn
         // of it decides whether the face is divided at all. A face may not wrap
