@@ -2,10 +2,11 @@
 
 use crate::math::arc;
 use crate::solid::buckets::Key;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
-use crate::solid::geometry::marchings::{Marched, Marchings};
+use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
 
@@ -81,7 +82,7 @@ impl Curve {
     /// curve answers with the parameter of the nearest place on it that shares
     /// its bearing, which is a wrong answer rather than no answer — so this is
     /// not a projection and must not be used as one.
-    pub(crate) fn along(&self, at: DVec3, marched: &Marchings) -> f64 {
+    pub(crate) fn along(&self, at: DVec3, carried: &Carried) -> f64 {
         match self {
             Self::Line(line) => (at - line.origin).dot(line.direction),
             Self::Circle(circle) => circle.axis.angle_of(at),
@@ -96,7 +97,7 @@ impl Curve {
                     .atan2(out.dot(ellipse.axis.reference) / ellipse.major)
             }
             Self::Saddle(saddle) => saddle.along(at),
-            Self::Marched(of) => marched.along(of.run, at),
+            Self::Marched(of) => carried.marched.along(of.run, at),
         }
     }
 
@@ -107,10 +108,10 @@ impl Curve {
     /// a rounding. A marched curve is a run of chords and answers what its
     /// walk measured, which is the bound `.notes/KERNEL.md` §4.1 says a fitted
     /// result carries — and what the edge on it stands for.
-    pub(crate) fn strays(&self, marched: &Marchings) -> f64 {
+    pub(crate) fn strays(&self, carried: &Carried) -> f64 {
         match self {
             Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) | Self::Saddle(_) => 0.0,
-            Self::Marched(of) => marched.strayed(of.run).most,
+            Self::Marched(of) => carried.marched.strayed(of.run).most,
         }
     }
 
@@ -138,13 +139,13 @@ impl Curve {
     }
 
     /// Where the parameter `t` lands.
-    pub(crate) fn at(&self, t: f64, marched: &Marchings) -> DVec3 {
+    pub(crate) fn at(&self, t: f64, carried: &Carried) -> DVec3 {
         match self {
             Self::Line(line) => line.at(t),
             Self::Circle(circle) => circle.at(t),
             Self::Ellipse(ellipse) => ellipse.at(t),
             Self::Saddle(saddle) => saddle.at(t),
-            Self::Marched(of) => marched.at(of.run, t),
+            Self::Marched(of) => carried.marched.at(of.run, t),
         }
     }
 
@@ -160,7 +161,7 @@ impl Curve {
     /// strays is set by the second derivative, and an ellipse's is at most its
     /// major semi-axis. So the same rule bounds it, conservatively at the flat
     /// ends and exactly at the sharp ones.
-    pub(crate) fn steps(&self, span: f64, sagitta: f64, marched: &Marchings) -> usize {
+    pub(crate) fn steps(&self, span: f64, sagitta: f64, carried: &Carried) -> usize {
         match self {
             Self::Line(_) => 1,
             Self::Circle(circle) => arc::chords(circle.radius, span, sagitta),
@@ -171,7 +172,7 @@ impl Curve {
             // **The chords it has, whatever is asked of it.** A run cannot be
             // laid down again — see [`Marchings::steps`] — and how far its own
             // stray from the curve is what the edge on it carries.
-            Self::Marched(of) => marched.steps(of.run, span),
+            Self::Marched(of) => carried.marched.steps(of.run, span),
         }
     }
 }

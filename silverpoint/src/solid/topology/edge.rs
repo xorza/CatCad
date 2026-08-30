@@ -1,8 +1,8 @@
 //! A piece of curve between two corners.
 
 use crate::arena::Id;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
-use crate::solid::geometry::marchings::Marchings;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::vertex::VertexId;
 
@@ -80,7 +80,7 @@ impl Edge {
     /// A curve of the fitted tier answers with the pieces it already has, which
     /// is what `marched` holds — see
     /// [`Curve::steps`](crate::solid::geometry::curve::Curve::steps).
-    pub(crate) fn steps(&self, sagitta: f64, marched: &Marchings) -> usize {
-        self.curve.steps(self.length(), sagitta, marched)
+    pub(crate) fn steps(&self, sagitta: f64, carried: &Carried) -> usize {
+        self.curve.steps(self.length(), sagitta, carried)
     }
 }

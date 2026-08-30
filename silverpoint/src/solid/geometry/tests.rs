@@ -4,6 +4,7 @@ use crate::number::exact::field::Field;
 use crate::number::exact::quadratic::Quadratic;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::congruence::{Congruence, Signature};
@@ -11,7 +12,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
-use crate::solid::geometry::marchings::{Marched, Marchings};
+use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
@@ -310,10 +311,10 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
         origin: DVec3::ZERO,
         direction: DVec3::Y,
     });
-    let marched = Marchings::default();
+    let carried = Carried::default();
     let mut last = 0;
     for sagitta in [1.0, 0.1, 0.01, 1e-4] {
-        let steps = circle.steps(TAU, sagitta, &marched);
+        let steps = circle.steps(TAU, sagitta, &carried);
         let widest = TAU / steps as f64;
         let off = 3.0 * (1.0 - (widest / 2.0).cos());
         assert!(
@@ -328,12 +329,12 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
         );
         assert!(steps > last, "a finer sagitta cut no finer");
         last = steps;
-        assert_eq!(line.steps(9.0, sagitta, &marched), 1, "a line is straight");
+        assert_eq!(line.steps(9.0, sagitta, &carried), 1, "a line is straight");
     }
     // Half the circle wants about half the chords of the whole of it.
     assert_eq!(
-        circle.steps(PI, 0.01, &marched),
-        circle.steps(TAU, 0.01, &marched).div_ceil(2)
+        circle.steps(PI, 0.01, &carried),
+        circle.steps(TAU, 0.01, &carried).div_ceil(2)
     );
 }
 
@@ -508,9 +509,9 @@ fn an_ellipse_reads_its_parameter_back_and_not_its_bearing() {
     };
     let curve = Curve::Ellipse(oval);
 
-    let marched = Marchings::default();
+    let carried = Carried::default();
     let eighth = FRAC_PI_4;
-    let place = curve.at(eighth, &marched);
+    let place = curve.at(eighth, &carried);
     // `upright` runs up +Y from the origin with angles from +X and its quarter
     // turn at −Z, so an eighth of the frame is `2·cos` along X and `1·sin`
     // along −Z.
@@ -533,12 +534,12 @@ fn an_ellipse_reads_its_parameter_back_and_not_its_bearing() {
     // Read back, and round-tripped through the place either way.
     for step in 0..8 {
         let t = -PI + TAU * f64::from(step) / 8.0;
-        let read = curve.along(curve.at(t, &marched), &marched);
+        let read = curve.along(curve.at(t, &carried), &carried);
         assert!((read - t).abs() < 1e-12, "{t} read back as {read}");
         assert!(
             curve
-                .at(read, &marched)
-                .abs_diff_eq(curve.at(t, &marched), 1e-12)
+                .at(read, &carried)
+                .abs_diff_eq(curve.at(t, &carried), 1e-12)
         );
     }
 }
@@ -1809,8 +1810,8 @@ fn a_marched_curve_answers_through_the_store_it_names() {
             DVec3::new(out, up, 0.0)
         })
         .collect();
-    let mut marchings = Marchings::default();
-    let run = marchings.add(&walked, 1e-3);
+    let mut carried = Carried::default();
+    let run = carried.marched.add(&walked, 1e-3);
     let curve = Curve::Marched(Marched {
         run,
         key: 0x1234,
@@ -1819,11 +1820,11 @@ fn a_marched_curve_answers_through_the_store_it_names() {
 
     assert_eq!(curve.key(), 0x1234, "the key is not the store's to give");
     assert_eq!(curve.reach(0.0), 1.0, "nor is how large its numbers work");
-    assert!(curve.at(0.0, &marchings).abs_diff_eq(DVec3::X, 1e-12));
-    assert!(curve.at(TAU / 4.0, &marchings).abs_diff_eq(DVec3::Y, 1e-12));
-    assert!(curve.along(DVec3::X, &marchings).abs() < 1e-9);
+    assert!(curve.at(0.0, &carried).abs_diff_eq(DVec3::X, 1e-12));
+    assert!(curve.at(TAU / 4.0, &carried).abs_diff_eq(DVec3::Y, 1e-12));
+    assert!(curve.along(DVec3::X, &carried).abs() < 1e-9);
     for sagitta in [1.0, 1e-9] {
-        assert_eq!(curve.steps(TAU, sagitta, &marchings), 16, "{sagitta}");
+        assert_eq!(curve.steps(TAU, sagitta, &carried), 16, "{sagitta}");
     }
 }
 

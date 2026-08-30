@@ -23,9 +23,9 @@ use crate::solid::boolean::combining::{Kept, Sewn};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::buckets::{Buckets, Key};
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
-use crate::solid::geometry::marchings::Marchings;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::mesh::{Mesher, Patch};
@@ -100,9 +100,9 @@ fn swept(
     to: usize,
     on: Surface,
     curve: Curve,
-    marched: &Marchings,
+    carried: &Carried,
 ) -> [f64; 2] {
-    let angle = |at: DVec2| curve.along(on.at(at), marched);
+    let angle = |at: DVec2| curve.along(on.at(at), carried);
     let start = angle(walk[from].at);
     let (mut sweep, mut last) = (0.0, start);
     let mut step = from;
@@ -276,26 +276,26 @@ impl Sewing {
             kept,
             loops,
             imprints,
-            marched,
+            carried,
         } = sewn;
         into.clear();
         self.reset();
-        self.pin(kept, loops, imprints, marched);
+        self.pin(kept, loops, imprints, carried);
         for region in kept {
-            self.raise(region, loops, imprints, marched, into);
+            self.raise(region, loops, imprints, carried, into);
         }
-        if !self.join(imprints, marched, into) {
+        if !self.join(imprints, carried, into) {
             into.clear();
             return false;
         }
-        self.link(imprints, marched, into);
+        self.link(imprints, carried, into);
         self.write(into);
         // **The runs change hands here**, which is after everything that reads
         // them from the operation and before anything that reads them off the
         // body: what sorts the shells below sounds them, and the checker walks
         // their edges, and an edge on a marched curve has nothing to walk until
         // the body holds what it is made of.
-        into.topology_mut().trade_marched(marched);
+        into.topology_mut().trade_curves(carried);
         if !self.gather(into) {
             into.clear();
             return false;
@@ -340,7 +340,7 @@ impl Sewing {
         kept: &[Kept],
         loops: &Loops<Corner>,
         imprints: &Imprints,
-        marched: &Marchings,
+        carried: &Carried,
     ) {
         self.scratch.pinned.clear();
         for region in kept {
@@ -368,7 +368,7 @@ impl Sewing {
                         self.scratch.pinned.push(Pinned {
                             curve: imprints.on(run),
                             at,
-                            along: imprints.curve(run).along(at, marched),
+                            along: imprints.curve(run).along(at, carried),
                         });
                     }
                 }
@@ -446,13 +446,13 @@ impl Sewing {
     /// Ends excluded, by where they are rather than by their parameter: the
     /// run's own two ends are vertices already, and a place standing on one of
     /// them is that vertex rather than another beside it.
-    fn broken(&mut self, run: u32, imprints: &Imprints, marched: &Marchings, bounds: [f64; 2]) {
+    fn broken(&mut self, run: u32, imprints: &Imprints, carried: &Carried, bounds: [f64; 2]) {
         let (curve, on) = (imprints.curve(run), imprints.on(run));
         let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         let [from, to] = bounds;
         let (lo, hi) = (from.min(to), from.max(to));
-        let ends = [curve.at(from, marched), curve.at(to, marched)];
+        let ends = [curve.at(from, carried), curve.at(to, carried)];
         for pinned in placed_on(pinned, on) {
             if ends.iter().any(|&end| end.approx_eq(pinned.at, PLACED)) {
                 continue;
@@ -502,7 +502,7 @@ impl Sewing {
         &mut self,
         run: u32,
         imprints: &Imprints,
-        marched: &Marchings,
+        carried: &Carried,
         on: Surface,
         into: &mut Body,
     ) {
@@ -518,14 +518,14 @@ impl Sewing {
         if around.is_empty() {
             around.extend([0.0, PI].map(|along| Pinned {
                 curve: lies,
-                at: curve.at(along, marched),
+                at: curve.at(along, carried),
                 along,
             }));
         }
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
-        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve, marched);
+        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve, carried);
         // A loop of one closed imprint is the whole of that curve, so its lap
         // is a whole turn — and the sign of it is the only thing read below, so
         // a loop that was not would be turned into arcs the wrong way round
@@ -576,7 +576,7 @@ impl Sewing {
         region: &Kept,
         loops: &Loops<Corner>,
         imprints: &Imprints,
-        marched: &Marchings,
+        carried: &Carried,
         into: &mut Body,
     ) {
         let from = self.starts.len() - 1;
@@ -605,7 +605,7 @@ impl Sewing {
             // at, and is put down whole rather than walked — see
             // [`Sewing::encircle`].
             if let Some(run) = encircled(&self.scratch.turning) {
-                self.encircle(run, imprints, marched, region.surface, into);
+                self.encircle(run, imprints, carried, region.surface, into);
                 continue;
             }
             // Which corners are places rather than the ones a flattening put
@@ -637,12 +637,12 @@ impl Sewing {
                             ends,
                             region.surface,
                             curve,
-                            marched,
+                            carried,
                         );
                         // Broken where another face has already broken it — see
                         // [`Sewing::broken`]. Each place puts down the arc
                         // reaching it and becomes the head of the next.
-                        self.broken(run, imprints, marched, bounds);
+                        self.broken(run, imprints, carried, bounds);
                         let mut from = bounds[0];
                         for piece in 0..self.scratch.around.len() {
                             let broke = self.scratch.around[piece];
@@ -744,7 +744,7 @@ impl Sewing {
 
     /// Find the edge every step of every loop walks, and say whether each was
     /// claimed by exactly two faces.
-    fn join(&mut self, imprints: &Imprints, marched: &Marchings, into: &Body) -> bool {
+    fn join(&mut self, imprints: &Imprints, carried: &Carried, into: &Body) -> bool {
         self.steps.clear();
         self.steps.reserve_exact(self.walks.len());
         for which in 0..self.raised.len() {
@@ -762,7 +762,7 @@ impl Sewing {
                     let middle = match along {
                         Runs::Arc { run, bounds } => imprints
                             .curve(run)
-                            .at((bounds[0] + bounds[1]) / 2.0, marched),
+                            .at((bounds[0] + bounds[1]) / 2.0, carried),
                         Runs::Straight => {
                             let [from, to] = ends.map(|end| into.topology().vertex(end).at);
                             (from + to) / 2.0
@@ -833,7 +833,7 @@ impl Sewing {
     }
 
     /// Make the edges, now that each knows both the faces that use it.
-    fn link(&mut self, imprints: &Imprints, marched: &Marchings, into: &mut Body) {
+    fn link(&mut self, imprints: &Imprints, carried: &Carried, into: &mut Body) {
         self.edges.clear();
         for join in &self.joins {
             let between = join
@@ -872,7 +872,7 @@ impl Sewing {
             // where the vertices at its ends are exact crossings of two
             // surfaces. So the edge stands for that tube, and the balls at its
             // ends are widened to hold it.
-            let strays = curve.strays(marched);
+            let strays = curve.strays(carried);
             let edge = into.topology_mut().add_edge(Edge {
                 curve,
                 bounds,

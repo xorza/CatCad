@@ -14,8 +14,8 @@
 use crate::arena::Arena;
 use crate::loops::Loops;
 use crate::math::chorded::Chorded;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
-use crate::solid::geometry::marchings::Marchings;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
@@ -58,14 +58,14 @@ pub(crate) struct Topology {
     /// and ask for it again sixty times a second. See
     /// [`Face::loops`](face::Face).
     walks: Loops<Coedge>,
-    /// The places every marched curve of this body is made of, the same way.
+    /// Everything every curve of this body is made of, the same way.
     ///
     /// **Beside the loops rather than a fourth thing geometry and structure
     /// meet at.** An edge still names its curve and nothing else; what lies
-    /// here is what one of those curves is *made of*, in one buffer, exactly as
-    /// a face's own loops are — see
-    /// [`Marchings`], where the argument for that is written down.
-    marched: Marchings,
+    /// here is what one of those curves is *made of*, exactly as a face's own
+    /// loops are — see [`Carried`], where the argument for that is written
+    /// down.
+    carried: Carried,
     /// Every face of every shell, the same way — see [`Shell::faces`].
     shelled: Vec<FaceId>,
     /// Every cavity of every lump, the same way — see [`Lump::voids`].
@@ -153,21 +153,26 @@ impl Topology {
         &self.voided[start..end]
     }
 
-    /// The places this body's marched curves are made of.
-    pub(crate) fn marched(&self) -> &Marchings {
-        &self.marched
+    /// Everything this body's curves are made of and cannot hold.
+    ///
+    /// One call for the two stores it holds, because a caller wanting one
+    /// wants both: which store a curve reads is the arm it is, and no walk over
+    /// a body's edges knows in advance which arms it will meet — see
+    /// [`Carried`].
+    pub(crate) fn carried(&self) -> &Carried {
+        &self.carried
     }
 
-    /// Take the runs `with` holds, and hand back the room these took.
+    /// Take what `with` holds, and hand back the room these took.
     ///
     /// **A trade rather than a copy**, which is what keeps a body rebuilt on
-    /// every frame off the allocator: the operation that laid the runs down
-    /// walks away with the buffer this body had last time, refills it next
+    /// every frame off the allocator: the operation that laid the curves down
+    /// walks away with the buffers this body had last time, refills them next
     /// time, and neither of the two ever asks for more room than the larger of
     /// them has needed. See
     /// `Sewing::sew`, which is where the two change hands.
-    pub(crate) fn trade_marched(&mut self, with: &mut Marchings) {
-        std::mem::swap(&mut self.marched, with);
+    pub(crate) fn trade_curves(&mut self, with: &mut Carried) {
+        std::mem::swap(&mut self.carried, with);
     }
 
     /// Empty it, keeping every buffer it holds.
@@ -184,7 +189,7 @@ impl Topology {
         self.shells.retain(|_| false);
         self.lumps.retain(|_| false);
         self.walks.clear();
-        self.marched.clear();
+        self.carried.clear();
         self.shelled.clear();
         self.voided.clear();
     }
@@ -301,7 +306,7 @@ impl Chorded for Walked<'_> {
     fn steps(&self, sagitta: f64) -> usize {
         self.topology
             .edge(self.coedge.edge)
-            .steps(sagitta, self.topology.marched())
+            .steps(sagitta, self.topology.carried())
     }
 
     fn ends(&self) -> [DVec3; 2] {
@@ -320,7 +325,7 @@ impl Chorded for Walked<'_> {
         let [start, end] = edge.bounds;
         edge.curve.at(
             start + (end - start) * step as f64 / steps as f64,
-            self.topology.marched(),
+            self.topology.carried(),
         )
     }
 }

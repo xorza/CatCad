@@ -94,7 +94,7 @@ impl Body {
     /// Nought is not the same claim as [`Body::exact`]: a body may stand on a
     /// torus, and so be inexact, while every edge of it is a circle.
     pub fn strays(&self) -> f64 {
-        self.topology.marched().strays()
+        self.topology.carried().strays()
     }
 
     /// The pieces of surface `named` covers — several where one face of the

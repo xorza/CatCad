@@ -21,11 +21,12 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Laid, Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
-use crate::solid::geometry::marchings::{Marched, Marchings};
+use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -45,7 +46,7 @@ pub(super) struct Sewn<'a> {
     pub(super) kept: &'a [Kept],
     pub(super) loops: &'a Loops<Corner>,
     pub(super) imprints: &'a Imprints,
-    pub(super) marched: &'a mut Marchings,
+    pub(super) carried: &'a mut Carried,
 }
 
 /// One region of one face that a boolean kept, and what it inherited.
@@ -77,9 +78,9 @@ pub(super) struct Combining {
     /// here, and a list emptied between faces would have them pointing at each
     /// other's curves.
     imprints: Imprints,
-    /// The places every marched curve of this operation is made of — see
-    /// [`Combining::sewn`].
-    marched: Marchings,
+    /// Everything every curve of this operation is made of — see
+    /// [`Combining::sewn`], and [`Carried`], which is why it is one value.
+    carried: Carried,
     /// Which surface pairs have been marched already, and the runs each was
     /// laid down as — see [`Combining::march`].
     ///
@@ -103,7 +104,7 @@ pub(super) struct Combining {
 struct Paired {
     on: Surface,
     other: Surface,
-    /// The stretch of [`Combining::marched`] the pieces were filed in.
+    /// The stretch of [`Combining::carried`] the pieces were filed in.
     from: u32,
     upto: u32,
 }
@@ -207,7 +208,7 @@ impl Combining {
         self.loops.clear();
         self.kept.clear();
         self.imprints.clear();
-        self.marched.clear();
+        self.carried.clear();
         self.pairs.clear();
         self.paired.clear();
         // Every curved edge of either body takes a curve in the imprint list
@@ -241,7 +242,7 @@ impl Combining {
             kept: &self.kept,
             loops: &self.loops,
             imprints: &self.imprints,
-            marched: &mut self.marched,
+            carried: &mut self.carried,
         }
     }
 
@@ -407,16 +408,18 @@ impl Combining {
             | (surface, Surface::Fitted(Fitted::Torus(torus))) => (surface, *torus),
             _ => return None,
         };
-        let from = self.marched.len();
+        let from = self.carried.marched.len();
         for seed in seeding::seeded(surface, &torus)? {
             // **Walked at the classification tolerance**, which is as fine as a
             // marched edge can be drawn: nothing downstream can lay a run down
             // again, so the sagitta here is the one the edge carries — see
             // [`Marchings::steps`].
             let strayed = self.scratch.marching.walk(on, other, seed, CHORDED)?;
-            self.marched.add(self.scratch.marching.walked(), strayed);
+            self.carried
+                .marched
+                .add(self.scratch.marching.walked(), strayed);
         }
-        let upto = self.marched.len();
+        let upto = self.carried.marched.len();
         let slot = self.paired.file(key);
         debug_assert_eq!(slot as usize, self.pairs.len(), "the index lost step");
         self.pairs.push(Paired {
@@ -447,12 +450,19 @@ impl Combining {
                 // places — see [`Marched::key`], and [`pairing`], which is
                 // what makes a crossing met from either side key alike.
                 key: pairing(on, other).word((run - runs.start) as u64).done(),
-                reach: self.marched.strayed(run).reach,
+                reach: self.carried.marched.strayed(run).reach,
             });
             // Numbered whether or not it reaches this face, so that a piece
             // carries the one number wherever it is imprinted.
             let numbered = self.imprints.crossing(curve);
-            let piece = Piece::of(on, other, &self.marched, self.scratch.laid, run, numbered);
+            let piece = Piece::of(
+                on,
+                other,
+                &self.carried.marched,
+                self.scratch.laid,
+                run,
+                numbered,
+            );
             if let Some(piece) = piece {
                 self.scratch.pieces.push(piece);
             }
@@ -463,7 +473,7 @@ impl Combining {
         let cut = Cut::Traced(Traced::of(
             on,
             other,
-            &self.marched,
+            &self.carried.marched,
             self.scratch.laid,
             &self.scratch.pieces,
         ));

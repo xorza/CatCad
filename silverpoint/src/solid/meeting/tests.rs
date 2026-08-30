@@ -1,10 +1,10 @@
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
-use crate::solid::geometry::marchings::Marchings;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
@@ -48,13 +48,13 @@ fn lies_on(meeting: Meeting, one: &Surface, two: &Surface, what: &str) {
     let Meeting::Along(along) = meeting else {
         panic!("{what}: {meeting:?} holds no curve to hold against anything");
     };
-    let marched = Marchings::default();
+    let carried = Carried::default();
     for curve in along.all() {
         for step in 0..16 {
             // Past a whole turn, so a round curve is asked round twice and a
             // straight one is asked well past where anything was computed.
             let at = TAU * step as f64 / 8.0 - PI;
-            let point = curve.at(at, &marched);
+            let point = curve.at(at, &carried);
             for (named, surface) in [("the first", one), ("the second", two)] {
                 let off = surface.off(point);
                 assert!(
