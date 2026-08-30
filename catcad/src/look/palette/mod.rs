@@ -9,6 +9,12 @@
 //! Embedded rather than read at run time, because a theme is not something the
 //! application can start without: a binary that had to find a file to know what
 //! grey a chip is would be a binary with a way to have no answer.
+//!
+//! One table below is stated here and not generated —
+//! [`Palette::probe`], which the visual suite paints every frame it
+//! measures in. It is a second definition of nothing: no colour in it dresses
+//! the application, and the rule it answers to is the opposite of the one
+//! above, that a generator must never reach it.
 
 pub(crate) mod swatch;
 
@@ -102,107 +108,92 @@ impl Default for Palette {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::look::palette::swatch::internals::hex;
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod internals {
+    use crate::look::palette::Palette;
+    use crate::look::palette::swatch::Swatch;
 
-    /// The shipped file parses, and says what the mapping says it says.
-    ///
-    /// One value out of each roster, chosen where a mistake would be quiet: a
-    /// ground that came back a shade off is a seam, and a hue off the freedom
-    /// ladder is a drawing making a claim it does not mean.
-    ///
-    /// **Written out rather than read back off the table**, which is the only
-    /// way it says anything: a check that fetched its own expectation would
-    /// pass whatever the generator emitted. So these six move by hand whenever
-    /// the palette upstream is regenerated, and that is the moment somebody
-    /// looks at what moved.
-    #[test]
-    fn the_shipped_palette_parses_and_holds_the_mapped_colours() {
-        let palette = Palette::default();
-        assert_eq!(palette.ground, hex("#1e1e1e"));
-        assert_eq!(palette.chip, hex("#373737"));
-        assert_eq!(palette.determined, hex("#87e2fe"));
-        assert_eq!(palette.pinned, hex("#fd8974"));
-        assert_eq!(palette.selected, hex("#b9dd0d"));
-        assert_eq!(palette.goes, hex("#687e04"));
-    }
+    impl Palette {
+        /// The visual suite's own table, and the one palette this crate writes
+        /// down rather than parses.
+        ///
+        /// **Why the suite does not measure the shipped one.** That table is a
+        /// target of the palette repository, so it moves whenever the generator
+        /// runs — and a golden is a claim about bytes. Held against the shipped
+        /// palette, three goldens fail every regeneration and say only that a
+        /// colour moved, which is the one thing a golden was never needed for.
+        /// Held against this, they fail when the *rendering* moves and at no
+        /// other time.
+        ///
+        /// **Stated here rather than in a file beside the shipped one**, which
+        /// is what the argument at the top of this module asks for. A second
+        /// file would be a second thing that can be regenerated, edited or
+        /// forgotten, and the property this table exists for is that nothing
+        /// moves it. Written as a literal it is also the compiler that keeps it
+        /// whole: a role added to [`Palette`] is a build error here rather than
+        /// a field silently left at a default.
+        ///
+        /// **The neutrals run one ramp at wide steps and the hues take a side
+        /// of the wheel each**, on three rules the suite depends on:
+        ///
+        /// * The slab is neutral. A stroke is told from the surface under it by
+        ///   saturation, so a tinted slab reads as ink.
+        /// * The roles a sweep reads stand well clear of every other colour the
+        ///   drawing paints, so a pixel wearing the wrong one is a failure
+        ///   rather than a near miss.
+        /// * Nothing is magenta. The suite stages `#ff00ff` as a colour a scene
+        ///   cannot already wear, and counts it to find a highlight.
+        ///
+        /// The last two are checked below. What all of this costs is that a
+        /// golden no longer shows the application in the colours a user sees it
+        /// in — a deliberate price, and the reason this is a palette rather
+        /// than a set of markers: the frames stay readable, so a rendering
+        /// fault is still something an eye can find in one.
+        pub(crate) const fn probe() -> Self {
+            Self {
+                ground: Swatch::of(0x101010),
+                pill: Swatch::of(0x282828),
+                pill_edge: Swatch::of(0xf0f0f0),
+                rule: Swatch::of(0xf0f0f0),
+                chip: Swatch::of(0x404040),
+                chip_lit: Swatch::of(0x585858),
+                chip_active: Swatch::of(0x707070),
+                chip_held: Swatch::of(0xf0f0f0),
+                on_held: Swatch::of(0x101010),
+                ink: Swatch::of(0xb8b8b8),
+                ink_lit: Swatch::of(0xf0f0f0),
+                ink_dim: Swatch::of(0x909090),
+                cube_low: Swatch::of(0x282828),
+                cube_high: Swatch::of(0x585858),
+                focus: Swatch::of(0xf0f0f0),
 
-    /// Every grey in the table is grey.
-    ///
-    /// The whole reason the palette is generated through a neutralisation
-    /// rather than copied: ayu's own ramp runs cool at `gray_600` and warm at
-    /// `gray_200`, and a step that arrived here still tinted would be the
-    /// tint nobody asked for, in the one place it is most visible — a large
-    /// flat surface.
-    #[test]
-    fn every_neutral_role_has_no_tint_left() {
-        let palette = Palette::default();
-        for (role, swatch) in [
-            ("ground", palette.ground),
-            ("pill", palette.pill),
-            ("pill_edge", palette.pill_edge),
-            ("rule", palette.rule),
-            ("chip", palette.chip),
-            ("chip_lit", palette.chip_lit),
-            ("chip_active", palette.chip_active),
-            ("chip_held", palette.chip_held),
-            ("on_held", palette.on_held),
-            ("ink", palette.ink),
-            ("ink_lit", palette.ink_lit),
-            ("ink_dim", palette.ink_dim),
-            ("cube_low", palette.cube_low),
-            ("cube_high", palette.cube_high),
-            ("focus", palette.focus),
-            ("solid", palette.solid),
-            ("dormant", palette.dormant),
-            ("ghost", palette.ghost),
-            ("sheet_datum", palette.sheet_datum),
-            ("depth_arrow", palette.depth_arrow),
-        ] {
-            let color = swatch.color();
-            assert!(
-                color.r == color.g && color.g == color.b,
-                "{role} is {} and still carries a tint",
-                ron::to_string(&swatch).unwrap()
-            );
+                solid: Swatch::of(0xd0d0d0),
+                determined: Swatch::of(0x00b0ff),
+                partly: Swatch::of(0xffd000),
+                free: Swatch::of(0xff7000),
+                pinned: Swatch::of(0xff0040),
+                dormant: Swatch::of(0xa8a8a8),
+                dormant_face: Swatch::of(0x004060),
+                face: Swatch::of(0x0090c0),
+                ghost: Swatch::of(0xc8c8c8),
+                sheet_ground: Swatch::of(0x00c040),
+                sheet_front: Swatch::of(0x0060ff),
+                sheet_side: Swatch::of(0xc03030),
+                sheet_datum: Swatch::of(0x909090),
+                mark: Swatch::of(0x8060ff),
+                redundant: Swatch::of(0xff2000),
+                depth_arrow: Swatch::of(0xe0e0e0),
+
+                hovered: Swatch::of(0xffffff),
+                selected: Swatch::of(0x40ff40),
+
+                goes: Swatch::of(0x00c000),
+                stops: Swatch::of(0xe02020),
+                doing: Swatch::of(0x0080ff),
+            }
         }
     }
-
-    /// The table survives being written back out, which is what says the file
-    /// and this struct agree on all thirty-six roles rather than on the six the
-    /// test above names.
-    #[test]
-    fn the_palette_round_trips_through_its_own_format() {
-        let palette = Palette::default();
-        let text = ron::to_string(&palette).unwrap();
-        assert_eq!(ron::from_str::<Palette>(&text).unwrap(), palette);
-        assert_eq!(text.matches("\"#").count(), 36);
-    }
-
-    /// The table is the generator's output and not a hand-written copy of it.
-    ///
-    /// The one property this whole arrangement rests on: the palette lives in
-    /// `ayu-graphite.toml` and reaches here through `ayu-graphite/catcad/build.py`.
-    /// A table somebody edited in place would be a second definition of every
-    /// colour, and two definitions of a colour are two colours as soon as either
-    /// is touched.
-    #[test]
-    fn the_table_is_generated_rather_than_written_here() {
-        let banner = TABLE.lines().next().expect("the table is not empty");
-        assert!(banner.contains("generated"), "{banner}");
-        assert!(
-            TABLE.contains("ayu-graphite/catcad/build.py"),
-            "the table does not say what wrote it"
-        );
-    }
-
-    /// A role the generator renamed is a hard error rather than a colour
-    /// quietly left at whatever the struct happened to say.
-    #[test]
-    fn a_table_with_a_role_this_crate_does_not_know_is_refused() {
-        let stale = TABLE.replacen("ground:", "backdrop:", 1);
-        assert!(ron::from_str::<Palette>(&stale).is_err());
-    }
 }
+
+#[cfg(test)]
+mod tests;

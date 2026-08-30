@@ -23,6 +23,11 @@ use palantir::golden::{Goldens, Tolerance};
 /// What this costs is that every deliberate change to what is drawn is a
 /// `UPDATE_GOLDEN=1` run, and so is a driver or OS update. That is the trade a
 /// golden is for — see the note at the top of `main.rs` on keeping them few.
+///
+/// A recoloured theme is not one of those runs. The frames below are painted in
+/// the suite's own palette rather than the shipped one — see the note at the
+/// top of `harness.rs` — so what moves them is the rendering and never the
+/// table.
 const TOLERANCE: Tolerance = Tolerance {
     per_channel: 0,
     max_ratio: 0.0,

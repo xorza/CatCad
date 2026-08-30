@@ -1,10 +1,10 @@
 //! What the renderer keeps between frames, and what a second frame owes it.
 
 use crate::harness::{DEMO_FRAME, DRAWING, Frame, SceneApp, capture, edge_on};
-use crate::ink::strokes;
+use crate::ink::{INK, Ink, strokes};
 use aperture::{Curve, Highlight, Lit, Ring};
 use catcad::CatCad;
-use glam::{UVec2, Vec3};
+use glam::UVec2;
 
 /// The renderer's buffers outlive the geometry in them, so a second paint has
 /// to overwrite what the first left behind — not append to it, and not leave a
@@ -15,7 +15,7 @@ use glam::{UVec2, Vec3};
 #[test]
 fn a_second_paint_replaces_the_geometry_the_first_left() {
     let size = DEMO_FRAME;
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     app.enter_first_sketch();
     edge_on(1.4)(app.camera_mut());
     // The constraint marks go before anything is measured. This is about the
@@ -83,7 +83,7 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
 /// and a fresh app's layout already claims to have drawn, so the batch emptied
 /// here stays empty through the frame.
 fn bare(size: UVec2) -> Frame {
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     app.enter_first_sketch();
     edge_on(1.4)(app.camera_mut());
     // Drawn once before it is emptied, which is what makes this the same frame
@@ -110,7 +110,7 @@ fn bare(size: UVec2) -> Frame {
 #[test]
 fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let size = DEMO_FRAME;
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     app.enter_first_sketch();
     // The renderer's own camera rather than the document's, unlike everywhere
     // else: what paints below is a `SceneApp` borrowing this renderer, and the
@@ -121,21 +121,8 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
         view: app.renderer().clone(),
     };
 
-    // A colour nothing in the scene wears, so counting it counts the
-    // highlight and nothing else.
-    let look = Highlight::new(Vec3::new(1.0, 0.0, 1.0)).scale(4.0);
-    let magenta = |frame: &Frame| {
-        let mut count = 0;
-        for y in 0..frame.size.y {
-            for x in 0..frame.size.x {
-                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
-                if r > 150 && b > 150 && g < 90 {
-                    count += 1;
-                }
-            }
-        }
-        count
-    };
+    let look = Highlight::new(INK).scale(4.0);
+    let magenta = |frame: &Frame| Ink::found_in(frame).count;
 
     let plain = capture(size, &mut app_pane);
     assert_eq!(magenta(&plain), 0, "nothing is that colour to begin with");

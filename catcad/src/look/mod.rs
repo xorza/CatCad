@@ -234,10 +234,27 @@ impl Theme {
     }
 }
 
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod internals {
+    use crate::look::Theme;
+    use crate::look::palette::Palette;
+
+    impl Theme {
+        /// What the visual suite dresses the application in.
+        ///
+        /// The same derivation over a table that does not move — see
+        /// [`Palette::probe`](crate::look::palette::Palette::probe), where the
+        /// reason for a second table is argued.
+        pub(crate) fn probe() -> Self {
+            Self::from_palette(&Palette::probe())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::look::palette::swatch::internals::hex;
+    use crate::look::palette::swatch::Swatch;
     use crate::look::wearing::Wearing;
 
     /// The nine roles palantir builds every widget out of are answered from the
@@ -299,10 +316,10 @@ mod tests {
     #[test]
     fn a_colour_changed_in_the_palette_reaches_every_roster() {
         let palette = Palette {
-            chip: hex("#102030"),
-            pinned: hex("#405060"),
-            selected: hex("#708090"),
-            goes: hex("#a0b0c0"),
+            chip: Swatch::of(0x102030),
+            pinned: Swatch::of(0x405060),
+            selected: Swatch::of(0x708090),
+            goes: Swatch::of(0xa0b0c0),
             ..Palette::default()
         };
 
@@ -331,7 +348,20 @@ mod tests {
     /// drawing rather than the clear, and its rim is what carries the edge.
     #[test]
     fn the_layers_that_stack_in_one_pill_stay_separable() {
-        let theme = Theme::default();
+        for (dressed, theme) in [
+            ("the shipped palette", Theme::default()),
+            ("the suite's own", Theme::probe()),
+        ] {
+            layers_stay_separable(dressed, &theme);
+        }
+    }
+
+    /// **Run over both tables, because both dress an application.** The suite's
+    /// own palette paints every frame a golden is approved by eye from, and a
+    /// probe whose lettering nobody could read would be a golden nobody could
+    /// judge — which is the whole reason it is a palette rather than a set of
+    /// markers.
+    fn layers_stay_separable(dressed: &str, theme: &Theme) {
         let chrome = &theme.chrome;
         let form = &theme.form;
         let ground = drawing::tint(theme.drawing.ground);
@@ -344,7 +374,10 @@ mod tests {
             ("a rule between groups", chrome.rule, slab),
         ] {
             let apart = separation(top, under);
-            assert!(apart >= 1.10, "{what} reads at {apart:.3}, which is flat");
+            assert!(
+                apart >= 1.10,
+                "under {dressed}, {what} reads at {apart:.3}, which is flat"
+            );
         }
         for (what, ink, under) in [
             ("a chip's ink", chrome.ink, chrome.chip),
@@ -352,7 +385,10 @@ mod tests {
             ("the ink on a held chip", chrome.on_held, chrome.chip_held),
         ] {
             let apart = separation(ink, under);
-            assert!(apart >= 4.5, "{what} reads at {apart:.2}, which is faint");
+            assert!(
+                apart >= 4.5,
+                "under {dressed}, {what} reads at {apart:.2}, which is faint"
+            );
         }
         // **A pill on the drawing is read against the model, not the ground**,
         // which is the whole of why it has a fill of its own. The worst case is
@@ -367,7 +403,8 @@ mod tests {
         let slab_over = over.lerp(chrome.pill_over, chrome.pill_over.a);
         assert!(
             separation(chrome.pill_over, over) > separation(chrome.pill, over),
-            "a pill on the drawing hides no more of it than one at the view's edge",
+            "under {dressed}, a pill on the drawing hides no more of it than one at \
+             the view's edge",
         );
         for (what, ink) in [
             ("a form's label", chrome.ink),
@@ -376,7 +413,7 @@ mod tests {
             let apart = separation(ink, slab_over);
             assert!(
                 apart >= 3.0,
-                "{what} over a lit solid reads at {apart:.2}, which is faint",
+                "under {dressed}, {what} over a lit solid reads at {apart:.2}, which is faint",
             );
         }
         // **A form's answer is a stroked mark rather than a run of letters**, so
@@ -387,13 +424,14 @@ mod tests {
         // above this could be written for.
         for (what, means) in [("confirm", form.goes), ("cancel", form.stops)] {
             for (state, wearing) in [
-                ("resting", Wearing::answer(&theme, means, false)),
-                ("pointed-at", Wearing::answer(&theme, means, true)),
+                ("resting", Wearing::answer(theme, means, false)),
+                ("pointed-at", Wearing::answer(theme, means, true)),
             ] {
                 let apart = separation(wearing.ink, wearing.fill);
                 assert!(
                     apart >= MARK,
-                    "the mark on a {state} {what} reads at {apart:.2}, which is faint",
+                    "under {dressed}, the mark on a {state} {what} reads at {apart:.2}, \
+                     which is faint",
                 );
             }
             // **And what the lift buys is a mark that still reads as its own
@@ -401,7 +439,7 @@ mod tests {
             // by handing back plain white; what says the answer still means
             // *goes* or *stops* is that the channel the palette leaned on is
             // still the one this leans on.
-            let resting = Wearing::answer(&theme, means, false).ink;
+            let resting = Wearing::answer(theme, means, false).ink;
             let leans = |it: Color| match it.r >= it.g {
                 true => "red",
                 false => "green",
@@ -409,19 +447,19 @@ mod tests {
             assert_eq!(
                 leans(resting),
                 leans(means),
-                "a lifted {what} stopped reading as the colour it means",
+                "under {dressed}, a lifted {what} stopped reading as the colour it means",
             );
             // Under the pointer it takes the *better* of the overlay's two
             // inks: an answer's own colour is the fill there, and a fill near
             // the middle of the ramp is one no fixed ink reads on.
-            let wearing = Wearing::answer(&theme, means, true);
+            let wearing = Wearing::answer(theme, means, true);
             let other = match wearing.ink == chrome.ink_lit {
                 true => chrome.on_held,
                 false => chrome.ink_lit,
             };
             assert!(
                 separation(wearing.ink, wearing.fill) >= separation(other, wearing.fill),
-                "a pointed-at {what} took the fainter of the two inks",
+                "under {dressed}, a pointed-at {what} took the fainter of the two inks",
             );
         }
     }

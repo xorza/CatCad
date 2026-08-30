@@ -1,5 +1,10 @@
 //! Getting a frame out of the app, and the shapes every check below reads one
 //! through.
+//!
+//! **Every frame here is painted in the suite's own palette**, which is what
+//! [`CatCad::probe`] raises and what the three colour readings below answer
+//! for. A frame wanted from [`CatCad::build`] is a frame this file cannot
+//! measure. The argument for a second table is at `Palette::probe`.
 
 use aperture::{Camera, Pane, Placement, Projection, Renderer, Scene};
 use catcad::CatCad;
@@ -89,12 +94,12 @@ impl Frame {
     }
 }
 
-/// What the drawing's background is painted in, parsed once for the process.
+/// What the drawing's background is painted in, read once for the process.
 ///
 /// Held rather than fetched because [`Frame::lit`] asks per pixel and the
-/// palette is a table this crate parses rather than a constant it compiles in:
-/// a sweep of one frame asked half a million times. The two colours beside it
-/// are read once per sweep and need nothing.
+/// reading builds the whole table to answer for one role of it: a sweep of one
+/// frame asks half a million times. The two colours beside it are read once per
+/// sweep and need nothing.
 fn ground() -> [u8; 3] {
     static GROUND: OnceLock<[u8; 3]> = OnceLock::new();
     *GROUND.get_or_init(CatCad::ground_srgb)
@@ -174,7 +179,7 @@ impl App for SceneApp {
 /// The camera is the renderer's here rather than the document's, for the same
 /// reason: nothing records, so nothing copies one over to the other.
 pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Pane)) -> Frame {
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     // Opened in the demo's first sketch, which a document is not: what these
     // frames are of is a drawing being *worked in*, marks and all — see
     // [`CatCad::enter_first_sketch`].
@@ -205,7 +210,7 @@ pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Pane)) -> Frame {
 /// camera the last record saw: the first frame is thrown away for what it
 /// leaves in the scene, and the second draws that scene with nothing over it.
 pub(crate) fn shown(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     app.enter_first_sketch();
     framed(size, app, aim)
 }
@@ -219,7 +224,7 @@ pub(crate) fn shown(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
 /// [`Stroke::Sheet`](catcad) — the rule is one sentence and this is the side of
 /// it the goldens above cannot show.
 pub(crate) fn idle(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
-    framed(size, CatCad::build(), aim)
+    framed(size, CatCad::probe(), aim)
 }
 
 /// One frame of `app`, aimed and then repainted with the chrome left off.

@@ -165,14 +165,24 @@ pub struct CatCad {
 
 impl CatCad {
     /// What `WinitHost` calls. The host's arguments say nothing this app
-    /// needs, so the work is all in [`CatCad::build`] — which is also what
-    /// lets the offscreen harness raise the same app without a window.
+    /// needs, so the work is all in [`CatCad::dressed`] — which is also what
+    /// lets the offscreen harness raise the same app without a window, in
+    /// colours of its own.
     pub fn new(_ui: &mut Ui, _handle: HostHandle<Self>) -> Self {
         Self::build()
     }
 
-    /// The app without a host, which is what the visual suite raises.
+    /// The app without a host, in the colours it ships in.
     pub fn build() -> Self {
+        Self::dressed(Theme::default())
+    }
+
+    /// The same app, wearing `theme`.
+    ///
+    /// The seam the visual suite raises the app through, so that what a golden
+    /// is a claim about is not a table generated upstream of this crate. The
+    /// argument is at `Palette::probe`, which is the table it raises.
+    fn dressed(theme: Theme) -> Self {
         // The one build, made before anything that needs one. Opening a
         // document is a solve, so it is wanted here as much as it is per frame.
         let mut build = Build::default();
@@ -192,7 +202,6 @@ impl CatCad {
         // Opened in no sketch at all, which is how every document opens — see
         // [`Document::opening`]. What the demo shows before anything is clicked
         // is its solid and the planes it was built on.
-        let theme = Theme::default();
         let session = Session::new(document.opening());
         let mut view = SceneView::new(&document, &build, &theme, session.editing());
         if let Some(extent) = view.extent() {
@@ -699,6 +708,7 @@ pub(crate) mod internals {
     #[cfg(test)]
     use crate::intent::Intent;
     use crate::intent::{Choice, Intents, Opening};
+    use crate::look::Theme;
     use crate::look::palette::Palette;
     use crate::tool::Tool;
 
@@ -712,6 +722,20 @@ pub(crate) mod internals {
     pub(crate) const HARNESS_SIZE: glam::UVec2 = glam::UVec2::new(800, 600);
 
     impl CatCad {
+        /// The app in the visual suite's own colours, which is what that suite
+        /// raises.
+        ///
+        /// **Not [`CatCad::build`], and the difference is the whole point** —
+        /// argued at `Palette::probe`, which is the table this dresses the app
+        /// in.
+        ///
+        /// The three colour readings below answer for this app and not for the
+        /// shipped one, so a suite that reached past this for its frames would
+        /// be measuring one palette against another.
+        pub fn probe() -> Self {
+            Self::dressed(Theme::probe())
+        }
+
         /// The width every sketch stroke is authored at, in logical pixels.
         ///
         /// Off this application's own theme, so what a test holds a stroke to is
@@ -724,14 +748,19 @@ pub(crate) mod internals {
             self.theme.drawing.edge
         }
 
-        /// The sRGB bytes the drawing's background is painted in.
+        /// The sRGB bytes the drawing's background is painted in, in a frame
+        /// [`CatCad::probe`] raised.
         ///
         /// Off the table for the reason [`CatCad::edge_width`] is off the
         /// theme: a frame sweep that counted a colour written out beside it
-        /// would be a sweep the palette can walk away from — and the palette is
-        /// generated upstream, so it does walk. Everything the overlay paints
-        /// flat lands on the target as these very bytes, so what a sweep asks
-        /// is equality and not a window.
+        /// would be a sweep the palette can walk away from. Everything the
+        /// overlay paints flat lands on the target as these very bytes, so what
+        /// a sweep asks is equality and not a window.
+        ///
+        /// **The suite's table and not the shipped one**, which is why the
+        /// answer is bound to `CatCad::probe` rather than to the application. A
+        /// sweep run over a frame the shipped palette painted would be asking
+        /// one table about another.
         ///
         /// Three calls rather than one taking which colour it wants, because
         /// naming a role would mean a type an integration test can reach and
@@ -739,18 +768,18 @@ pub(crate) mod internals {
         /// taken off an instance, because a sweep runs per pixel and the
         /// application it swept has been dropped by then.
         pub fn ground_srgb() -> [u8; 3] {
-            Palette::default().ground.srgb()
+            Palette::probe().ground.srgb()
         }
 
         /// The sRGB bytes a pinned point is painted in.
         pub fn pinned_srgb() -> [u8; 3] {
-            Palette::default().pinned.srgb()
+            Palette::probe().pinned.srgb()
         }
 
         /// The sRGB bytes geometry the constraints have not pinned is painted
         /// in.
         pub fn free_srgb() -> [u8; 3] {
-            Palette::default().free.srgb()
+            Palette::probe().free.srgb()
         }
 
         /// The renderer behind the view, so a harness can reach the scene

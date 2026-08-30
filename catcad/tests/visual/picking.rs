@@ -75,7 +75,7 @@ impl Raised {
 
     /// The same with `aim` applied to its camera before the first frame.
     fn new(gpu: &HeadlessTestGpuLease, aim: impl FnOnce(&mut Camera)) -> Self {
-        let mut app = CatCad::build();
+        let mut app = CatCad::probe();
         app.enter_first_sketch();
         let mut raised = Self {
             host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
@@ -367,7 +367,7 @@ fn on_plane(camera: &Camera, cursor: Vec2, on: Vec3, normal: Vec3) -> Option<Vec
 #[test]
 fn a_number_dragged_by_its_box_travels_with_the_cursor() {
     let gpu = headless_test_gpu();
-    let opened = *CatCad::build().camera_mut();
+    let opened = *CatCad::probe().camera_mut();
     for (yaw, pitch, zoom) in [
         (opened.yaw, opened.pitch, 1.0f32),
         (opened.yaw, opened.pitch, 0.6),

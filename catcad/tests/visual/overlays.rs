@@ -85,7 +85,7 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     const PITCH: f32 = 1.0;
 
     let size = DEMO_FRAME;
-    let mut app = CatCad::build();
+    let mut app = CatCad::probe();
     app.enter_first_sketch();
     // Parallel, so no foreshortening enters the measurement. Zoomed until a
     // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than the
@@ -264,7 +264,7 @@ fn overlays_keep_their_authored_width_at_grazing_angles() {
     // assertions hold a stroke to is the width the drawing was drawn with. The
     // harness renders at scale 1, so a logical pixel is a pixel and this is what
     // a fully drawn stroke deposits.
-    let authored = CatCad::build().edge_width();
+    let authored = CatCad::probe().edge_width();
     let allowed = WIDTH_TOLERANCE + MASK_SHORTFALL;
     let mut by_overlay = Vec::new();
 

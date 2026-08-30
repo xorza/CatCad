@@ -121,14 +121,18 @@ pub(crate) mod internals {
         pub(crate) const fn srgb(self) -> [u8; 3] {
             [(self.0 >> 16) as u8, (self.0 >> 8) as u8, self.0 as u8]
         }
-    }
 
-    /// The swatch `text` names, which is the only way to build one: a palette
-    /// is parsed, so a test that stated a colour any other way would be stating
-    /// it in a currency the file does not use.
-    #[cfg(test)]
-    pub(crate) fn hex(text: &str) -> Swatch {
-        ron::from_str(&format!("{text:?}")).expect(text)
+        /// The colour `packed` holds as `0xRRGGBB`.
+        ///
+        /// **The one way to state a swatch outside a palette file**, and so
+        /// what [`Palette::probe`](crate::look::palette::Palette::probe) is
+        /// built from and what a test asserting a shipped colour holds it to.
+        /// The digits are the file's own — `0x1f1f1f` against `"#1f1f1f"` —
+        /// which is what the parse above would otherwise have been asked for,
+        /// at the cost of a `const fn` the probe table cannot do without.
+        pub(crate) const fn of(packed: u32) -> Self {
+            Self(packed)
+        }
     }
 }
 
