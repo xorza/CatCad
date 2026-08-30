@@ -829,8 +829,8 @@ that does it. What follows is what is not, in the order to take it in.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written. Step 1 is two refusals that
-two features reach.
+meets is worse than a routine nobody has written. Step 1 is two refusals two
+features reach.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -838,61 +838,47 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 Step 1 — a ring the boolean cannot drill
+### 9.1 Step 1 — the ring's own intersection
 
-**A rod drilled through the wall of a ring is refused.** A revolve makes a
-torus, so a document reaches this with two features. Coaxial with the ring is
-not the case — that one is turning, and it works — but a drill *beside* the axis
-and parallel to it, through the tube.
+**The drill lands, the intersection does not.** `Body::ring(3, 1)` cut by a rod
+of radius `0.5` about `x = 3` running parallel to the ring's axis is answered —
+see `a_ring_drilled_through_its_wall_keeps_the_volume_the_arithmetic_says`. The
+same pair *intersected*, which is the slug the drill takes out, is still refused
+by the sewing with edges claimed by one face.
 
-The bar cross drilled by a narrower hole is the same operation one tier down and
-works. Two cylinders meet in a curve the exact table writes down, so that pair
-never lays a piece at all, which is what says the refusal is the tier and not
-the shape.
+Two of its six bad joins were slivers of no width, and those are gone:
+`Sewing::broken` turned away a break standing on a bound by reading the curve at
+that bound and comparing places, which for a *marched* run is the polyline and
+not the curve — a whole stray away from the vertex another face pinned there.
+It is given the stretch's own ends now, which is what its doc already said it
+compared.
 
-Measured: `Body::ring(3, 1)` cut by a rod of radius `0.5` about `x = 3`, running
-parallel to the ring's axis and clear of the tube at both ends. Both ways round,
-both operations.
+**What is left is two faces the plug never gets.** The ring is four faces,
+split at bearings `0` and `π` and at tube angles `0` and `π`, and the drill
+stands on the bearing-`0` seam. The plug's two caps therefore want *four*
+patches, a pair either side of that seam, and only two are raised: the mouth
+arcs come back claimed by the drill's own two wall faces between them and by one
+torus patch apiece, so the other half of each is claimed once and the tube
+circles the caps stand on are claimed once with them.
 
-**The cause, and it is not the reassembly.** The rod's wall meets the torus in
-two closed curves — where the rod enters the tube and where it leaves. A whole
-cylinder is two faces (§4.4), so each face holds half a turn of `u`, and each of
-those curves runs *right round* the rod: a whole turn of `u` laid into a face
-that holds half of one.
+**Where the two go missing is measured.** On the faces with bearing in
+`[π, 2π]` the split hands back one region where it wants two — the face less the
+bite, and not the bite. `Operation::Cut` keeps the first and never misses the
+second, which is why the drill lands; the intersection wants exactly the one
+that is not there. The near pair hands back both.
 
-`Piece::shift` carries a run onto the turn its middle stands nearest the face's
-in. That is the right answer for a run shorter than the face and no answer at
-all for one longer: the run lands at `u ∈ [−4.629, 1.654]` where the face holds
-`[0, π]`, so one half of it falls on this face and the other half needs another
-turn to reach it. `Piece::fills` then misses the face's own seam at `u = π`
-outright, `Cut::grazes` finds no crossing along it, and the boundary run that
-passes clean through both curves yields no chain at all.
+The drilled body is *right*, which was worth settling before reading anything
+into that count: asked where it stands, it answers `Outside` at the tube's own
+centre circle at bearings either side of the seam and well inside the drill. So
+the far faces are bitten correctly. It is the bite as a region of its own that
+never appears.
 
-**What it wants.** A piece laid into a face in as many turns as the face's range
-takes, rather than one — so a run that wraps comes out as the stretches of it
-the face actually holds. Everything that asks where a piece stands in the face's
-own parameters is then asked per stretch: the `Piece::fills` box that gates the
-rest, and `Traced::found`, `grazes`, `holds`, `lay` and `between`.
-
-**And the reassembly wraps over the whole cut**, which is a second bug the first
-one hides. `Splitting::close` sorts every chain by where it entered and wraps
-past the last to the first of all. A cut of several pieces carries a parameter
-circle apiece, so the chain after the last of one piece is that piece's own
-first — `Cut::between` refuses the cross-piece join rather than closing it with
-a chord, which turns the wrong wrap into a refusal instead of a wrong body.
-Wrapping inside the piece is a handful of lines and no input reaches it until
-the laying above is fixed, so it lands with that and not before.
-
-**The same drill leaning is refused a stage earlier.**
-`meeting::seeding::Against` covers a plane at any lean and a cylinder parallel
-to the torus axis, and nothing else — so `Reading::of` hands back nothing, the
-march is never seeded, and the boolean refuses before a piece is laid. Measured
-with the rod above tilted to `(0.4, 1, 0)`.
-
-A cylinder that leans on the axis puts the ends behind a degree-eight
-polynomial, and a second torus does no better. Both parts want the laying above
-first: a seeding that answered would hand the laying the very runs it cannot
-lay.
+**Seeding a drill that leans.** `meeting::seeding::Against` covers a plane at
+any lean and a cylinder parallel to the torus axis, and nothing else — so a
+drill tilted to `(0.4, 1, 0)` gets nothing from `Reading::of`, the march is
+never seeded, and the boolean refuses before a piece is laid. A cylinder that
+leans on the axis puts the ends behind a degree-eight polynomial, and a second
+torus does no better.
 
 ### 9.2 Step 2 — M7, fillet, chamfer, STEP
 

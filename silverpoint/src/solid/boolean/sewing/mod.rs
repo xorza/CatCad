@@ -427,8 +427,8 @@ impl Sewing {
         self.scratch.pinned.truncate(kept);
     }
 
-    /// The places another face has already put a vertex along `curve` between
-    /// `bounds`, in the order the run walks them.
+    /// The places another face has already put a vertex along the run at `run`
+    /// between `bounds`, in the order the run walks them.
     ///
     /// **The place a face pinned rather than the curve read at its parameter**,
     /// which is one thing for every exact curve and two for a marched one: a
@@ -446,13 +446,12 @@ impl Sewing {
     /// Ends excluded, by where they are rather than by their parameter: the
     /// run's own two ends are vertices already, and a place standing on one of
     /// them is that vertex rather than another beside it.
-    fn broken(&mut self, run: u32, imprints: &Imprints, carried: &Carried, bounds: [f64; 2]) {
-        let (curve, on) = (imprints.curve(run), imprints.on(run));
+    fn broken(&mut self, run: u32, imprints: &Imprints, bounds: [f64; 2], ends: [DVec3; 2]) {
+        let on = imprints.on(run);
         let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         let [from, to] = bounds;
         let (lo, hi) = (from.min(to), from.max(to));
-        let ends = [curve.at(from, carried), curve.at(to, carried)];
         for pinned in placed_on(pinned, on) {
             if ends.iter().any(|&end| end.approx_eq(pinned.at, PLACED)) {
                 continue;
@@ -629,12 +628,12 @@ impl Sewing {
                 let along = match corner.came {
                     Came::Edge => Runs::Straight,
                     Came::Arc(run) => {
-                        let ends = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
+                        let upto = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
                         let curve = imprints.curve(run);
                         let bounds = swept(
                             &self.scratch.turning,
                             step,
-                            ends,
+                            upto,
                             region.surface,
                             curve,
                             carried,
@@ -642,7 +641,23 @@ impl Sewing {
                         // Broken where another face has already broken it — see
                         // [`Sewing::broken`]. Each place puts down the arc
                         // reaching it and becomes the head of the next.
-                        self.broken(run, imprints, carried, bounds);
+                        let ends = [corner.at, self.scratch.turning[upto].at]
+                            .map(|at| region.surface.at(at));
+                        self.broken(run, imprints, bounds, ends);
+                        // **A stretch of no sweep is no stretch**, which is the
+                        // repeated corner above one level up: two corners of
+                        // one loop at one place of one run are one corner, and
+                        // an edge between them would be a curve from a vertex
+                        // to itself going nowhere. Nothing broke it either:
+                        // the lifting puts a break at or past the low end, and
+                        // with the two bounds together there is nothing under
+                        // the high one.
+                        //
+                        // Exactly nought rather than nearly, the two ends
+                        // coming off one accumulation — see [`swept`].
+                        if bounds[0] == bounds[1] {
+                            continue;
+                        }
                         let mut from = bounds[0];
                         for piece in 0..self.scratch.around.len() {
                             let broke = self.scratch.around[piece];

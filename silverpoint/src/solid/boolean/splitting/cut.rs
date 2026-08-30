@@ -126,6 +126,19 @@ impl<'a> Cut<'a> {
         }
     }
 
+    /// Which piece of it the parameter `at` runs along.
+    ///
+    /// **One piece for every cut but a traced one**, which is the only shape
+    /// that comes in disjoint curves — see [`Traced::piece`]. A meeting written
+    /// down as one circle, one wave or one bow is one curve, however far round
+    /// itself it goes.
+    pub(super) fn piece(self, at: f64) -> usize {
+        match self {
+            Self::Traced(traced) => traced.piece(at),
+            _ => 0,
+        }
+    }
+
     /// Whether it is a loop in its own right rather than a line across
     /// everything.
     pub(super) fn closed(self) -> bool {

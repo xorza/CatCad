@@ -1496,3 +1496,94 @@ fn a_bore_off_the_axis_of_a_taper_cuts_a_quartic_and_puts_the_tube_back() {
         last = off.abs();
     }
 }
+
+/// **A ring drilled through its wall**, which is the fitted tier's first bore
+/// and the first marched run anywhere here that wraps the face it is cut into.
+///
+/// A revolve makes the ring, so a document reaches this with two features.
+/// Coaxial with the ring is a different operation — that one is turning — and
+/// so is a cross drilling one tier down, where two cylinders meet in a curve
+/// the exact table writes down. A ring halved by a leaning plane marches
+/// already, and its run crosses each face from edge to edge. Here the drill's
+/// wall meets the torus in two closed curves that each run *right round* the
+/// drill: a whole turn of a parameter laid into a face that holds half of one.
+///
+/// **The arithmetic.** By Pappus the ring covers `2π · 3 · π`, which is `6π²`.
+/// The bore takes, at each column of the drill's own disc, the height of tube
+/// standing over it — `2√(1 − (r − 3)²)` where `r` is that column's distance
+/// from the ring's axis. That has no closed form, so it is integrated here: a
+/// reading the boolean has no part in, over the drill's own polar coordinates.
+///
+/// **Two bounds, and only one of them a sagitta can mend.** A marched edge
+/// carries how far its chords stand off the curve — see §4.1 — so the body is
+/// out by that much over the bore's wall however finely it is drawn, and
+/// `Body::strays` is what says by how much. The mesh gives up its own sagitta
+/// over every round wall, which a finer one would mend and which is here the
+/// larger of the two. The slack allows both.
+#[test]
+fn a_ring_drilled_through_its_wall_keeps_the_volume_the_arithmetic_says() {
+    let ring = Body::ring(3.0, 1.0);
+    let drill = rod(raised(-3.0), DVec2::new(3.0, 0.0), 0.5, 8.0, TOOL);
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(boolean.combine(&ring, &drill.body, Operation::Cut, &mut into));
+
+    // The torus and the bore's wall, and two handles: the ring has one, and the
+    // bore through its wall is the other.
+    assert_eq!(into.names().count(), 2);
+    assert_eq!(into.reckoning().genus, 2, "{:?}", into.reckoning());
+    // Walked rather than written down, which is the whole of what the fitted
+    // tier answers with, and held to the sagitta it was walked at.
+    assert!(!into.exact(), "a marched bore came back exact");
+    let strayed = into.strays();
+    assert!(
+        strayed > 0.0 && strayed < CHORDED,
+        "the bore strays {strayed}"
+    );
+
+    // Thirty-two of them: the reading settles to nine digits by then, where the
+    // slack below is a part in a thousand of the answer — so what is integrated
+    // here is nowhere near being what the assertion measures.
+    let steps = 32;
+    let simpson = |from: f64, to: f64, of: &dyn Fn(f64) -> f64| {
+        let step = (to - from) / steps as f64;
+        (0..=steps)
+            .map(|at| {
+                let weight = match at {
+                    0 => 1.0,
+                    _ if at == steps => 1.0,
+                    _ if at % 2 == 1 => 4.0,
+                    _ => 2.0,
+                };
+                weight * of(from + step * at as f64)
+            })
+            .sum::<f64>()
+            * step
+            / 3.0
+    };
+    // Twice the half turn, the drill standing on the ring's own `x` axis. Every
+    // column of it is within half of the tube's centre circle and the tube
+    // reaches a whole one, so the height under the root is never negative.
+    let bore = 2.0
+        * simpson(0.0, PI, &|phase: f64| {
+            simpson(0.0, 0.5, &|out: f64| {
+                let radius = (9.0 + 6.0 * out * phase.cos() + out * out).sqrt();
+                let off = radius - 3.0;
+                2.0 * (1.0 - off * off).sqrt() * out
+            })
+        });
+    let want = 6.0 * PI * PI - bore;
+
+    // Two givings-up, and the mesh's is the larger. The march's is its own
+    // stray over the wall it laid down — the drill's circumference by the tube
+    // it crosses — and no sagitta can mend it. The mesh's is two thirds of the
+    // sagitta over the ring's whole round surface, `4π² · 3 · 1`, and a finer
+    // one would mend that at a cost this has no reason to pay: what the reading
+    // has to catch is a bore of `1.52` gone missing or gone wrong, which is
+    // twenty times either.
+    let sagitta = 1e-3;
+    let slack = strayed * TAU + (2.0 / 3.0) * sagitta * 4.0 * PI * PI * 3.0;
+    let mut mesher = Mesher::default();
+    let off = mesher.volume(&into, sagitta) - want;
+    assert!(off.abs() < slack, "the drilled ring is {off} off {want}");
+}

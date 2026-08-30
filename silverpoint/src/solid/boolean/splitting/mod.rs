@@ -607,11 +607,31 @@ impl Splitting {
                     // and none that far along means round the far end of the
                     // cut to the first of all.
                     let left = chains.by(chain).left;
+                    let piece = cut.piece(left);
+                    let on = |chain: usize| cut.piece(chains.by(chain).entered);
                     // Halved rather than walked from the front: `order` was
-                    // just sorted by the very number this asks about.
-                    let found =
+                    // just sorted by the very number this asks about, and which
+                    // piece a chain is on is that number divided down — so both
+                    // searches read the one sort.
+                    let along =
                         order.partition_point(|&chain| chains.by(chain).entered < left - PLACED);
-                    let next = if found == order.len() { 0 } else { found };
+                    // **Wrapped inside the piece rather than round the whole
+                    // cut.** A cut of several pieces is several disjoint
+                    // curves, each carrying a parameter circle of its own — see
+                    // [`Cut::piece`] — so the chain after the last one of a
+                    // piece is that piece's first and not the next piece's.
+                    let next = match along < order.len() && on(order[along]) == piece {
+                        true => along,
+                        false => order.partition_point(|&chain| on(chain) < piece),
+                    };
+                    // No chain enters on the piece this one left off on, so
+                    // there is nothing to carry the boundary back and the loop
+                    // cannot be closed. Refused rather than closed with a
+                    // chord, on the standing [`Traced::between`] takes.
+                    if next == order.len() || on(order[next]) != piece {
+                        joined = false;
+                        break;
+                    }
                     // Along the cut itself, where the cut has a length worth
                     // walking. A straight one has not — see [`Cut::between`].
                     joined &= cut.between(left, chains.by(order[next]).entered, into);

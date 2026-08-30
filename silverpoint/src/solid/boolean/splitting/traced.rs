@@ -172,6 +172,12 @@ pub(crate) struct Piece {
     /// Two numbers rather than a `Range`, which is not [`Copy`] and this is:
     /// every corner of every region asks a piece about itself by value.
     taken: [usize; 2],
+    /// Which of its own samples the walk over it begins at.
+    ///
+    /// **Where the run stands clear of the face** — see [`Piece::of`], which is
+    /// where that is found and why it has to be so. A run the face wholly holds
+    /// begins where it was sampled, there being nothing to rotate.
+    from: usize,
     /// Whether it closes inside the face rather than running across it.
     ///
     /// A curve that is closed in space is not closed in a face's parameters
@@ -197,7 +203,30 @@ impl Piece {
     ) -> Option<Self> {
         let sampled = &sampled[taken[0]..taken[1]];
         let about = laid.middle();
-        let mut walked = flattened(on, sampled, about, DVec2::ZERO);
+        // **Begun where the run stands clear of the face.** A run longer than
+        // the face's own range in a parameter that wraps — a curve right round
+        // a cylinder, laid into one of the two faces a cylinder comes in —
+        // covers that face whichever turn it is carried onto. Begun inside, it
+        // leaves at one edge and comes back at the other, and the face reads
+        // one arc of it as two; begun outside, it enters once and leaves once.
+        //
+        // Sounded a sample at a time, each carried onto the turn nearest the
+        // face: a face holds less than a whole turn, so a place inside it
+        // stands nearer the middle of it than any other turn of that place
+        // does. Twice round, so a clear stretch that wraps the list is found
+        // whole rather than as its two ends. Nothing clear at all leaves the
+        // walk where it began, which is a run the face wholly holds and nothing
+        // to rotate.
+        let count = sampled.len();
+        let clear = |at: usize| !laid.holds(on.carried(on.uv(sampled[at % count].at), about));
+        let (mut from, mut best, mut held) = (0usize, 0usize, 0usize);
+        for step in 0..count * 2 {
+            held = if clear(step) { held + 1 } else { 0 };
+            if held > best && held <= count {
+                (best, from) = (held, (step + 1 - held + held / 2) % count);
+            }
+        }
+        let mut walked = flattened(on, sampled, from, about, DVec2::ZERO);
         let (first, second) = (walked.next()?, walked.next()?);
         // A step to the left of the way it runs, which is where the side kept
         // has to be. One chord long: shorter than the curve's own bending, so
@@ -213,7 +242,7 @@ impl Piece {
 
         let mut fills = Laid::default();
         let mut last = first;
-        for (along, at) in flattened(on, sampled, about, DVec2::ZERO) {
+        for (along, at) in flattened(on, sampled, from, about, DVec2::ZERO) {
             fills.hold(at);
             last = (along, at);
         }
@@ -233,7 +262,7 @@ impl Piece {
             return None;
         }
         let mut clear = Clear::default();
-        for (along, at) in flattened(on, sampled, about, shift) {
+        for (along, at) in flattened(on, sampled, from, about, shift) {
             if laid.holds(at) {
                 clear.shut();
             } else {
@@ -244,6 +273,7 @@ impl Piece {
         Some(Self {
             curve,
             taken,
+            from,
             run,
             phase: clear.middle,
             shift,
@@ -374,6 +404,16 @@ impl<'a> Traced<'a> {
         found.piece as f64 * TAU + self.downed(self.pieces[found.piece], found.along)
     }
 
+    /// Which piece the parameter `at` runs along.
+    ///
+    /// **A whole turn of the parameter apiece** — see [`Traced::down`], which is
+    /// where that is laid out. A cut of several pieces is several disjoint
+    /// curves, so its parameter is not one circle but one circle each, and
+    /// anything that wraps has to wrap inside a piece.
+    pub(super) fn piece(self, at: f64) -> usize {
+        at.div_euclid(TAU) as usize
+    }
+
     /// What the corners the piece at `at` puts down are marked with.
     pub(super) fn came(self, at: DVec2) -> Came {
         Came::Arc(self.pieces[self.found(at).piece].run)
@@ -487,7 +527,27 @@ impl<'a> Traced<'a> {
         }
         (count == met.len()).then(|| {
             let (first, second) = (met[0].min(met[1]), met[0].max(met[1]));
-            [from.lerp(to, first), from.lerp(to, second)]
+            // **Found against the chords and then read off the surface.** The
+            // chords are what says there *is* a dip — a bisection has no
+            // bracket until one is found — but a chord stands a sagitta off the
+            // curve it was cut from, and the crossing is a corner of three
+            // surfaces that the other two faces meeting there work out exactly.
+            // Two vertices a sagitta apart is a body the sewing refuses.
+            //
+            // The dip itself gives the brackets: the run is on the far side at
+            // either end and on the near side between, so a crossing is fenced
+            // by an end and the middle of the two the chords found. Where the
+            // reading does not change sign over that fence — a graze so shallow
+            // the chords found what the surface does not — the chord's own
+            // answer stands.
+            let middle = (first + second) / 2.0;
+            let read = |lo: f64, hi: f64, had: f64| {
+                bisect::crossed(lo, hi, |along| self.side(from.lerp(to, along))).unwrap_or(had)
+            };
+            [
+                from.lerp(to, read(0.0, middle, first)),
+                from.lerp(to, read(middle, 1.0, second)),
+            ]
         })
     }
 
@@ -507,18 +567,22 @@ impl<'a> Traced<'a> {
     /// The corners of the cut between two places along it, in the direction it
     /// runs, exclusive of both.
     ///
-    /// **`false` where the two stand on different pieces**, which is a join the
-    /// reassembly cannot make: the pieces are disjoint, so there is no stretch
-    /// of cut running from one to the other and no honest set of corners to
-    /// answer with. Reached where the boundary of one region crosses two pieces
-    /// of one meeting, and refused rather than closed with a chord.
+    /// **`false` where the two stand on different pieces**, which is a join
+    /// nothing can make: the pieces are disjoint, so there is no stretch of cut
+    /// running from one to the other and no honest set of corners to answer
+    /// with.
+    ///
+    /// A backstop rather than a case, the reassembly looking for the next chain
+    /// on the piece this one left off on — see
+    /// [`Splitting::close`](super::Splitting), which turns away a piece with no
+    /// chain of its own before it asks for corners.
     pub(super) fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) -> bool {
-        let which = from.div_euclid(TAU);
-        if which != to.div_euclid(TAU) {
+        let which = self.piece(from);
+        if which != self.piece(to) {
             return false;
         }
-        let piece = self.pieces[which as usize];
-        let (from, to) = (from - which * TAU, to - which * TAU);
+        let piece = self.pieces[which];
+        let (from, to) = (from - which as f64 * TAU, to - which as f64 * TAU);
         if piece.closed {
             let sweep = (to - from).rem_euclid(TAU);
             self.lay(piece, from, into, |down| {
@@ -612,6 +676,7 @@ impl<'a> Traced<'a> {
         flattened(
             self.on,
             &self.sampled[piece.taken[0]..piece.taken[1]],
+            piece.from,
             self.laid.middle(),
             piece.shift,
         )
@@ -634,14 +699,21 @@ fn within(on: &Surface, other: &Surface, at: DVec2) -> f64 {
 /// two pieces a whole turn apart — the rule
 /// [`Face::flatten`](crate::solid::topology::face::Face) keeps, kept here for
 /// the same reason and started off the turn the face itself was laid out in.
+///
+/// **Begun at `from` and walked round to it**, which is what lets a closed run
+/// be carried on from a place of the caller's choosing rather than from
+/// wherever it was sampled — see [`Piece::from`].
 fn flattened<'a>(
     on: &'a Surface,
     walked: &'a [Sampled],
+    from: usize,
     about: DVec2,
     shift: DVec2,
 ) -> impl Iterator<Item = (f64, DVec2)> + 'a {
     let mut last = about;
-    walked.iter().map(move |sampled| {
+    let count = walked.len();
+    (0..count).map(move |step| {
+        let sampled = &walked[(from + step) % count];
         last = on.carried(on.uv(sampled.at), last);
         (sampled.along, last + shift)
     })
