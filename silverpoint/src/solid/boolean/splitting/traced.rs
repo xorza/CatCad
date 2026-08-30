@@ -214,18 +214,30 @@ impl Piece {
         // face: a face holds less than a whole turn, so a place inside it
         // stands nearer the middle of it than any other turn of that place
         // does. Twice round, so a clear stretch that wraps the list is found
-        // whole rather than as its two ends. Nothing clear at all leaves the
-        // walk where it began, which is a run the face wholly holds and nothing
-        // to rotate.
+        // whole rather than as its two ends — and capped at one turn, so a run
+        // wholly clear of the face is begun at a place of it rather than a lap
+        // along. Nothing clear at all leaves the walk where it began, which is
+        // a run the face wholly holds and nothing to rotate.
         let count = sampled.len();
-        let clear = |at: usize| !laid.holds(on.carried(on.uv(sampled[at % count].at), about));
+        let outside = |at: usize| !laid.holds(on.carried(on.uv(sampled[at % count].at), about));
         let (mut from, mut best, mut held) = (0usize, 0usize, 0usize);
         for step in 0..count * 2 {
-            held = if clear(step) { held + 1 } else { 0 };
+            held = if outside(step) { held + 1 } else { 0 };
             if held > best && held <= count {
                 (best, from) = (held, (step + 1 - held + held / 2) % count);
             }
         }
+        // **Whether it closes is the run's business, not the walk's.** Read off
+        // the walk as the run was sampled rather than as it is rotated above: a
+        // closed run walked from anywhere is closed, and one rotated to begin
+        // clear of the face ends a chord short of where it began.
+        let closed = {
+            let mut walked = flattened(on, sampled, 0, about, DVec2::ZERO);
+            let first = walked.next()?.1;
+            walked
+                .last()
+                .is_some_and(|last| (last.1 - first).length() < f64::EPSILON)
+        };
         let mut walked = flattened(on, sampled, from, about, DVec2::ZERO);
         let (first, second) = (walked.next()?, walked.next()?);
         // A step to the left of the way it runs, which is where the side kept
@@ -241,10 +253,8 @@ impl Piece {
         ) > 0.0;
 
         let mut fills = Laid::default();
-        let mut last = first;
-        for (along, at) in flattened(on, sampled, from, about, DVec2::ZERO) {
+        for (_, at) in flattened(on, sampled, from, about, DVec2::ZERO) {
             fills.hold(at);
-            last = (along, at);
         }
         // Onto the face's own turn, and only where the parameter has turns to
         // be moved by.
@@ -279,7 +289,7 @@ impl Piece {
             shift,
             fills,
             forward,
-            closed: (last.1 - first.1).length() < f64::EPSILON,
+            closed,
         })
     }
 }

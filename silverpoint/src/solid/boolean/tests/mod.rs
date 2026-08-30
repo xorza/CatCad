@@ -1514,6 +1514,12 @@ fn a_bore_off_the_axis_of_a_taper_cuts_a_quartic_and_puts_the_tube_back() {
 /// from the ring's axis. That has no closed form, so it is integrated here: a
 /// reading the boolean has no part in, over the drill's own polar coordinates.
 ///
+/// **And the slug is asked for too.** What the drill takes out is the same pair
+/// intersected, and the two are complements — so they add back to `6π²`, which
+/// is a closed form and not an integration. That holds only if the marched
+/// curve the two share is the same curve read the same way from both sides,
+/// which is what the drill alone cannot say.
+///
 /// **Two bounds, and only one of them a sagitta can mend.** A marched edge
 /// carries how far its chords stand off the curve — see §4.1 — so the body is
 /// out by that much over the bore's wall however finely it is drawn, and
@@ -1521,25 +1527,31 @@ fn a_bore_off_the_axis_of_a_taper_cuts_a_quartic_and_puts_the_tube_back() {
 /// over every round wall, which a finer one would mend and which is here the
 /// larger of the two. The slack allows both.
 #[test]
-fn a_ring_drilled_through_its_wall_keeps_the_volume_the_arithmetic_says() {
+fn a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back() {
     let ring = Body::ring(3.0, 1.0);
     let drill = rod(raised(-3.0), DVec2::new(3.0, 0.0), 0.5, 8.0, TOOL);
     let mut boolean = Boolean::default();
     let mut into = Body::default();
+    let mut plug = Body::default();
     assert!(boolean.combine(&ring, &drill.body, Operation::Cut, &mut into));
+    assert!(boolean.combine(&ring, &drill.body, Operation::Intersect, &mut plug));
 
     // The torus and the bore's wall, and two handles: the ring has one, and the
     // bore through its wall is the other.
     assert_eq!(into.names().count(), 2);
     assert_eq!(into.reckoning().genus, 2, "{:?}", into.reckoning());
+    // And the slug the bore took out is the same two walls with no handle at
+    // all, its ends the torus and its side the drill's.
+    assert_eq!(plug.names().count(), 2);
+    assert_eq!(plug.reckoning().genus, 0, "{:?}", plug.reckoning());
     // Walked rather than written down, which is the whole of what the fitted
     // tier answers with, and held to the sagitta it was walked at.
-    assert!(!into.exact(), "a marched bore came back exact");
-    let strayed = into.strays();
-    assert!(
-        strayed > 0.0 && strayed < CHORDED,
-        "the bore strays {strayed}"
-    );
+    for body in [&into, &plug] {
+        assert!(!body.exact(), "a marched bore came back exact");
+        let strays = body.strays();
+        assert!(strays > 0.0 && strays < CHORDED, "a bore strays {strays}");
+    }
+    let strayed = into.strays().max(plug.strays());
 
     // Thirty-two of them: the reading settles to nine digits by then, where the
     // slack below is a part in a thousand of the answer — so what is integrated
@@ -1584,6 +1596,20 @@ fn a_ring_drilled_through_its_wall_keeps_the_volume_the_arithmetic_says() {
     let sagitta = 1e-3;
     let slack = strayed * TAU + (2.0 / 3.0) * sagitta * 4.0 * PI * PI * 3.0;
     let mut mesher = Mesher::default();
-    let off = mesher.volume(&into, sagitta) - want;
+    let (bored, slug) = (mesher.volume(&into, sagitta), mesher.volume(&plug, sagitta));
+    let off = bored - want;
     assert!(off.abs() < slack, "the drilled ring is {off} off {want}");
+
+    // **And the two put the ring back**, which needs no integration at all: what
+    // a cut leaves and what an intersection keeps are complements, so they add
+    // to `6π²` however hard the piece between them is to write down. It holds
+    // only if the marched curve they share is the same curve read the same way
+    // from both sides — the bore's wall is a hole in one and a slug in the
+    // other, so its own giving-up falls out of the sum and only the ring's
+    // round wall is left in the slack.
+    let whole = bored + slug - 6.0 * PI * PI;
+    assert!(
+        whole.abs() < slack,
+        "the bore and its slug are {whole} off the ring",
+    );
 }

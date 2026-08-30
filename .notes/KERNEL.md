@@ -829,7 +829,7 @@ that does it. What follows is what is not, in the order to take it in.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written. Step 1 is two refusals two
+meets is worse than a routine nobody has written. Step 1 is a refusal two
 features reach.
 
 Verification per house rule, one `-p` per crate touched:
@@ -838,47 +838,19 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 Step 1 — the ring's own intersection
+### 9.1 Step 1 — seeding a drill that leans
 
-**The drill lands, the intersection does not.** `Body::ring(3, 1)` cut by a rod
-of radius `0.5` about `x = 3` running parallel to the ring's axis is answered —
-see `a_ring_drilled_through_its_wall_keeps_the_volume_the_arithmetic_says`. The
-same pair *intersected*, which is the slug the drill takes out, is still refused
-by the sewing with edges claimed by one face.
+**A drill through a ring is answered both ways round now** — see
+`a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back`,
+which
+takes the bore and the slug it left and adds them back to the ring. A drill that
+*leans* is not.
 
-Two of its six bad joins were slivers of no width, and those are gone:
-`Sewing::broken` turned away a break standing on a bound by reading the curve at
-that bound and comparing places, which for a *marched* run is the polyline and
-not the curve — a whole stray away from the vertex another face pinned there.
-It is given the stretch's own ends now, which is what its doc already said it
-compared.
-
-**What is left is two faces the plug never gets.** The ring is four faces,
-split at bearings `0` and `π` and at tube angles `0` and `π`, and the drill
-stands on the bearing-`0` seam. The plug's two caps therefore want *four*
-patches, a pair either side of that seam, and only two are raised: the mouth
-arcs come back claimed by the drill's own two wall faces between them and by one
-torus patch apiece, so the other half of each is claimed once and the tube
-circles the caps stand on are claimed once with them.
-
-**Where the two go missing is measured.** On the faces with bearing in
-`[π, 2π]` the split hands back one region where it wants two — the face less the
-bite, and not the bite. `Operation::Cut` keeps the first and never misses the
-second, which is why the drill lands; the intersection wants exactly the one
-that is not there. The near pair hands back both.
-
-The drilled body is *right*, which was worth settling before reading anything
-into that count: asked where it stands, it answers `Outside` at the tube's own
-centre circle at bearings either side of the seam and well inside the drill. So
-the far faces are bitten correctly. It is the bite as a region of its own that
-never appears.
-
-**Seeding a drill that leans.** `meeting::seeding::Against` covers a plane at
-any lean and a cylinder parallel to the torus axis, and nothing else — so a
-drill tilted to `(0.4, 1, 0)` gets nothing from `Reading::of`, the march is
-never seeded, and the boolean refuses before a piece is laid. A cylinder that
-leans on the axis puts the ends behind a degree-eight polynomial, and a second
-torus does no better.
+`meeting::seeding::Against` covers a plane at any lean and a cylinder parallel
+to the torus axis, and nothing else — so a drill tilted to `(0.4, 1, 0)` gets
+nothing from `Reading::of`, the march is never seeded, and the boolean refuses
+before a piece is laid. A cylinder that leans on the axis puts the ends behind a
+degree-eight polynomial, and a second torus does no better.
 
 ### 9.2 Step 2 — M7, fillet, chamfer, STEP
 
