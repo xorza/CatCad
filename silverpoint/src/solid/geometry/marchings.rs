@@ -1,7 +1,7 @@
 //! The runs of places a marched curve is made of.
 //!
 //! **Where a curve of the fitted tier keeps what it is** — see
-//! `.notes/KERNEL.md` §9.2, where the shape of this is argued. A `Curve` is a
+//! `.notes/KERNEL.md` §7.3, where the shape of this is argued. A `Curve` is a
 //! `Copy` value and a run of places is not, so the run lives here and the curve
 //! names it, exactly as a face names the stretch of loops that is its.
 //!
@@ -183,8 +183,8 @@ impl Marchings {
     ///
     /// **Walked rather than searched**, and that is what caps how finely a run
     /// may be laid down: a place says nothing about where round it stands, so
-    /// the chord nearest it is every chord. See `.notes/KERNEL.md` §9.2, where
-    /// the two ways out of that are named.
+    /// the chord nearest it is every chord. The arena that would lift that cap
+    /// is `.notes/KERNEL.md` §9.1's.
     ///
     /// How far off is what tells one run of a meeting from another, several
     /// runs being one cut — see the boolean's own `Traced`.

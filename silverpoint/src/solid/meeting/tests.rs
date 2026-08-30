@@ -690,8 +690,7 @@ fn radii(meeting: Meeting) -> Vec<f64> {
 /// **The tangency is a curve.** At `up = minor` the plane lies on the top of
 /// the tube and touches it along the whole circle of the major radius. That
 /// circle divides a face, so it comes back as a meeting rather than as nothing
-/// — and it is the case `.notes/KERNEL.md` §9.2's spike found a sign-change
-/// search cannot see at any resolution.
+/// — and it is the case a sign-change search cannot see at any resolution.
 #[test]
 fn a_plane_square_to_a_torus_cuts_it_in_circles_about_its_axis() {
     let torus = ring();

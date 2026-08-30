@@ -1,8 +1,8 @@
 //! Walking a curve two surfaces meet in that neither of them can write down.
 //!
-//! The half of M6 the spike found easy. What it lays down is a run of places,
-//! which [`Marchings`](crate::solid::geometry::marchings::Marchings) holds and
-//! a curve names — see `.notes/KERNEL.md` §9.2.
+//! What it lays down is a run of places, which
+//! [`Marchings`](crate::solid::geometry::marchings::Marchings) holds and a
+//! curve names — see `.notes/KERNEL.md` §7.3.
 
 use crate::solid::geometry::surface::Surface;
 use glam::DVec3;

@@ -335,7 +335,7 @@ impl Combining {
                     Meeting::Algebraic => return false,
                     // They meet along a curve nothing can write down, which is
                     // walked here rather than by [`Meeting::of`] — see
-                    // `.notes/KERNEL.md` §9.2, where that division is argued.
+                    // `.notes/KERNEL.md` §7.3, where that division is argued.
                     Meeting::Marched => {
                         let Some(runs) = self.march(&on, &other) else {
                             return false;

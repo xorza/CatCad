@@ -78,12 +78,15 @@ pub(crate) enum Meeting {
     /// Along a curve no exact route can parameterize at all.
     ///
     /// [`Meeting::Algebraic`]'s twin one tier up. A pair with a
-    /// [`Fitted`] half in it meets in
-    /// something that is *marched* rather than written down, and what comes out
-    /// carries the bound its fit was made to (§4.1). Until the marching lands,
-    /// an operation that reaches this cannot be built — and as with the
-    /// algebraic arm, saying so beats saying the surfaces are apart.
-    #[allow(dead_code)]
+    /// [`Fitted`] half in it meets in something that is *marched* rather than
+    /// written down, and what comes out carries the bound its fit was made to
+    /// (§4.1).
+    ///
+    /// **An answer and not a refusal, and the walk is the caller's.** Saying
+    /// how far a run reaches wants the two faces it has to cross, which this
+    /// route is not handed — so the boolean walks it and a caller merely
+    /// asking whether two surfaces meet pays for no walk. See
+    /// `.notes/KERNEL.md` §7.3.
     Marched,
 }
 
@@ -176,7 +179,7 @@ impl Meeting {
     /// bitangent plane's two circles cross each other, which a march has no
     /// direction at. Neither is a curve subdivision can seed and neither is one
     /// a march can walk, and both are a few lines of geometry here — see
-    /// `.notes/KERNEL.md` §9.2, where the spike found each of them.
+    /// `.notes/KERNEL.md` §7.3, where the seeding's own limits are stated.
     ///
     /// Coaxial first, that being one row for four pairs, and the plane's own
     /// two after it.

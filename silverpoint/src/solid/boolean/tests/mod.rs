@@ -853,8 +853,7 @@ fn bicylinder(wide: f64, narrow: f64, off: f64) -> f64 {
 }
 
 /// **A bar cross-drilled by a narrower hole comes out with the hole through
-/// it**, which is the case `.notes/KERNEL.md` §9.1 owed and the first the
-/// algebraic tier answers.
+/// it**, which is the first case the algebraic tier answers.
 ///
 /// Two cylinders of *unequal* radius on crossing square axes meet in a quartic
 /// — [`Saddle`](crate::solid::geometry::saddle::Saddle) — and on each of the
@@ -1108,8 +1107,8 @@ fn the_same_leaning_plane_over_the_exact_tier_stays_exact() {
 /// body.
 ///
 /// A plane a twentieth inside the ring's outer equator meets it in one loop
-/// about `0.6` across — the case `.notes/KERNEL.md` §9.2's spike found by luck
-/// at 512×512 and missed at 256×256 once it was moved half a cell off a node.
+/// about `0.6` across — the case a search finds by luck at 512×512 and misses
+/// at 256×256 once it stands half a cell off a node, `.notes/KERNEL.md` §7.3.
 /// Nothing here samples: the seeding answers this loop in two `acos`.
 ///
 /// **The volume is a quadrature, and the integral is one line of geometry.**

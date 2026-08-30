@@ -5,9 +5,9 @@ becomes a body built by a sequence of operations, over an exact boundary
 representation written here.
 
 `silverpoint/src/solid/` holds the geometry, the topology, the validity checker,
-the extrusion, the mesher, the reducible half of quadric intersection and the
-boolean. CatCad draws, picks, joins, cuts and intersects bodies. **§9 is what is
-left, and the order to take it in.**
+the extrusion, the revolve, the mesher, both tiers of surface intersection and
+the boolean. CatCad draws, picks, joins, cuts and intersects bodies. **§9 is
+what is left, and the order to take it in.**
 
 This is a design, not a record. A decision keeps its reason; what it cost to
 reach is in the diff.
@@ -222,6 +222,11 @@ the history. **Discipline required:** collapse the DAG at each feature boundary
 timeline grows an unbounded expression graph, `Lazy_exact_nt`'s well-known
 failure mode.
 
+**Both storeys are the normal case.** A ruled pencil member parameterizes over
+ℚ alone only where its determinant is a rational square, and landing one is a
+rational point on a hyperelliptic curve — so a route written for the rational
+case would be a route that rarely applies.
+
 **The tower is `Quadratic<Quadratic<Rational>>`** — one piece of arithmetic
 serving both storeys of `ℚ(√δ)(√Δ)` rather than two spellings of
 `(a + b√r)(c + d√r) = (ac + bdr) + (ad + bc)√r`, which is how two of them would
@@ -245,42 +250,6 @@ rules, **not** a general real-algebraic-number layer. `inari`, the good
 IEEE-1788 crate, pulls GMP and MPFR as C libraries and is out. One arithmetic
 rather than three meeting at seams. The bignum layer is commodity, and is
 `dashu`.
-
-#### What the spike measured
-
-A throwaway implementation of the classification and both intersection routes,
-over `BigRational`, on quadrics built the way CAD builds them — axes and radii
-as `f64` out of a solve, held as the exact dyadic rationals they are.
-
-| | measured |
-| --- | --- |
-| Input surface coefficients | 105–113 bits |
-| Determinantal equation | 103 bits (axis-aligned), 328 bits (tilted axis) |
-| Classification, per face pair | 100–750 µs; **201 µs** averaged over 66 pairs |
-| Worst coefficient in a solved smooth quartic | **408 bits** |
-| Smooth quartic on realistic input | **verified exactly in ℚ(√Δ)** against *both* quadrics at 24 sampled branch points |
-
-What it settled:
-
-1. **The exactness claim holds.** Two equal cylinders on meeting perpendicular
-   axes gave the exact plane pair `x ± z = 0`; a cylinder through a 45° cone
-   gave the exact circles at `z = 3` and `z = 7`.
-2. **Growth is bounded and does not compound.** One intersection costs about 4×
-   the input bit size, and surfaces stayed at input size — only derived edges
-   and vertices grew, and those are re-derived each rebuild.
-3. **The arithmetic is smaller than assumed.** No Sturm sequences, no isolating
-   intervals, no general algebraic numbers. The general route needs exact 4×4
-   linear algebra, a polynomial gcd for the repeated-root test, and the tower.
-4. **A solver-derived axis is never rationally unit** — `|d|²` is not a rational
-   square — so the naive circle parameterization of a cylinder does not exist.
-   Harmless, the quadric *matrix* being exactly rational and the pencil route
-   needing no frame, but worth knowing before anyone reaches for it.
-
-And one correction it forced: **the fully rational case is not reliably
-reachable.** The ruled pencil member parameterizes over ℚ alone only when its
-determinant is a rational square, and two of three test pairs found no such
-member among 4 300 candidate points — landing one is a rational point on a
-hyperelliptic curve. So `ℚ(√δ)(√Δ)` is the normal case, not the exception.
 
 ### 4.3 Tolerance lives on entities, not in a global constant
 
@@ -368,11 +337,10 @@ gates are a strict zero on every frame the pointer can be in the middle of.
 
 ### 4.6 Geometry is closed enums, not traits
 
-All four naturals are written, evaluated, inverted and tested. The two-level
-split below is not: with one tier there is one arm, so `Surface` is flat today
-and gains its `Natural` / `Fitted` layer with the tier that makes the
-distinction mean something (M6). `Curve` grows the quartic with the routine that
-produces it (M3b).
+**An arm arrives with the routine that produces it, and never before.** A tier
+with nothing on it and a curve nothing writes are both a surface nobody can
+answer a question about. `Curve::Quartic` is the one arm still owed, and it
+lands with the route that makes it — §9.1.
 
 ```rust
 /// The exact tier and the fitted tier, told apart by the type.
@@ -622,19 +590,43 @@ descriptions — two planes can be one plane and not be the same `Plane`.
 the literature's warnings apply in full and none will be found by testing: every
 branch found, not just the one the march started on; **small closed loops**,
 which both marching and subdivision miss; tangency, where the march has no
-direction; and a stopping criterion that terminates. Subdivision to isolate
-branches, marching within each, loop detection by Gauss-map bounds. The output
-is a fitted curve carrying its fit bound, which widens the resulting edge's
-tolerance and marks the body as no longer exact.
+direction; and a stopping criterion that terminates. The output is a fitted
+curve carrying its fit bound, which widens the resulting edge's tolerance and
+marks the body as no longer exact.
 
-**Where the risk sits.** Less than first written, because the spike walked it
-(§4.2). The algebraic route needs a pencil, a repeated-root test by polynomial
-gcd, exact 4×4 congruence diagonalization, a ruled member found by choosing an
-integer point and solving for the λ through it, a split into hyperbolic planes,
-and the quadratic tower. No Segre classification and no root isolation were
-needed to verify a realistic cross-bore exactly. It is *bounded and published*.
-Marching is the unbounded part, and it sits behind the torus rather than behind
-the second hole anyone drills.
+**So the route is seed, then walk, and the seeding is the hard half.** A curve
+comes in *pieces*, and one place on each is what a walk cannot find for itself.
+A grid finds a small piece by luck and not otherwise: a loop `0.137` across —
+which is what a plane a twentieth inside a ring's outer equator cuts — wants a
+quarter of a million samples once it is moved half a cell off a node. Nothing
+here samples.
+
+**Seeding is per pair and in closed form**, which is the bargain the reducible
+table strikes one shelf up. What the pairs share is the *shape* of the answer
+rather than its arithmetic: where the two surfaces meet is a run against a
+sinusoid, whose stretches alternate round the tube, and the ends of those
+stretches are the seeds. A pair with no reading written for it is refused, which
+is a different answer from a pair that misses — a boolean asking has already
+been told the two meet somewhere.
+
+**Walking corrects onto both surfaces at once and steps along the cross of
+their normals.** A place off the curve is off two surfaces, which is two numbers
+against three to move in, so the correction is the smallest one clearing both.
+How far a chord strays is nothing either surface can be asked, so each step is
+taken, probed, and halved again where it strayed too far — the sagitta is
+measured rather than predicted, and it is the fit bound the curve carries.
+
+**`Meeting::of` stays pure and answers `Marched`.** What produces a run is the
+boolean, which is the only caller that knows the two faces the run has to be
+long enough for. A meeting that walked would be a meeting that had to be told
+how far, and every caller that merely asks *whether* two surfaces meet would be
+paying for a walk.
+
+**And the cut a marched curve makes is not a polyline.** Five of the nine
+questions a `Cut` answers are about a *place*, and a cut carrying the two
+surfaces answers those the way an exact one does: how far the place stands from
+the other surface, in closed form, with a crossing found by bisecting it. Only
+the three that lay corners down want the run at all.
 
 ### 7.4 Boolean — four stages, all precedented
 
@@ -832,887 +824,64 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
 ## 9. What is left, in order
 
-M0 through M5 are in the tree. Three pieces of work are not. Verification per
-house rule, one `-p` per crate touched:
+M0 through M6 are in the tree, and the reason each piece works is in the code
+that does it. What follows is what is not. Verification per house rule, one `-p`
+per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-This is §10's rule 6 in order, the paint layer's own debts being paid.
-
-**What stood in front of it is done.** §11 is the measurement. The preview
-builds the answer rather than the tool, over the model the commit would build
-on, and falls back to showing the tool where the tool has more faces than a
-frame can combine — `paint::LIVE_FACES`, read before the boolean runs rather
-than timed after it. And a solid is cut for the camera looking at it rather than
-at a constant — `paint::Chorded`, stepped in powers of two so an orbit remakes
-nothing and a zoom remakes the solids a handful of times, which is what §1's
-view-adaptive tessellation asks for and the last thing M2 owed.
-
-**M0 is done, and four things it settled are worth a line each.** Every branch
-the drawing's crossing routines take is a polynomial in the places and the
-radii, decided by the filter and settled by the tier behind it. A round
-crossing's *place* comes off coefficients worked out exactly and read back, so
-it is as good as the machine can hold one. The ray cast that decides containment
-is a determinant and not a quotient. And three sums that were taken about the
-world origin are taken about the loop's or the shell's own first corner — two
-shoelaces and the divergence theorem, without which a two-by-two block drawn at
-a hundred and twenty million shut in six.
-
-**M5 is done, and the last of it was its own tests.** The check §7.5 owed is
-`Checking::loops_do_not_cross_themselves`, which walks every loop of every face
-at `CHORDED` into that face's own parameters and holds each pair of chords
-against `intersect::spans`, which decides it exactly. It is the one break every other
-check passes: a loop that folds still closes, still walks each of its edges once
-each way, still satisfies Euler and still lies on the surface it names — and it
-is not a boundary, because the region it is meant to enclose is on both sides of
-it. A box test in front of the exact one is what keeps it affordable, a curved
-face's loop being a hundred and more chords and the check running after every
-operation.
-
-And three cross-checks stand behind the boolean. Two equal cylinders on crossing
-axes intersect in the Steinmetz solid, whose `16r³/3` is a classical closed form
-with no cylinder in it. A cut that swallows its whole body comes back *true*
-with nothing in it, which is an answer rather than a refusal: a caller reading a
-refusal there would show the tool where the model used to be. And a bar
-cross-drilled by a narrower rod, through the middle and off it, comes out the
-volume a quadrature says — see 9.1, where that pair's closed form is written
-down.
-
-**One thing left over is a ghost**, and it wants work in `aperture3d` rather
-than in `paint/`: an `Object` carries a `Vec3` colour and the only translucent
-mesh pass is the flat sheets a drawing's regions are filled with, so there is
-nothing for a solid to be drawn faintly *in*. Worth having for two cases — a
-tool too detailed to combine, and a cut whose result is hidden behind the part
-from the current camera — and neither is worth a pass on its own yet.
-
-### 9.1 M3b — the algebraic parameterization
-
-What is left of §7.3: a smooth quartic parameterized exactly as
-`X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
-near-optimal in square roots. `Curve` gains its `Quartic` arm (§4.6).
-
-**The matrix is in.** Every natural surface is the exact zero set of a symmetric
-4×4 over `Rational` — `geometry::quadric::Quadric` — which is the one
-description a pencil can be taken of and the only thing the rest of the route
-reads. A plane comes back as the double plane it is, rank one and not a
-degeneracy to guard against. Nothing is assumed to be unit: a cylinder is
-`|p × w|² = r²|w|²`, right whatever the axis direction came in as. And the cone
-is the one surface whose matrix is a rounding from what its parameters name, its
-parameter being an *angle* where every other's are places and lengths — the
-rounding stops there rather than growing, everything after it being exact over
-whatever the matrix holds.
-
-**And the pencil over it.** `geometry::pencil::Pencil` carries
-`det(λQ₁ + μQ₂)` as a binary quartic, taken from five determinants interpolated
-exactly rather than from a symbolic expansion of a 4×4 over two matrices — the
-same number either way, and a great deal less of it for a reader to have to
-believe. Binary and not a polynomial in `λ` alone, because every cylinder and
-every cone has a singular matrix: the leading coefficient is nought for both,
-and what would look like a dropped degree is a singular member at `μ = 0` like
-any other.
-
-Whether the intersection is a *smooth* quartic is that form's discriminant, and
-it comes off the classical invariants `I = 12ae − 3bd + c²` and
-`J = 72ace + 9bcd − 27ad² − 27b²e − 2c³` as `(4I³ − J²)/27`. **The polynomial
-gcd this was expected to need is not needed for it** — two short formulas
-against the discriminant's own fourteen terms, and invariants of the *binary*
-form, so a nought leading coefficient costs nothing. Two unequal cylinders on
-crossing axes give `−4λ³ − 13λ² − 9λ` and `Δ = 32400`, which is half of the
-owed test below.
-
-**And a member is told ruled from not.** `Quadric::diagonalized` takes a
-symmetric 4×4 to diagonal form by exact congruence — Lagrange's method, which is
-Gaussian elimination done to the rows and the columns at once, so the matrix
-stays symmetric through every step and the basis is what those steps multiply
-to. It needs no pivoting, the arithmetic having no precision to lose, and its
-one step that is not elimination is the hyperbolic one: `2xy` has no square to
-clear with, so a coordinate is added to another to make one.
-
-**Ruled is `min(above, below) ≥ rank/2`**, which is the whole classification in
-one comparison. Full rank rules only when it is even-handed — two and two is the
-one-sheeted hyperboloid and the hyperbolic paraboloid, where three and one is an
-ellipsoid or a two-sheeted hyperboloid and neither holds a line. Below full rank
-one of each will do: a cone rules through its apex and two planes rule outright,
-and rank one is a doubled plane with nothing to be even-handed about.
-
-Finding one costs no solve at all. The member at `(λ : μ)` comes to
-`λ·Q₁(p) + μ·Q₂(p)` at a place, so the member holding a chosen whole place `p`
-is `(−Q₂(p) : Q₁(p))` and the search is that read once per candidate until the
-signature says ruled. `(1, 1, 1)` against the two cylinders gives
-`diag(7, 5, −2, −10)`, which is two and two.
-
-**And the rulings.** `Quadric::rulings` hands back the two lines a quadric holds
-through one of its own places. Both run through the place, so both lie in the
-tangent plane there — and the place is in the radical of what the quadric comes
-to on that plane, which leaves a *binary* form in two directions. A binary form
-has one discriminant, so a ruling costs **one square root and no more**, and
-that is `√δ`. A route through the diagonal instead would want a root for each
-pair of its terms, and two roots are a compositum §4.2 does not carry.
-
-`None` is an answer twice over: a discriminant under nought is a place with no
-real line through it, which every place of a sphere is, and a place the quadric
-is singular at has no tangent plane to take a form on. A rational root is folded
-in rather than carried, so a nought radicand means the directions want no field
-above ℚ — which is what a cylinder gives, its two rulings being one line and its
-discriminant nought. The ruled member of the two cylinders gives `δ = 400/7`,
-not a square, which is §4.2's ordinary case.
-
-**And where a ruling meets the other quadric.** `Quadric::met_by` substitutes a
-line into a quadric and hands back the two places, and a place on a line being
-*linear* in how far along it stands is the whole reason the answer is
-`X₁ ± X₂·√Δ` — one rootless half between the two, and opposite roots. It is
-projective in how far along, which is what keeps the answer two places rather
-than one: a line whose `dᵀQd` is nought runs through the quadric's own place at
-infinity rather than meeting it once.
-
-**That reaches the second storey, and nothing before it did.** A ruling's
-direction already stands one root above ℚ, so `Δ` does too and `√Δ` is a root
-above that — `ℚ(√δ)(√Δ)`, which §4.2 caps the tower at. Both places off the two
-cylinders' ruled member are held against *both* cylinders and come to nought
-exactly, asked once by the two halves apart and once through the tower itself.
-
-**One solve serves both**, which is `geometry::roots::Roots`: a tangent plane's
-form and a substitution's are the same binary quadratic, with the same three
-cases and one square root apiece.
-
-**And the family.** `geometry::ruled::Ruled` writes a ruled member so a place on
-it is bilinear in two parameters — `u₀t₀·A + u₀t₁·B + u₁t₀·C + u₁t₁·D`, linear
-in `t` for each `u` and in `u` for each `t`, which is the two families of lines.
-Substituting that into another member is therefore quadratic in `t` with
-coefficients quadratic in `u`, so `Δ` is a **quartic** in `u` and the roots are
-`X₁(u) ± X₂(u)·√Δ(u)` with `X₁` cubic and `X₂` linear.
-
-**The Gram matrix collapses, and that is the whole derivation.** Over the basis
-`{p, d₊, d₋, e}`, `pᵀQp` is nought because the place is on the quadric, `pᵀQd±`
-because the directions lie in its tangent plane, and `d±ᵀQd±` because they are
-rulings. Moving `e` by multiples of the other three kills `d±ᵀQe` and `eᵀQe`
-too, and none of that takes a root. What is left is `αε·m + βγ·k = 0`, which is
-`XY = ZW` under other letters, and
-`(α, β, γ, ε) = (u₀t₀, n·u₀t₁, u₁t₀, u₁t₁)` with `n = −m/k` solves it. **So the
-whole route from two quadrics to their curve takes `√δ` once and `√Δ` once**,
-which is the two storeys §4.2 caps the tower at and not one more.
-
-**Derived here and checked against the literature, in that order.** The net is
-that every place the writing names is on the quadric exactly, over a grid of two
-hundred and twenty-five rational parameter pairs — a construction off by
-anything fails on the first of them. Then the published account (Dupont, Lazard,
-Lazard and Petitjean; Levin before them) agrees on every count: the pencil holds
-a ruled member and the curve is parameterized through it; a member of inertia
-(2, 2) holding a rational point takes at most one square root; the substitution
-is of degree two in each parameter; and the output is `X₁ ± X₂√Δ` with degrees
-three, one and four. The extension is named there from `det R` and here from the
-tangent plane's discriminant, and the two agree: `700 · 400/7 = 200²`, so they
-generate one field.
-
-**And the curve.** `geometry::quartic::Quartic` is the whole algebraic route in
-one call: two quadrics in, and a place of the curve out for any parameter and
-either branch. It holds what *made* the curve rather than coefficients — a ruled
-member written bilinearly and the quadric it is cut against — which is §4.2's
-own rule for a construction. Two unequal cylinders on crossing axes give a
-smooth quartic every read place of which is on both, to a rounding of the model's
-own size, the arithmetic under it being exact all the way to the reading.
-
-**And one pair of quadrics reaches the boolean by a closed form rather than by
-that route.** Two cylinders on square axes with *unequal* radii meet in a
-quartic in space — but on either cylinder's own parameters that quartic is
-`v = level ± √(across² − (reach·sin(θ − phase) − off)²)`, which is a graph over
-the angle with a root in it where `Ripple` has a cosine. Derived rather than
-fitted: being on the other cylinder is `|(p − o) × e|² = across²`, and for axes
-that cross *square* — which every drilling does — the linear term of the
-resulting quadratic in `v` vanishes outright. Offset axes come free, `off` being
-the only thing they move.
-
-`splitting::bow::Bow` carries it, and it answers the nine questions a `Cut`
-does. **Both regimes fall out of one drilling**: on the bar the imprint is a
-closed loop, the drill being narrower, and on the drill it is cut right round.
-Its crossing solve is fenced *twice*, which is what makes it rigorous where a
-root has no closed form to solve against: the squared difference is a run
-against a sinusoid of twice the angle, whose second derivative is a quadratic in
-`sin ψ` and so has closed-form roots — fenced there the first derivative
-bisects, and fenced at *its* roots the difference does.
-
-**And a closed bow is one loop of two, told from the other by an unwound sine.**
-A drilling leaves an entry and an exit, and a plain sine reads them alike, being
-as small half a turn on as it is here. Run on to two instead of turning back at
-a quarter turn, it is one to one over a whole turn and the far loop stands
-further off than any radius reaches — so the two loops are the same numbers with
-the drill's axis taken the other way round, and no case selects between them.
-
-**`Curve::Saddle` is the curve in space**, and it is a frame and three lengths.
-The frame's origin is where the two axes come nearest, its direction is the
-wider cylinder's axis and its reference the narrower one's, so the phase and the
-level a `Bow` needs are read off it rather than carried beside it. Written on
-the *wider* cylinder always, which is what makes every saddle a closed loop of
-one cylinder's own parameters — and parameterized by the angle round the circle
-those two numbers trace, which is regular the whole way round where a graph over
-the cylinder's angle stands vertical at the loop's ends.
-
-**Nested cross-sections, and the rest is refused.** `Meeting::saddled` answers
-where the narrower cylinder passes wholly through the wider one, and hands the
-overlapping and the tangent cases to the algebraic route: an overlapping pair
-meets in a loop that doubles back in either cylinder's own angle and a tangent
-one in a curve that crosses itself, and neither is a graph over an angle. A pair
-standing further apart than its two radii together is `Apart`, which keeps a
-boolean from being refused over cylinders that never meet.
-
-**What is left is `Curve::Quartic` and a general cut it can be made into**,
-which are one piece of work rather than two: the arm alone is a curve the
-boolean still refuses, and §10's first rule says the pair lands together or not
-at all. Both wait until a pair needs them — cylinder against cone is the first
-that will, and neither is built by anything today.
-
-That larger route is an arena and a `Copy` handle apiece, §4.5's own shape:
-`Cut` and `Curve` are both `Copy` value types and a general quartic holds some
-ninety heap blocks, so it cannot go in either by value. **The same arena M6's
-marched curves want**, and its design is written down there rather than twice —
-see 9.2.
-
-**Tests, and they are paid.** Two unequal cylinders give a quartic whose `Δ`
-matches the published classification — quartic in the parameter, held by a fifth
-difference coming to nought where the fourth does not — and whose two branches
-are walked and shown to differ. Every result is in the exact tier: no
-comparison anywhere in the route is against a tolerance, and the one rounding is
-the last, where a place is read out as three floats.
-
-And the closed form is held twice over. Every place of both saddles is on both
-cylinders, sampled right round; a closed bow walks its loop once and reads every
-place back to the parameter it came from, with the side kept on the left; and
-the two loops of one drilling each refuse the other's middle, which is what the
-unwound sine is for. Then §9's own record puts the whole of it through the
-boolean.
-
-### 9.2 M6 — the fitted tier: torus, and marching
-
-Marched intersection, loop detection, fit bounds recorded, and the body's
-exactness report going false for the first time. §10's rule 2 wants a throwaway
-spike outside the workspace before a line of the marching is written in
-`solid/`.
-
-The only unbounded milestone, and roadmap item 2 lands without it.
-
-**The surface is in.** `geometry::torus::Torus` evaluates, inverts and measures,
-all of it hand-checked. A ring torus and no other — at equal radii the tube
-closes on the axis and past that the surface passes through itself, and neither
-is a boundary a solid can be made of. Both parameters wrap, so §4.4's rule about
-wrapping applies twice over where a cylinder wants it once.
-
-**And a ray meets it.** `math::quartic::roots` isolates and then brackets rather
-than solving in closed form: Ferrari reaches a quartic's roots through a
-resolvent cubic and two square roots, and every step of that loses digits where
-the roots are close — which is exactly where a ray grazes a surface. Between the
-roots of its own derivative a quartic is monotone, so each interval holds at
-most one root and a sign change is a bracket that cannot be argued with. The
-derivative is a cubic and *that* is solved in closed form, its roots being only
-ever fences.
-
-A graze counts for none, as it does for every quadric here. An interval end that
-comes to nought is a root of the derivative, so the quartic turns there — and a
-quartic that turns *on* nought touches it rather than passing through.
-
-`Torus::met_by` squares once to reach the surface's own equation:
-`|x|² + R² − r² = 2R·s` has the axis distance's square root still in it, and
-squaring both sides leaves `(|x|² + R² − r²)² = 4R²(|x|² − (x·d)²)`, a quartic in
-the ray's parameter with no root anywhere. Straight out from the middle of a
-three-by-one ring that is `t⁴ − 20t² + 64`, whose roots are ±2 and ±4 — four
-crossings from one ray, which is the case no quadric has.
-
-**And the split is in.** `Surface` is `Natural(Natural)` or `Fitted(Fitted)`,
-which is §4.1's tier made structural. `Natural` holds the four quadrics and all
-the arithmetic that was `Surface`'s; `Fitted` holds the torus. Every dispatch on
-`Surface` is now one line per tier and no arithmetic at all.
-
-**Two places the type did the arguing.** `Quadric::of` takes a `Natural` — a
-torus is a quartic surface and no 4×4 describes it, so a fitted surface cannot
-reach the algebraic route by mistake. And `Meeting::of` answers every pair with
-a fitted half in *one* arm, `Meeting::Marched`, where a flat enum would have
-wanted an entry apiece. That is what the two levels buy, and the compiler asked
-for both rather than a reader noticing.
-
-`Marched` is `Algebraic`'s twin one tier up: the two surfaces do meet, along a
-curve no exact route can write down, and saying so beats saying they are apart.
-The boolean refuses both, which is what it already did for the one.
-
-**And a body says whether it is exact.** `Body::exact` walks its faces and asks
-each surface which arm it is. A walk and not a flag, so nothing can set it and
-be wrong — held by a test that puts one torus on one face of a block and watches
-the answer turn over.
-
-**And a torus bounds a solid.** `Body::ring` builds one by hand — four faces,
-eight edges, four vertices, `4 − 8 + 4 = 2(1 − 1)` — and it validates, meshes to
-Pappus's `2π²Rr²` and sounds right. Every edge of it is a circle and no face is,
-so what puts the body in the fitted tier is its surfaces alone.
-
-**Two things that only a doubly-round surface asks for.** §4.4's rule about
-wrapping now bites twice in the code as well as on paper: a face of a ring
-straddles the far side of the ring or the far side of the tube, so `round`
-answers a *pair* and both `Face::flatten` and the sounder's branch read it.
-Broken one way apiece and shown caught — the mesher refuses the half-face, and
-the sounder calls a place well clear of the ring inside it.
-
-And `Fitted::strides` gives each angle *half* the sagitta rather than dividing
-the cell's diagonal by the square root of two. A sphere may divide, its straying
-being the true distance; a torus's is the sum of two bounds, so a cell wide
-enough for one whole sagitta in each angle leaves a triangle in its corner
-straying by both. `radius · bulge(widest(radius, s))` is `s` again, so two
-halves add to exactly the sagitta and no argument about how a triangle leans is
-needed.
-
-**Sounded over a grid rather than at chosen places**, which is the spike's third
-finding applied to a test: four faces cover four quarters and a handful of
-places can miss one of them entirely. Whether a place is in the tube is
-`(√(x² + z²) − R)² + y² < r²`, and the sounder is held to that at six hundred of
-them.
-
-**And the reducible half of the fitted tier is in**, which is M3a's argument
-one tier up: the general route for these pairs is a march, and a march is worst
-at exactly the cases a table answers in two lines. `Meeting::fitted` carries
-them, behind the same single arm the split bought. Everything else is still
-`Marched`.
-
-**Coaxial pairs are one row and not four**, and it is the shape of the surfaces
-rather than a table that makes it one. Every surface here is a curve spun about
-a line — `meeting::profile::Profile`, how far out and how far along — so two
-that share the line meet exactly where those two curves cross, and each crossing
-is a whole circle rather than a place. A plane square across the axis and a
-cylinder about it are straight runs; a sphere on the axis and a torus are
-circles. So a plane square across, a coaxial cylinder, a sphere on the axis and
-a second coaxial ring are four pairs and one solve, and the tangency rule — a
-touch is a crossing, because a circle of them divides a face — is written once
-where the line meets the circle.
-
-**And the plane's own two are what is left of the table**: a plane holding the
-axis cuts a torus in the two tube circles it reaches, and one through the middle
-at the bitangent lean cuts it in Villarceau's two.
-
-**Two of those are cases the marching cannot do at all**, which is the whole
-reason the table comes first. The plane on the top of the tube touches it along
-a whole circle and no sign ever changes — the spike found nought seeds at
-1024×1024 — and that circle divides a face. The bitangent plane's two circles
-*cross*, so subdivision gives one seed for two curves and a march has no
-direction where they meet; the spike walked `574.6` against a truth of `37.70`
-and no tangency threshold saved it. A tangency here comes back `Along` rather
-than `Touching`, a curve of them being a curve.
-
-**And a ring can be cut.** `imprinted` gains the torus's own row: a circle on a
-torus is a *straight* cut in its parameters, and which of the two it holds
-constant is which of them it turns about. Both wrap, so both take the turn
-nearest the middle the face was laid out about — `Combining`'s `about` is a pair
-now, and broken back to one the boolean refuses the first ring it is handed.
-Villarceau's circles cross both parameters at once and no cut is written for
-them, so a boolean that met one is refused rather than answered wrongly.
-
-**The first boolean over a fitted surface** is a ring turned down on a coaxial
-rod, and its volume is Pappus over the tube's own disc cut at half a minor
-radius: `2π` times the first moment of what is left about the axis, the segment
-`acos d − d√(1−d²)` gone from the area and `−(2/3)(1−d²)^{3/2}` from the moment.
-Genus one, and the body reports itself not exact.
-
-**The spike is done**, per §10's rule 2 — a throwaway outside the workspace,
-marching a torus against a plane and a cylinder. Six findings, and the last of
-them changes what M6 is.
-
-1. **The marching itself is easy and accurate.** Newton onto both surfaces at
-   once through the 2×3 pseudo-inverse, stepping along `∇T × ∇S`. The fit bound
-   goes as the *square* of the step — `0.4 → 4.4·10⁻³`, `0.2 → 1.1·10⁻³`,
-   `0.1 → 2.8·10⁻⁴` — which is the law `arc::widest` already states, so a
-   sagitta sets the step through a square root and nothing new is needed.
-2. **Right on every ordinary case**, held against closed forms. A plane across
-   the tube gives two circles of `R ± r·√3/2`. A coaxial cylinder gives two of
-   its own radius. A plane `d` inside the outer equator gives an *ellipse* of
-   semi-axes `√(8d)` and `√(2d)` — matched to three parts in ten thousand, the
-   rest being the chording.
-3. **A small closed loop is found or missed by luck.** With its tangency on a
-   grid node, a 32×32 subdivision finds a loop `0.137` around. Moved half a cell
-   off, the same loop needs **512×512** — a quarter of a million samples. A test
-   that placed one on a node would pass for the wrong reason.
-4. **A seed has to be bisected onto the curve**, not taken at the grid node. At
-   the node the two surfaces are nearly tangent and the projection has no
-   direction to correct in; every small-loop case refused to start until the
-   seed was refined along the sign-changing edge.
-5. **A tangential meeting is invisible to sign-change subdivision.** The plane on
-   the tube's top touches the torus along a whole circle of radius `R`, and the
-   sign never changes: nought seeds at 1024×1024. That circle divides a face, so
-   a boolean needs it.
-6. **The bitangent plane defeats the method outright.** Its two Villarceau
-   circles cross at the two tangency points. Subdivision gives *one* seed for two
-   curves, the sign-change cells touching and flooding together; and the march
-   has no direction at a crossing, so it slips from one circle onto the other and
-   walks `574.6` where the truth is `2 × 18.85 = 37.70`. **A tangency guard does
-   not save it**: at `10⁻³` it still walks 433, and at `10⁻²` it stops at 5.7
-   against one circle's 18.85. No threshold gives the answer.
-
-**So M6 is not "subdivide, then march".** The singular places come first — where
-`∇T × ∇S` vanishes is a system of its own and solvable — then the branches
-leaving each of them, then a march *between* singular places. Loop detection
-cannot rest on a grid either, which is what §7.3's Gauss-map bound is for. What
-the spike settles is that the easy half is easy and the whole of the difficulty
-is the other three warnings, exactly where the literature says it is.
-
-**Two of those three are no longer the marching's**, the table above answering
-the tangent circle and the bitangent pair outright.
-
-**And the third is answered in closed form, for two pairs so far.**
-`meeting::seeding::seeded` hands back one place on *each piece* of what a
-surface and a torus meet in, and both of the spike's warnings go with it.
-
-**What the pairs share is the shape and not the arithmetic.** Standing on the
-other surface is one equation in the torus's two angles, and for each pair it
-rearranges into `A(v)·cos(u − phase) = B(v)`: two angles at each `v` where
-`|B| < A`, one where they are equal, none beyond. So the curve is exactly the
-stretches of `v` where `|B| ≤ A`, and every stretch carries one closed piece —
-the two angles inside it are that piece's halves, joining where the stretch
-ends. Where there is no end at all the halves never join and are two pieces,
-which is a cross drilling's own pair of regimes (§9.1) met again. That walk is
-written once; `Reading::Against` holds what is per pair.
-
-For a plane, `A` is how far its normal reaches square to the axis times how far
-out the tube does, `B` is how far the plane stands less how far it leans, and
-the ends are `α cos v + β sin v = γ` — one angle either side of a bearing. For a
-cylinder running the torus's own way, `A` is `2·out·off` and `B` is
-`out² + off² − across²`, and the ends turn on how far out the tube reaches and
-on nothing else: `out = ±off ± across`, four distances the tube either reaches
-or does not. That second pair is the bolt hole through a flange.
-
-**Nothing is sampled and nothing is bisected.** The small loop the spike found
-by luck at 512×512 is two `acos` here, and a seed is a place of the torus rather
-than a grid node that has to be walked onto — which is warnings three and four
-together. Held to the ellipse the loop closes on for a plane a twentieth inside
-the outer equator: semi-axes `√(2·minor·d)` and `√(2(major + minor)d)`, matched
-to two parts in a hundred at that depth.
-
-**And held to a sweep that does not ask where the pieces are.** The places of
-the curve at five hundred angles round the tube are had from the same reading
-without its ends, and each has to stand on some loop that was walked — so a
-piece nobody was seeded on shows up as a place far from all of them. That is
-what caught the ends being solved a sign the wrong way round: through the middle
-the equation is symmetric enough to hide it, and one stretch still leaves a
-midpoint on the curve to seed from. Only a plane that leans, stands off the
-middle *and* cuts two stretches tells the two apart.
-
-What is left of the seeding is the pairs whose ends are not a closed form: a
-cylinder that *leans* on the axis puts them behind a degree-eight polynomial,
-and a second torus does no better. The coaxial pairs are off that list
-altogether, answered exactly by the row above rather than walked at all.
-
-**And the walking is in.** `meeting::marching::Marching` corrects a place onto
-both surfaces at once and steps along the cross of their normals. A place off
-the curve is off two surfaces, which is two numbers against three to move in, so
-the correction is the smallest one that clears both — a two-by-two solve in the
-plane the normals span, and nothing of the curve's own direction in it, which is
-what keeps a correction from sliding the place along.
-
-**The sagitta is measured and not predicted.** How far a chord strays depends on
-how hard the curve bends, which is nothing either surface can be asked — so each
-step is taken, its chord probed at three places along it, and a step that
-strayed too far is halved and taken again. The next step is the one just taken
-times `√(sagitta/sag)`, held to a doubling, which is the square law read
-backwards. What comes back is how far the furthest accepted chord strayed, and
-that is the bound §4.1 says a fitted result carries. A walk must have *left*
-before it may come back: a step grows by at most a doubling, so standing further
-off than two of them is having gone somewhere.
-
-**Held two ways.** Against the table, which is two routes to one answer with no
-arithmetic between them: a level plane and a coaxial rod are walked and come
-back as the circles the closed form names, to `2πr`. And on a spiric section no
-closed form writes down, where every place stands on both surfaces, the loop
-runs from the ring's outer equator to its inner one, and the length closes on
-its limit from below by a tenth per tenfold finer sagitta — which is the law the
-spike measured, asserted rather than assumed.
-
-**What the walking has no home for is what it lays down.** A run of places is
-not a `Copy` value, so `Curve` has nowhere to put one — the same arena §9.1 owes
-`Curve::Quartic`. That arena is now the whole of what stands between a marched
-curve and a body: the seeding finds the pieces and the walking lays them down,
-and neither reaches the boolean until a curve can carry one.
-
-**And its shape is settled before a line of it is written**, which two wrong
-sketches earned it. Six decisions, the last of them a cost rather than a design,
-and two measurements the first build owes.
-
-1. **The store lives on `Topology`, beside `walks`.** One flat `Loops` for every
-   marched curve a body stands on, a place and how far round it stands per
-   sample — see the first measurement below — cleared rather than freed, which
-   is §4.5's rule that nothing in an arena owns a heap block. A body rebuilt on
-   every frame of a drag reaches the allocator not at all, which is what the
-   gates measure.
-
-   *And on the topology rather than beside it*, which reads at first like a
-   fourth place geometry and structure meet where §4.5 names three. It is not:
-   an edge still names its curve and nothing else, and the samples that curve is
-   made of lie in one buffer exactly as a face's own loops do. What forces it is
-   `Walked`, which carries a `&Topology` and answers `Chorded` — a store the
-   mesher and the checker would have had to thread down through four frames
-   otherwise.
-
-**`geometry::marchings::Marchings` is that store, and it is in.** A run is
-filed, read at a parameter, read back from a place and asked how many chords it
-holds. Held to a circle of three hundred and twenty equal chords: every probe on
-a sample is that sample, one half a chord along is that chord's own middle, and
-each reads back to the angle it came from.
-
-**And `Curve::Marched` is in, threaded.** `at`, `along` and `steps` take the
-store and `key` and `reach` come off the arm, so `Imprints` goes on holding a
-bare curve. Twelve call sites rather than the nine that were counted: `Walked`
-reads a place as well as a step count, and one line of the sewing asks for two
-places at once. Nothing builds one yet — that is `Combining`, and it is next.
-
-**The build found the one thing the design had not looked at.** `Sewing::sew`
-begins by *emptying* the body it writes, and the runs are laid down before it —
-so a store on the body would be wiped between being filled and being read. It
-lives on `Combining` instead, beside the `Imprints` it belongs with.
-
-**And the two trade room rather than copying.** `Topology::trade_marched` swaps
-the operation's runs into the body where the sewing ends — after everything that
-reads them and before the checker, which walks the body's own edges and has
-nothing to walk until the body holds what they are made of. Each side walks away
-with the other's buffer, so neither ever asks for more room than the larger of
-them has needed. The sewing takes one borrow rather than four for it, the runs
-being the one it changes: `Combining::sewn`.
-
-**What is left of the arena is the `Cut` side, and its shape is not what the
-first reading of it suggested.** A cut of a marched curve looks like a polyline
-in a face's own parameters — a second store, threaded through nine more methods,
-and every question answered by a walk of it. It is not. Five of the nine
-questions are about a *place*, and the answer to those is the one `Bow` and
-`Ripple` already give: how far the place stands from the *other surface*. A cut
-that carries the two surfaces answers `side` in closed form and finds a crossing
-by bisecting it, and only the three that lay corners down — `down`, `between`
-and `walk` — want the run at all.
-
-**`splitting::traced::Traced` is that cut, and it is in, wired.** How far off a
-place stands is read off the other surface and comes out as the true distance,
-sign and all; a run across it is bisected on that reading, there being nothing
-to solve; and the corners it lays down are the marched run's own places carried
-into the face's parameters by the rule `Face::flatten` keeps.
-
-**Which way it runs and whether it closes are measured, not reasoned.** Which
-way a marcher walked a run is its own business and neither surface's orientation
-is the cut's, so the direction is one step along it with a look to the left. And
-a curve closed in the *world* is not closed in a face's parameters where those
-wrap — a plane through a ring's middle cuts two pieces and each goes right round
-the tube, coming back a whole turn along in `v` rather than to where it began.
-Both regimes are held by tests, and the second was found by one.
-
-**And the build moved the design twice, both times against what is written
-above.**
-
-**One cut for the whole meeting rather than one per piece.** The reading that
-makes this cut cheap is the same reading that makes it indivisible: how far a
-place stands off it is read off the *other surface*, so it comes to nought on
-every piece of the meeting at once, and a cut carrying one piece would call a
-place on another piece its own. So `Cut::Traced` carries the pieces together and
-`down` is a whole turn to a piece — the pieces being disjoint, ordering by that
-orders along each of them and never runs one into the next. What is per piece
-per face is `traced::Piece`: which run, which imprint run, where its parameter
-reads nought, how many turns it is carried by, the stretch it fills, which way
-it runs and whether it closes.
-
-*Cost, paid in three places:* `Cut::walk` hands back **loops** rather than one
-loop and `Splitting::punch` punches each of them, which is what a plane through
-a ring's middle needs — two closed loops on one flat, and a cut that punched one
-lost the other outright. `Cut::came` is asked of a *place*, two pieces being two
-curves and two edges. And `Cut::between` answers whether the stretch exists at
-all: two chains on different pieces have no stretch of cut running between them,
-and that is refused rather than closed with a chord.
-
-**And the cut borrows where the curve carries.** `Cut` takes a lifetime and
-holds the two surfaces, the store and the pieces by reference. That is the
-opposite of `Curve`'s answer one shelf down and it is the right way round for
-each: a curve is *stored* — in an edge, in the imprints — so a lifetime on one
-would reach the whole topology, where a cut lives for the one call that splits
-by it. Carried instead, a `Cut` would be some two hundred bytes where the widest
-arm today is sixty, and every corner of every region is asked about one by
-value.
-
-**Two things a wrapping parameter takes and this has to give back.** A run is
-carried on to stay continuous, which leaves it in whichever turn its walk was
-*seeded* in — so a run right round a tube, walked the way the angle shrinks,
-comes out a whole turn below the face that holds it. The whole run is moved to
-the turn its middle stands nearest the face's, and the face's own stretch is
-what says which that is: `splitting::traced::Laid`, which `imprinted` already
-wanted the middle of. And a corner is laid only where that stretch holds it —
-the end of a stretch and the run's own beginning are one place read a whole turn
-apart, and a parameter comparison decides that by a rounding where the face
-decides it outright.
-
-**A run's parameter reads nought where the face is not.** A run is closed in
-space and its parameter is a whole turn round it, so where that turn reads
-nought is wherever the walk happened to be seeded — and a piece that merely
-*crosses* a face is then a stretch of parameter with the wrap in the middle of
-it, which is an ordering the reassembly cannot use. `traced::Clear` walks the
-run once and takes the middle of the longest stretch standing clear of the face.
-
-**And `Combining` seeds, walks and files.** `Meeting::of` stays pure and goes on
-answering `Marched`; what walks is `Combining::march`, which keeps its own
-`Marching` and files the pieces in `Combining::marched`. **Once for the two
-bodies rather than once per face** — a cylinder is two faces of one surface and
-a ring is four, so a pair reaches the cutting once for each face standing on
-either of them, and a march is thousands of corrections where every other
-meeting here is a formula. The pairs already walked are indexed by a key over
-the two surfaces taken smaller first, which is the same key the curves are filed
-under and is what makes a crossing met from either side key alike.
-
-**And a pair that misses is not a pair nobody can seed.** `seeded` answers
-`None` for a pair no reading is written for and no seeds at all where the two
-genuinely do not meet — two answers where it had one. The boolean has already
-been told the pair meets somewhere unwritable, so the first has to refuse it
-where the second divides nothing: without the split, a block whose far wall
-merely *reaches* a ring refuses the whole operation.
-
-**And three things in the sewing that only a marched edge asks for.**
-
-A vertex is the place a face **pinned**, not the curve read back at its
-parameter. Those are one thing for every exact curve and two for a marched one:
-a place read off a run lands on the chord between two of its samples, a sagitta
-from the place another face put there — and read that way the two faces meet at
-two vertices a chord apart and the shell never closes.
-
-The runs change hands **before** the shells are sorted rather than after. What
-sorts them sounds the body, which walks its own edges, and an edge on a marched
-curve has nothing to walk until the body holds what it is made of.
-
-And a marched edge stands for a **tube as wide as its own walk**, which drags
-the vertices at its ends out to hold it. That is §4.1's bargain in the tolerance
-model: the curve is a run of chords and the vertices are exact crossings of two
-surfaces, so the two disagree by the sagitta and the model has to say so rather
-than have the validity check discover it. `Body::strays` reads the worst of them
-back, which is the fit bound this milestone owed.
-
-**The first boolean over a curve nothing can write down** is a ring halved by a
-plane through its middle at forty-five degrees. That is neither of the two
-circle cases the table answers — not the plane holding the axis and not the
-bitangent lean, which for three by one is nineteen and a half degrees — so the
-two meet in a spiric quartic in two pieces, each running right round the tube
-and neither closing in a face's own parameters. **Exactly half, and by an
-argument rather than by quadrature:** a torus is carried onto itself by the point
-reflection through its own centre, and that reflection swaps the two sides of any
-plane through the centre, so each half is `π²Rr²`. Genus nought, not exact, and
-its stray is the sagitta it was walked at.
-
-**What is left of the cut** is a face two pieces of one meeting both cross. Its
-chains would have to be joined along one piece and wrapped within it, and the
-reassembly wraps over the whole cut — so `Cut::between` refuses that join rather
-than closing it with a chord. Nothing built today reaches it: the pieces of a
-plane-torus meeting stand in different quarters of the ring, and on the plane
-itself they are closed loops the boundary never meets.
-2. **`Meeting::of` stays pure and goes on answering `Marched`.** What produces a
-   run is `Combining`, which seeds, walks and files it when it meets such a
-   pair — so the routine every test calls keeps its signature, and the store is
-   asked for by the one caller that owns the body it is going into.
-3. **The arm is `Curve::Marched { run: u32, key: u64, reach: f64 }`**, three
-   words and `Copy`. The key is over the two surfaces and which piece, so a
-   crossing met from either side keys alike and `Imprints` deduplicates it
-   exactly as it does a circle. Keying over the samples would work and is the
-   wrong answer: it makes the identity of a curve depend on how finely it
-   happened to be walked.
-4. **`at`, `along`, `steps` and `strays` take the store; `key` and `reach` do
-   not**, both of those being on the arm — so `Imprints`, which asks only for a
-   key, goes on holding a bare `Curve`. Every call site already has a
-   `Topology`, a `Body` or the operation's own runs. `strays` is the fourth and
-   was not foreseen: it is nought for every curve written down and the walk's
-   own sagitta for one laid down, which is what an edge of the fitted tier
-   stands for.
-5. **The parameter is arc length round the run, scaled to a whole turn.** A
-   closed marched curve then splits at its own nought and half turn exactly as a
-   circle does — `Sewing::encircle` needs no arm of its own, which is the whole
-   reason to spend a division on it.
-6. **A marched curve answers `steps` with the chords it has**, not with the
-   chords a caller asked for. Re-walking wants both surfaces and a `&mut`, and
-   the readers hold neither — so a curve's fit is fixed where it is walked, that
-   number is the edge's own tolerance, and `Body::exact` goes false because of
-   it. *Cost:* a marched edge drawn finer than it was walked shows its chords.
-   That is §4.1's bargain read out loud, and the alternative is a `Curve` that
-   carries two whole surfaces to re-derive itself from.
-
-**And two things the first sketch of it had wrong**, which is what a pass like
-this is for.
-
-**A run stores how far along each of its places stands, not only the place.**
-`Curve::at` is asked once per step of every walk of the edge, so reading it by
-adding chords from the beginning is a walk inside a walk — the square of the
-sample count, per edge, per frame. With the length carried it is a search
-through a run that is already in order, and the extra number is eight bytes
-against a place's twenty-four.
-
-**`Curve::along` has no such answer**, and it was expected to be the term that
-capped how finely a marched curve may be walked. Reading a parameter off a
-*place* has nothing ordered to search: it is the nearest chord, which is the
-whole run. The sewing asks it once per corner of a face, so the total is the
-sample count squared. Two ways out were written down — carry a hint into
-`along`, the callers all walking in order anyway, or index the run's places by a
-coarse grid — and the choice between them was left to a measurement.
-
-**Measured, and neither is worth building.** A ring halved by a leaning plane,
-in release, the whole model scaled by one, two, four and eight:
-
-| scale | combine | `nearest` calls | chords walked | walking | share |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 17.0 ms | 986 | 117k | 0.47 ms | 2.8% |
-| 2 | 32.2 ms | 1362 | 226k | 0.90 ms | 2.8% |
-| 4 | 65.5 ms | 1914 | 450k | 1.88 ms | 2.9% |
-| 8 | 122.9 ms | 2658 | 872k | 3.52 ms | 2.9% |
-
-**The square is there and the share is flat**, which is the whole answer. The
-chords walked go as the samples squared — `2.75²` per row — exactly as feared.
-But the *rest* of the boolean grows the same way, because what asks `along` is a
-corner and what everything else costs is also a corner: the combine grows `7.2×`
-over the same eight, and `along` stays under three parts in a hundred of it. A
-hint or a grid would buy that three per cent and change nothing about the class.
-
-**And the sample count is not a caller's to raise.** A run is laid down at
-`CHORDED` and cannot be walked again, so nobody can ask for a finer one — the
-cap is decision 6 above rather than this. What the sample count does follow is
-the *model*: a marcher's step goes as `√(radius · sagitta)`, so eight times the
-ring is `2.75` times the samples and not eight.
-
-**What a marched boolean costs, for the record.** The same ring against a
-coaxial rod — every pair of which the exact table answers — takes `6.8 ms` at
-scale one against the marched pair's `17.0 ms`, and `43.9 ms` against `122.9 ms`
-at scale eight. So the fitted tier is a constant factor of about two and a half,
-flat in the model's size, and the growth in both is the corner count rather than
-the marching. **A boolean of this size is a frame of its own** and that is worth
-saying out loud: what §11's preview measures is faces before it combines, and a
-ring is where that guard starts to earn its keep.
-
-**And a feature builds a torus.** `build::revolving::Revolution` spins a region
-of a drawing a whole turn about a line in its own plane, which is what M6 owed
-§10's first rule: until it, only a test raised a ring.
-
-**Five surfaces off two shapes**, which is the whole of what a revolve makes. A
-straight run parallel to the line sweeps a cylinder, one square across it an
-annulus of a plane, and one that leans a cone; an arc about a centre on the line
-sweeps a sphere, and one about a centre off it a torus. So the feature reaches
-every surface the kernel has, and it is the only thing that reaches two of them.
-
-**A whole turn and no other**, which is what makes it one shape rather than two.
-Spun part way a region has two ends, and those are caps of the kind an extrusion
-already raises; spun the whole way it has none and every wall closes on itself.
-The second is what a ring, a washer and a ball are.
-
-**So every wall is halved**, §4.4's rule read at the feature: a wall spun the
-whole way covers its own surface and no face may. Cut at the drawing's own seam
-and half a turn from it, so one of the two holds the profile exactly as it was
-drawn. The counts follow rather than being chosen — a closed profile of `n`
-strips gives `2n` faces, `4n` edges and `2n` vertices, and `2n − 4n + 2n` is
-nought, which is `2(1 − 1)`. A ring is `n = 2`, the drawing's own circle
-arriving as two arcs, and that is `Body::ring` exactly.
-
-**Which side of the line the region stands on is read rather than given**, and
-reading it is the same walk that refuses a region straddling the line. It is
-also the one thing a face's winding turns on: the spin and the profile are a
-face's own two parameters, and which order winds them counterclockwise about the
-material-free side turns only on whether `(along, out)` reads the drawing the
-way it was drawn. One flag for the whole revolve — per wall it would differ, and
-two walls disagreeing would walk the circle between them the same way twice.
-
-**And which way a wall faces is asked of the surface rather than derived.** The
-material is on the left of the walk, a region's outline being counterclockwise;
-carried to the world that is one direction, and a wall faces the other way. Five
-surfaces, five parameterizations, one dot product.
-
-**Three things have no solid, and each comes back as a body with no faces** —
-the answer an extrusion of no distance gives. A line with no direction. A region
-that touches or crosses the line, a corner on it sweeping a point rather than a
-circle. And an arc that reaches it: an arc bulges away from its own chord, so
-one drawn between two places beside the line can cross it in between, and what
-it sweeps there is a surface folded through itself. That last one is asked of
-the arc rather than of its ends, and the build found it — a circle centred on
-the line came back as a sphere the checker caught folding.
-
-**Held by Pappus, which is the whole check a revolve wants.** A plane figure
-spun a whole turn shuts in `2π` times its first moment about the line. A circle
-of one, three out, gives the ring's own `2π²Rr²`; a trapezoid with one side of
-each kind gives `32π/3`, which a slice-by-slice integral gives again; and a
-circular segment beyond a chord gives `2π` times the segment's own moment, the
-figure the ring tests are already measured by.
-
-**And it lands in CatCad**, which is §10's first rule and what M6 owed. A step
-of the timeline holds one — `Feature::Revolve` — the file writes and reads it,
-the recipe lists it, and the bar offers it.
-
-**The axis is a segment of the profile's own sketch**, named by the drawing's
-own handle the way a region is named by its bounds: so it survives the geometry
-moving and being cut into pieces, one drawing holds both, and a drag through the
-sketch carries the axis along with the profile.
-
-**Two picks and two numbers.** The form asks where round the line the turn
-starts and how far it goes, seeded at nought and a whole turn — so the ring is
-on screen whole from the moment the form opens and what somebody types cuts it
-down. It opens on a join, which is what a second solid means unless somebody
-says otherwise.
-
-**Degrees on the form and radians below it**, which is the one place the two
-units meet: every other number a form asks for is a length in the sketch's own
-units, so an angle is the first with a unit of its own. `Prompt::sector` states
-the turn once for both readings — what the drawing shows while somebody is
-typing, and what a commit settles.
-
-**And the turn has a handle**, which is the depth arrow laid round the line
-rather than along it. Neither the handle nor the drag picks a direction to
-measure an angle from: the press records where it landed and every frame reads
-how far round from there the pointer has gone, a difference of two angles being
-the same in any frame.
-
-*Which cost the form one rule and bought it a better one.* A form asking for
-nothing used to be a compile error, because one would stand on the drawing with
-no way to be answered. That was two claims in one: a form with no field is fine
-where it carries its own buttons, and a form dismissed by clicking away is what
-must not be empty. The two are asked together now.
-
-**And one word covers both sweeps.** What a step does to a region is
-`timeline::Sweep` — carried a distance, or spun about a line — resolved where
-the sketch is and carried into the build as a value. Everything else about a
-step that grows a solid is written once: the profile, the operation, the body,
-the place in the model, and `Feature::grows` for every reader that does not care
-which.
-
-**And a part of a turn is the same profile with two caps.** `Sector` says where
-the turn starts and how far it goes, signed about the line; the sweep decides
-how many faces a wall is cut into, every part spanning at most a third of a
-turn; and the two ends are the profile itself in the half-plane the spin carried
-it to, their loops being the seam edges the walls already raised. A hole is a
-hole through again there, the caps joining its wall to the wall outside it —
-which is the extrusion's answer, and the opposite of the whole turn's. Pappus
-holds for a part of a turn as it does for the whole.
-
-What is left of the revolve is the document and the form carrying those two
-angles, and the plane-cylinder fillet that also makes a torus.
-
-**Tests, and they are paid.** The reducible table is held against the closed
-form and sampled onto both surfaces, Villarceau's included; the walking is held
-against the table and against a spiric section no closed form writes down; the
-seeding is held against a sweep that does not ask where the pieces are; and the
-cut answers its side, its loop, its crossing and its graze against the two
-surfaces rather than against the run. A marched intersection reaches a *body*
-and the volume is a symmetry argument, with the fit bound recorded there and read
-back by `Body::strays`.
-
-**And the two that were left are paid.** The same leaning plane halves a *rod*,
-which it meets in an ellipse — a `Wave` on the cylinder and a `Round` on the
-plane, both rows of the exact table — so nothing is marched, the body reports
-itself exact and `Body::strays` reads nought. Half a rod by the same reflection
-argument the ring's half is had by.
-
-**And the loop the literature says a march will miss is cut into a body.** A
-plane a twentieth inside the outer equator, which the spike found by luck at
-512×512 and missed at 256×256 once it was moved half a cell off a node. Nothing
-here samples. Its volume is a quadrature and the integral is one line of
-geometry: at each angle about the axis the cap's cross-section is the tube's own
-disc cut at `ρ = x₀/cos u`, which is a circular segment, so the volume is that
-segment's *first moment* about the axis integrated over the angle it reaches.
-The same area and moment the turned ring above is measured by, read the other
-way round.
-
-**And the mesh is what that converges with, not the walk.** The loop was laid
-down at `CHORDED` and cannot be laid down again, so a chord of it stands a
-thousandth from the true curve — yet the volume closes on the quadrature by a
-factor of eight per tenfold finer *mesh*. The two faces the loop bounds meet
-along it, so moving it moves no material to first order, and the walk's own
-sagitta does not hold the answer back.
-
-### 9.3 M7 — fillet, chamfer, STEP
+### 9.1 The general quartic
+
+`Curve` carries `Line`, `Circle`, `Ellipse`, `Saddle` and `Marched`. It does not
+carry `Quartic`, and `Meeting::Algebraic` is the refusal a pair wanting one
+gets.
+
+**The arm and a general cut it can be made into are one piece of work rather
+than two.** The arm alone is a curve the boolean still refuses, and §10's first
+rule says the pair lands together or not at all. Both wait until a pair needs
+them — cylinder against cone is the first that will, and nothing builds one
+today.
+
+The route to the curve is in. `Quadric`, `Pencil`, `Quadric::rulings`,
+`Quadric::met_by`, `Ruled` and `Quartic` take two quadrics to
+`X₁(u) ± X₂(u)·√Δ(u)` in one `√δ` and one `√Δ`, which is the two storeys §4.2
+caps the tower at. What it lacks is somewhere for its answer to live: `Cut` and
+`Curve` are both `Copy` value types and a general quartic holds some ninety heap
+blocks, so it goes in neither by value. It wants an arena and a `Copy` handle
+apiece, §4.5's own shape — and a marched curve wants the same arena rather than
+the run it carries today.
+
+The general case is research-grade but published, complete and proven, which is
+the difference between hard and open-ended. §12 names the two papers to read
+first.
+
+### 9.2 The rest of the fitted tier
+
+Two gaps, and nothing built today reaches either.
+
+**Seeding a pair whose ends are not a closed form.** `meeting::seeding::Against`
+covers a plane at any lean and a cylinder parallel to the torus axis. A cylinder
+that *leans* on that axis puts the ends behind a degree-eight polynomial, and a
+second torus does no better.
+
+**A face two pieces of one meeting both cross.** Its chains would have to be
+joined along one piece and wrapped within it, where the reassembly wraps over
+the whole cut — so `Cut::between` refuses that join rather than closing it with
+a chord. The pieces of a plane-torus meeting stand in different quarters of the
+ring, and on the plane itself they are closed loops the boundary never meets.
+
+### 9.3 A ghost
+
+Not the kernel's, and it wants work in `aperture3d` rather than in `solid/`. An
+`Object` carries a `Vec3` colour and the only translucent mesh pass is the flat
+sheets a drawing's regions are filled with, so there is nothing for a solid to
+be drawn faintly *in*. Worth having for two cases — a tool too detailed to
+combine, and a cut whose result is hidden behind the part from the current
+camera — and neither is worth a pass on its own yet.
+
+### 9.4 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -1730,49 +899,36 @@ Either true of a commit or not.
 
 1. **The kernel never has a milestone without a consumer.** Every milestone
    lands in CatCad. No milestone is "kernel-internal".
-2. **Prototype before integrating.** Each of the quadric parameterization,
-   classification and marching gets a throwaway spike, outside the workspace,
-   before a line of it is written in `solid/`.
+2. **Prototype before integrating.** A routine whose shape is not yet known
+   gets a throwaway spike, outside the workspace, before a line of it is
+   written in `solid/`.
 3. **Validity is asserted, not hoped for.** Every operation runs `Checking` over
    what it just built, under `cfg!(debug_assertions)`. Every check it makes has
    a test that breaks a valid body one way and shows it caught.
 4. **No silent tolerance.** §4.1.
-5. **Every milestone is a stopping point.** The tree stands part way through M5
-   with CatCad better off than before, not merely no worse — a document can bore
-   a hole, sink a pocket, mill a flat and stand a boss, all of it exact.
-6. **Do not extrapolate.** M1–M2 were the comfortable part, and M3a came in
-   behind them cheaply because the degenerate cases are geometry rather than
-   algebra. M3b is where the truth is, and M0's arithmetic is under it now.
+5. **Every milestone is a stopping point.** Each leaves CatCad better off than
+   before, not merely no worse.
+6. **Do not extrapolate.** A milestone that came in cheaply says nothing about
+   the next. The degenerate cases are geometry and the general one is algebra,
+   and the two cost nothing like each other.
 
 ---
 
 ## 11. Scale, and what it costs
 
-**M0 was the biggest single piece and none of it showed on screen**, which is
-the shape to expect of the rest. What it cost was not the arithmetic, which the
-spike had already sized: it was that a decision and a *place* are two questions,
-and a sum that keeps its sign has long since stopped keeping its digits. Half of
-the work was finding the second question under the first, three times over.
+**A decision and a place are two questions**, and a sum that keeps its sign has
+long since stopped keeping its digits. That is where the arithmetic goes, and
+where to expect the next piece of it to go.
 
-What it did not need was the one thing it was expected to. A corner still holds
-as a `DVec2`, because a place as good as the machine can hold one is a place
-nothing downstream can tell from the truth. Carrying a construction instead
-would only pay where two round corners from *different* pairs are compared, and
-nothing asks that.
+**A corner holds as a `DVec2`.** A place as good as the machine can hold one is
+a place nothing downstream can tell from the truth. Carrying a construction
+instead would pay only where two round corners from *different* pairs are
+compared, and nothing asks that.
 
-**M3b is the real work.** M3a came in behind M2 for a fraction of its estimate —
-the reducible cases are a page of vector algebra each — and M4 and M5's
-reducible half followed from it. The general case is the whole of the remaining
-difficulty: research-grade but published, complete and proven, which is the
-difference between hard and open-ended.
-
-**M6 is the only unbounded milestone**, and it sits behind the torus rather than
-behind the second hole anyone drills. Roadmap item 2 lands without it.
-
-**Performance will be poor at first.** Exact fallbacks and Newton inversion
-instead of pcurves both spend it. The mitigation is that the interval filter
-means the exact path is rarely taken — but "rarely" is a measurement nobody has
-made yet.
+**Performance is poor before it is measured.** Exact fallbacks and Newton
+inversion instead of pcurves both spend it. The mitigation is that the interval
+filter means the exact path is rarely taken — but "rarely" is a measurement
+nobody has made yet.
 
 **What is measured is the boolean, and it grows faster than the body does.**
 Cutting one straight-walled tool out of a six-faced block, release, on a

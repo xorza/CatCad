@@ -1,11 +1,11 @@
 //! Finding one place on every piece of a curve that has to be walked.
 //!
-//! **The half of M6 the spike found hard**, and the reason it is hard is not
+//! **The hard half of the marched route**, and the reason it is hard is not
 //! that one place is difficult to reach: a Newton correction finds one from
 //! almost anywhere. It is that a curve comes in *pieces*, and a search that
-//! samples a grid finds a small piece by luck — see `.notes/KERNEL.md` §9.2,
-//! where a loop `0.137` across wanted a quarter of a million samples once it was
-//! moved half a cell off a node.
+//! samples a grid finds a small piece by luck — see `.notes/KERNEL.md` §7.3,
+//! where a loop `0.137` across wants a quarter of a million samples once it
+//! stands half a cell off a node.
 //!
 //! **So it is done per pair and in closed form**, which is the same bargain the
 //! reducible table strikes one shelf up. What the pairs share is the *shape* of
@@ -351,13 +351,13 @@ mod tests {
         }
     }
 
-    /// **And the small loop the spike found by luck is found by arithmetic.**
+    /// **And the small loop a search finds by luck is found by arithmetic.**
     ///
     /// A plane parallel to the axis, a twentieth inside the ring's outer
-    /// equator, cuts one small closed piece near it. `.notes/KERNEL.md` §9.2's
-    /// spike needed a 512×512 subdivision to find one of these once it stood
-    /// half a cell off a node; the ends of its stretch are two `acos` here, and
-    /// where it is comes out with them.
+    /// equator, cuts one small closed piece near it. A 512×512 subdivision
+    /// misses one of these once it stands half a cell off a node — see
+    /// `.notes/KERNEL.md` §7.3. The ends of its stretch are two `acos` here,
+    /// and where it is comes out with them.
     ///
     /// **Held to the ellipse it closes on.** For a plane `d` inside the outer
     /// equator the piece is an ellipse of semi-axes `√(2·minor·d)` along the

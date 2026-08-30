@@ -3,10 +3,9 @@
 //! **No production caller yet.** This is the floor M3b is built on and the
 //! first of its pieces to land — the pencil, the repeated-root test and the
 //! parameterization all read the matrix and nothing else. It lands ahead of
-//! them for the reason `number::exact::lazy` did: the milestone's whole point
-//! is not finding out late, and the spike `.notes/KERNEL.md` §4.2 records has
-//! already walked the route this floor carries. The tests in `solid::geometry`
-//! are what hold it up until there is a caller.
+//! them for the reason `number::exact::lazy` did: the whole point is not
+//! finding out late. The tests in `solid::geometry` are what hold it up until
+//! there is a caller.
 #![allow(dead_code)]
 
 use crate::number::exact::field::Field;
