@@ -38,10 +38,17 @@ use glam::DVec3;
 /// worth looking at rather than one to widen the bound for.
 const CANDIDATES: i64 = 4;
 
-/// A stretch of the parameter a branch of the curve is real over.
+/// An arc of the projective line a branch of the curve is real over.
 ///
-/// Either end may be infinite, a quartic being a projective curve that a chart
-/// of the line does not close.
+/// **Read as an arc rather than as an interval**, because the parameter runs on
+/// a circle and the affine chart cuts it. `Δ`'s roots divide that circle into
+/// arcs, and the one holding the chart's own edge looks like *two* intervals to
+/// anything that only knows the chart — a piece reaching past `+∞` and a piece
+/// reaching back from `−∞`, which are one piece meeting at a place the chart
+/// cannot name.
+///
+/// **`from > to` says the arc wraps.** Either end may also be infinite, which
+/// is the arc that has no root to stop at.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Stretch {
     pub(crate) from: f64,
@@ -65,7 +72,14 @@ impl Stretch {
     /// and what it buys is that no reader anywhere has to know the chart has an
     /// edge.
     pub(super) fn at(self, part: f64) -> [Rational; 2] {
-        let (start, end) = (Self::angle(self.from), Self::angle(self.to));
+        let (start, mut end) = (Self::angle(self.from), Self::angle(self.to));
+        // **The long way round, where the arc wraps.** An angle and that angle
+        // less a half turn are one place of the projective line, so an arc
+        // through the chart's edge is walked by letting the angle fall past
+        // nought rather than by climbing between the two ends the chart sees.
+        if self.from > self.to {
+            end -= std::f64::consts::PI;
+        }
         let (sin, cos) = (start + (end - start) * part).sin_cos();
         [Rational::of(cos), Rational::of(sin)]
     }
@@ -228,7 +242,35 @@ impl Quartic {
                 found.push(stretch);
             }
         }
-        found
+        Self::joined(found)
+    }
+
+    /// The arcs `found` really is, the chart's own edge healed.
+    ///
+    /// **Two pieces reaching off the chart either way are one arc.** `+∞` and
+    /// `−∞` are one place of the projective line, so a stretch ending at the
+    /// first and one beginning at the second meet there — and nothing between
+    /// them stops, `Δ` having no root at a place the chart cannot name. Joined,
+    /// the two become the wrapping arc [`Stretch`] describes.
+    ///
+    /// The one arc that reaches both ways and is *not* joined to anything is
+    /// the whole circle, which is what a `Δ` with no real root leaves.
+    fn joined(found: Inline<Stretch, 3>) -> Inline<Stretch, 3> {
+        let all = found.all();
+        let (Some(first), Some(last)) = (all.first(), all.last()) else {
+            return found;
+        };
+        if all.len() < 2 || first.from.is_finite() || last.to.is_finite() {
+            return found;
+        }
+        let mut joined = Inline::one(Stretch {
+            from: last.from,
+            to: first.to,
+        });
+        for held in &all[1..all.len() - 1] {
+            joined.push(*held);
+        }
+        joined
     }
 
     /// `Δ`'s five coefficients, the constant first.

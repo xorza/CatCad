@@ -16,7 +16,7 @@ use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
-use crate::solid::geometry::quartic::Quartic;
+use crate::solid::geometry::quartic::{Quartic, Stretch};
 use crate::solid::geometry::ruled::Ruled;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
@@ -1969,10 +1969,13 @@ fn a_cone_drilled_off_its_axis_meets_it_in_two_bounded_branches() {
 /// along the chart could only ever run away. Written as an angle every place of
 /// the line is finite, and the one the chart cannot name is the angle nought.
 ///
-/// **Both fixtures, because they are the two shapes a stretch comes in.** The
-/// cylinders' is the whole line and the cone's is a bounded piece of it, and
-/// what has to hold for both is that the ends are the ends and every place
-/// between them is on both surfaces.
+/// **Both fixtures, because they are the two shapes a stretch comes in — and
+/// the two are not one loop each.** The cylinders' stretch is the whole line
+/// and `Δ` never reaches nought on it, so the two branches never meet and each
+/// closes on itself: two loops. The cone's are bounded, and `Δ` *is* nought at
+/// an end, so there the two branches shut on each other and a stretch is one
+/// loop walked out and back. What has to hold for both is that every place is
+/// on both surfaces and the walk never turns back.
 #[test]
 fn a_branch_walks_the_projective_line_from_end_to_end() {
     let pipe = |origin: DVec3, direction: DVec3, reference: DVec3, radius: f64| {
@@ -1991,18 +1994,18 @@ fn a_branch_walks_the_projective_line_from_end_to_end() {
         panic!("{:?} is not one stretch", whole.all());
     };
 
-    // Every step of the walk is on both cylinders, the ends included — and the
-    // ends are the place at infinity, which the affine chart has no name for.
+    // **Every step of the walk is on both cylinders, the ends included.** The
+    // *parameter* runs off the chart there and the *curve* does not: two
+    // cylinders of two and three shut each other in, so nothing of what they
+    // meet in stands further out than three. A projective end is a place like
+    // any other, and this is what says so.
     const READ: f64 = 1e-9;
     for step in 0..=8 {
         let u = whole.at(f64::from(step) / 8.0);
         for branch in [false, true] {
-            let Some(at) = crossing.at(&u, branch) else {
-                // The place at infinity has no finite reading, which is the one
-                // thing an end of this stretch can honestly answer.
-                assert!(step == 0 || step == 8, "no place at step {step}");
-                continue;
-            };
+            let at = crossing
+                .at(&u, branch)
+                .unwrap_or_else(|| panic!("no place at step {step}"));
             assert!(
                 (at.x * at.x + at.y * at.y - 4.0).abs() < READ,
                 "{at:?} is off the upright cylinder at step {step}",
@@ -2013,6 +2016,30 @@ fn a_branch_walks_the_projective_line_from_end_to_end() {
             );
         }
     }
+
+    // **And a branch over the whole line closes on itself**, which is the
+    // structure of this pair rather than an accident of the walk: `y² ≤ 4` on
+    // the upright cylinder puts `z² ≥ 5` on the sideways one, so the two never
+    // meet and what they share is *two* loops. Each branch is one of them, and
+    // the two ends of the projective line are one place on each.
+    for branch in [false, true] {
+        let (start, end) = (
+            crossing.at(&whole.at(0.0), branch).expect("a place"),
+            crossing.at(&whole.at(1.0), branch).expect("a place"),
+        );
+        assert!(
+            start.abs_diff_eq(end, 1e-12),
+            "branch {branch} runs from {start:?} to {end:?} rather than closing",
+        );
+    }
+    let apart = [false, true].map(|branch| {
+        crossing
+            .at(&whole.at(0.25), branch)
+            .expect("a place")
+            .z
+            .signum()
+    });
+    assert_eq!(apart, [-1.0, 1.0], "the two branches are not the two loops");
 
     // **And it runs up the chart once**, which is the property a walk owes and
     // two sampled places cannot say. Nought is `from` and one is `to`, so this
@@ -2092,6 +2119,79 @@ fn a_branch_walks_the_projective_line_from_end_to_end() {
                 apart = now;
             } else if part == 0.5 {
                 apart = near.distance(far);
+            }
+        }
+    }
+}
+
+/// **An arc through the chart's edge comes back as one arc**, where the chart
+/// itself shows two.
+///
+/// The defect this is written from. `Δ`'s roots cut the projective line into
+/// arcs, and the affine chart cuts it once more — so the arc holding the
+/// chart's own edge arrived as a piece reaching past `+∞` and a piece reaching
+/// back from `−∞`, which are one piece meeting at a place the chart cannot
+/// name. Two of the three stretches were one. See [`Quartic::real`].
+///
+/// **A 45° cone drilled by a wider tube standing off its axis.** The drill's
+/// radius of `2.5` is more than the `2` its axis stands out, so its wall
+/// reaches round the cone's own axis — and the curve they meet in has an arc
+/// that runs off the chart one way and back the other.
+#[test]
+fn an_arc_through_the_charts_edge_is_one_arc() {
+    let cone = Quadric::of(&Natural::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    }));
+    let drill = Quadric::of(&Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(2.0, 0.0, 0.0), DVec3::Y, DVec3::X),
+        radius: 2.5,
+    }));
+    let curve = Quartic::of(cone, drill).expect("a cone drilled by a wider tube");
+
+    let found = curve.real();
+    let [one, two] = found.all() else {
+        panic!("{:?} is not two arcs", found.all());
+    };
+    let wrapping: Vec<&Stretch> = [one, two].into_iter().filter(|s| s.from > s.to).collect();
+    let [round] = wrapping[..] else {
+        panic!("{:?} holds no one arc through the edge", found.all());
+    };
+
+    // **It runs off the chart one way and back the other**, which is the whole
+    // claim: an arc that did not would keep every reading between its two ends.
+    let read = |part: f64| {
+        let u = round.at(part);
+        u[0].nearest() / u[1].nearest()
+    };
+    assert!(
+        (1..8).any(|step| read(f64::from(step) / 8.0) > round.from),
+        "{round:?} never reaches past the end it starts at",
+    );
+    assert!(
+        (1..8).any(|step| read(f64::from(step) / 8.0) < round.to),
+        "{round:?} never comes back from the other side",
+    );
+
+    // And every place of it is on both surfaces. Strictly inside, because an
+    // end is a root of `Δ` and a root read in floats falls a rounding either
+    // side of it — where the branches have already shut on each other and a
+    // hair beyond there is nothing real to read.
+    const READ: f64 = 1e-9;
+    for arc in [one, two] {
+        for step in 1..16 {
+            let u = arc.at(f64::from(step) / 16.0);
+            for branch in [false, true] {
+                let at = curve.at(&u, branch).expect("a place strictly inside");
+                assert!(
+                    (at.x * at.x + at.z * at.z - at.y * at.y).abs() < READ,
+                    "{at:?} is off the cone",
+                );
+                let out = at.x - 2.0;
+                assert!(
+                    (out * out + at.z * at.z - 6.25).abs() < READ,
+                    "{at:?} is off the drill",
+                );
             }
         }
     }
