@@ -18,6 +18,7 @@ use crate::solid::boolean::splitting::cells::Cells;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::boolean::splitting::cut::Cut;
 use crate::solid::boolean::splitting::oval::Oval;
+use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Laid, Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
@@ -398,9 +399,15 @@ impl Combining {
                     let Some(cut) = imprinted(on, *curve, next, self.scratch.laid) else {
                         return false;
                     };
+                    let reading = Reading {
+                        on,
+                        imprints: &self.imprints,
+                        carried: &self.carried,
+                    };
                     if !self.scratch.splitting.split(
                         &self.scratch.cells,
                         cut,
+                        reading,
                         &mut self.scratch.spare,
                     ) {
                         return false;
@@ -568,10 +575,15 @@ impl Combining {
             self.scratch.laid,
             &self.scratch.pieces,
         ));
+        let reading = Reading {
+            on: *on,
+            imprints: &self.imprints,
+            carried: &self.carried,
+        };
         if !self
             .scratch
             .splitting
-            .split(&self.scratch.cells, cut, &mut self.scratch.spare)
+            .split(&self.scratch.cells, cut, reading, &mut self.scratch.spare)
         {
             return false;
         }

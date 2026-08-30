@@ -47,12 +47,7 @@ pub(crate) enum Curve {
     /// see [`Quartered`], and `.notes/KERNEL.md` §7.3 for the route.
     ///
     /// What builds one is the boolean, meeting a pair no row of the reducible
-    /// table answers: a cone drilled off its own axis is the first. That
-    /// arrives with the cut the splitter can make from one, which is what the
-    /// arm still waits on — `.notes/KERNEL.md` §9.1, and
-    /// [`Meeting::Algebraic`](crate::solid::meeting::Meeting), which is the
-    /// refusal in the meantime.
-    #[allow(dead_code)]
+    /// table answers: a cone drilled off its own axis is the first.
     Quartic(Quartered),
 }
 

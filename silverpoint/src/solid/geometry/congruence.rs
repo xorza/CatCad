@@ -1,7 +1,10 @@
 //! A symmetric matrix in coordinates that make it diagonal.
 //!
-//! **No production caller yet**, as the rest of M3b's pieces have none. See
-//! [`quadric`](super::quadric).
+//! **No production caller, where the rest of M3b now has one.** The route ended
+//! up deciding a member ruled by the sign of its rulings' own discriminant
+//! rather than by a signature — see [`Quartic::of`](super::quartic::Quartic),
+//! where that is done. Held with its tests, the two being two answers to one
+//! question that ought to agree. See [`quadric`](super::quadric).
 #![allow(dead_code)]
 
 use crate::number::exact::field::Field;

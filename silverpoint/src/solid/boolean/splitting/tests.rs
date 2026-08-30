@@ -1,10 +1,44 @@
 use super::*;
 use crate::math::winding::swept;
+use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{Came, passing, turned};
 use crate::solid::boolean::splitting::cut::ROUNDED;
 use crate::solid::boolean::splitting::oval::Oval;
+use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
-use std::f64::consts::PI;
+use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::carried::Carried;
+use crate::solid::geometry::circle::Circle;
+use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::surface::Surface;
+use glam::DVec3;
+use std::f64::consts::{PI, TAU};
+use std::sync::OnceLock;
+
+/// The plane every region below is laid out on, its own parameters the ones
+/// the corners stand in.
+fn flatly() -> Surface {
+    Surface::Natural(Natural::Plane(
+        Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X).plane(),
+    ))
+}
+
+/// What the cuts below are solved against, bar the one that files a run of its
+/// own.
+///
+/// Empty, and it stays empty: a reading carries the curves *earlier* imprints
+/// left, and every cut here is the first on its face — so no corner these tests
+/// lay down is marked with a run there is anything to look up.
+fn flat() -> Reading<'static> {
+    static HELD: OnceLock<(Imprints, Carried)> = OnceLock::new();
+    let (imprints, carried) = HELD.get_or_init(Default::default);
+    Reading {
+        on: flatly(),
+        imprints,
+        carried,
+    }
+}
 
 /// The unit square, counterclockwise.
 fn square() -> Cells {
@@ -56,8 +90,8 @@ fn a_square_cut_across_gives_two_regions_that_add_up_to_it() {
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(0.25);
-    splitting.halve(&square(), cut, &mut left);
-    splitting.halve(&square(), cut.turned(), &mut right);
+    splitting.halve(&square(), cut, flat(), &mut left);
+    splitting.halve(&square(), cut.turned(), flat(), &mut right);
 
     assert_eq!(left.len(), 1);
     assert_eq!(right.len(), 1);
@@ -79,8 +113,8 @@ fn a_cut_clear_of_a_region_leaves_it_whole_on_one_side_and_absent_on_the_other()
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(2.0);
-    splitting.halve(&square(), cut, &mut left);
-    splitting.halve(&square(), cut.turned(), &mut right);
+    splitting.halve(&square(), cut, flat(), &mut left);
+    splitting.halve(&square(), cut.turned(), flat(), &mut right);
 
     assert_eq!(left.len(), 1, "the square is wholly left of the cut");
     assert!((covered(&left, 0) - 1.0).abs() < 1e-12);
@@ -107,7 +141,7 @@ fn a_concave_region_cut_through_its_notch_comes_apart_into_two() {
     ]);
     let mut splitting = Splitting::default();
     let mut right = Cells::default();
-    splitting.halve(&u, leftward(1.0).turned(), &mut right);
+    splitting.halve(&u, leftward(1.0).turned(), flat(), &mut right);
 
     assert_eq!(right.len(), 2, "the two arms came back as one region");
     for at in 0..2 {
@@ -119,7 +153,7 @@ fn a_concave_region_cut_through_its_notch_comes_apart_into_two() {
     }
 
     let mut left = Cells::default();
-    splitting.halve(&u, leftward(1.0), &mut left);
+    splitting.halve(&u, leftward(1.0), flat(), &mut left);
     assert_eq!(left.len(), 1);
     assert!((covered(&left, 0) - 3.0).abs() < 1e-12);
 }
@@ -136,8 +170,8 @@ fn a_hole_clear_of_the_cut_stays_with_the_side_that_holds_it() {
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(2.0);
-    splitting.halve(&holed, cut, &mut left);
-    splitting.halve(&holed, cut.turned(), &mut right);
+    splitting.halve(&holed, cut, flat(), &mut left);
+    splitting.halve(&holed, cut.turned(), flat(), &mut right);
 
     assert_eq!(left.len(), 1);
     assert_eq!(left.cell(0).count(), 1, "the hole went the wrong way");
@@ -160,8 +194,8 @@ fn a_cut_through_a_hole_opens_it_into_the_boundary_of_both_sides() {
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(2.0);
-    splitting.halve(&holed, cut, &mut left);
-    splitting.halve(&holed, cut.turned(), &mut right);
+    splitting.halve(&holed, cut, flat(), &mut left);
+    splitting.halve(&holed, cut.turned(), flat(), &mut right);
 
     // Sixteen less the four the hole takes, halved: six a side, and neither
     // side has a hole left in it.
@@ -190,8 +224,8 @@ fn a_cut_through_two_corners_halves_the_region_at_them() {
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(1.0);
-    splitting.halve(&diamond, cut, &mut left);
-    splitting.halve(&diamond, cut.turned(), &mut right);
+    splitting.halve(&diamond, cut, flat(), &mut left);
+    splitting.halve(&diamond, cut.turned(), flat(), &mut right);
 
     // Two of area one, from a diamond of two — and each is the triangle its
     // three corners make rather than a sliver hugging the cut.
@@ -223,8 +257,8 @@ fn a_cut_along_an_edge_keeps_the_whole_region_on_one_side() {
     let mut splitting = Splitting::default();
     let (mut left, mut right) = (Cells::default(), Cells::default());
     let cut = leftward(1.0);
-    splitting.halve(&square(), cut, &mut left);
-    splitting.halve(&square(), cut.turned(), &mut right);
+    splitting.halve(&square(), cut, flat(), &mut left);
+    splitting.halve(&square(), cut.turned(), flat(), &mut right);
 
     assert_eq!(
         left.len(),
@@ -287,8 +321,8 @@ fn a_circle_inside_a_region_takes_a_disc_out_of_its_middle() {
     let mut splitting = Splitting::default();
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
     let cut = disc((0.5, 0.5), 0.25, 0);
-    assert!(splitting.halve(&square(), cut, &mut inside));
-    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+    assert!(splitting.halve(&square(), cut, flat(), &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), flat(), &mut outside));
 
     let area = std::f64::consts::PI * 0.25 * 0.25;
     let slack = chorded(0.25);
@@ -323,8 +357,8 @@ fn a_circle_that_misses_leaves_the_region_whole_or_absent() {
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
 
     for cut in [disc((5.0, 5.0), 0.25, 0), disc((0.5, 0.5), 9.0, 0)] {
-        assert!(splitting.halve(&square(), cut, &mut inside));
-        assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+        assert!(splitting.halve(&square(), cut, flat(), &mut inside));
+        assert!(splitting.halve(&square(), cut.turned(), flat(), &mut outside));
         // Whichever way round, one side has the square and the other nothing —
         // a circle far away leaves it outside, and one that swallows it leaves
         // it inside.
@@ -357,8 +391,8 @@ fn a_circle_reaching_the_boundary_cuts_the_region_in_two() {
     let mut splitting = Splitting::default();
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
     let cut = disc((0.0, 0.0), 0.5, 0);
-    assert!(splitting.halve(&square(), cut, &mut inside));
-    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+    assert!(splitting.halve(&square(), cut, flat(), &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), flat(), &mut outside));
 
     let quarter = std::f64::consts::PI * 0.25 / 4.0;
     let slack = chorded(0.5);
@@ -405,8 +439,8 @@ fn a_circle_clipping_an_edge_between_two_corners_divides_it() {
     let mut splitting = Splitting::default();
 
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
-    assert!(splitting.halve(&square(), cut, &mut inside));
-    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+    assert!(splitting.halve(&square(), cut, flat(), &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), flat(), &mut outside));
     assert_eq!(inside.len(), 1, "the bite came back in pieces");
     assert!(
         (covered(&inside, 0) - bite).abs() < slack,
@@ -424,7 +458,7 @@ fn a_circle_clipping_an_edge_between_two_corners_divides_it() {
     assert_eq!(inside.cell(0).count(), 1);
     assert_eq!(outside.cell(0).count(), 1);
     let mut both = Cells::default();
-    assert!(splitting.split(&square(), cut, &mut both));
+    assert!(splitting.split(&square(), cut, flat(), &mut both));
     assert!((total(&both) - 1.0).abs() < 1e-12, "{}", total(&both));
 }
 
@@ -446,8 +480,8 @@ fn a_round_cut_stamps_the_corners_it_puts_down_and_no_others() {
     // stamping that always wrote nought would pass an arc of nought.
     let cut = disc((0.5, 0.5), 0.25, 7);
     let arc = Came::Arc(7);
-    assert!(splitting.halve(&square(), cut, &mut inside));
-    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+    assert!(splitting.halve(&square(), cut, flat(), &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), flat(), &mut outside));
 
     // The disc is nothing but the cut.
     assert!(
@@ -491,7 +525,7 @@ fn a_cut_reaching_the_boundary_stamps_only_its_own_stretch() {
     let mut splitting = Splitting::default();
     let mut inside = Cells::default();
     let arc = Came::Arc(3);
-    assert!(splitting.halve(&square(), disc((0.0, 0.0), 0.5, 3), &mut inside));
+    assert!(splitting.halve(&square(), disc((0.0, 0.0), 0.5, 3), flat(), &mut inside));
 
     let walk = inside.outline(0);
     let arcs = walk.iter().filter(|it| it.came == arc).count();
@@ -565,8 +599,8 @@ fn a_wave_cuts_a_region_into_what_stands_over_it_and_under() {
 
     let mut splitting = Splitting::default();
     let (mut over, mut below) = (Cells::default(), Cells::default());
-    assert!(splitting.halve(&patch, cut, &mut over));
-    assert!(splitting.halve(&patch, cut.turned(), &mut below));
+    assert!(splitting.halve(&patch, cut, flat(), &mut over));
+    assert!(splitting.halve(&patch, cut.turned(), flat(), &mut below));
 
     assert_eq!(over.len(), 1, "what stands over came back in pieces");
     assert_eq!(below.len(), 1);
@@ -588,7 +622,85 @@ fn a_wave_cuts_a_region_into_what_stands_over_it_and_under() {
     // And both sides at once are the patch they came from, to the last bit —
     // the chording each gives up is the chording the other takes on.
     let mut both = Cells::default();
-    assert!(splitting.split(&patch, cut, &mut both));
+    assert!(splitting.split(&patch, cut, flat(), &mut both));
     assert_eq!(both.len(), 2);
     assert!((total(&both) - 4.0 * PI).abs() < 1e-12, "{}", total(&both));
+}
+
+/// **A cut crossing a flattened arc is met on the arc, not on the chord.**
+///
+/// The rule [`Reading`] exists for. A region's boundary along a curve is a
+/// polyline, so a cut met between two of its corners has two answers a whole
+/// sagitta apart: the place on the straight run between them, and the place on
+/// the curve they were taken from. Only the second is where the two curves
+/// actually cross, and only the second is the answer the *other* faces meeting
+/// there work out — so taking the first leaves the sewing two vertices where it
+/// wanted one.
+///
+/// A unit circle cut at `x = 1/2` crosses at `y = ±√3/2`, which is a place to
+/// the last bit rather than a place to the sagitta. Flattened into *ten*
+/// corners — deliberately ten, twelve putting a corner at 60° and so on the
+/// crossing itself — the two straddling it stand at 36° and 72°, and the chord
+/// between them meets `x = 1/2` at `y ≈ 0.812`. That is 0.054 short of `√3/2`,
+/// so the two answers stand over ten orders of magnitude apart and the
+/// assertion needs no tolerance chosen for it.
+#[test]
+fn a_cut_crossing_a_flattened_arc_is_met_on_the_arc() {
+    let circle = Curve::Circle(Circle {
+        axis: Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X),
+        radius: 1.0,
+    });
+    let mut imprints = Imprints::default();
+    let run = imprints.crossing(circle);
+    let carried = Carried::default();
+    let reading = Reading {
+        on: flatly(),
+        imprints: &imprints,
+        carried: &carried,
+    };
+
+    let steps = 10;
+    let mut cells = Cells::default();
+    cells.add(|loops| {
+        loops.push(
+            &(0..steps)
+                .map(|step| {
+                    let angle = TAU * step as f64 / steps as f64;
+                    Corner {
+                        at: DVec2::new(angle.cos(), angle.sin()),
+                        came: Came::Arc(run),
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+    });
+
+    let mut kept = Cells::default();
+    let mut splitting = Splitting::default();
+    assert!(splitting.halve(&cells, leftward(0.5), reading, &mut kept));
+
+    let walk = kept.outline(0);
+    // Nothing but the two the cut put down moved: every other corner is one of
+    // the ten, still on the circle it was flattened from.
+    for corner in walk.iter().filter(|it| (it.at.x - 0.5).abs() >= 1e-9) {
+        assert!(
+            (corner.at.length() - 1.0).abs() < 1e-12,
+            "a corner of the flattening moved off the circle to {:?}",
+            corner.at,
+        );
+    }
+    let mut met: Vec<DVec2> = walk
+        .iter()
+        .filter(|it| (it.at.x - 0.5).abs() < 1e-9)
+        .map(|it| it.at)
+        .collect();
+    met.sort_by(|a, b| a.y.total_cmp(&b.y));
+    assert_eq!(met.len(), 2, "the cut crossed the arc {} times", met.len());
+    let want = (0.75f64).sqrt();
+    for (found, y) in met.iter().zip([-want, want]) {
+        assert!(
+            (found.y - y).abs() < 1e-12,
+            "met the arc at {found:?}, wanted y = {y}",
+        );
+    }
 }

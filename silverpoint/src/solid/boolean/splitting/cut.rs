@@ -2,15 +2,18 @@
 
 use crate::loops::Loops;
 use crate::math::arc;
+use crate::math::bisect;
 use crate::math::quadratic;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::bow::{Bow, Bowed};
 use crate::solid::boolean::splitting::corner::{Came, Corner};
 use crate::solid::boolean::splitting::oval::Oval;
+use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::Traced;
+use crate::solid::geometry::curve::Curve;
 use glam::DVec2;
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
 
 /// How finely a closed cut is flattened, as a fraction of its longer half.
 ///
@@ -207,13 +210,73 @@ impl<'a> Cut<'a> {
         }
     }
 
-    /// Where the straight run from `from` to `to` crosses it.
+    /// Where the stretch of boundary leaving `from` and reaching `to` crosses
+    /// it.
+    ///
+    /// **On the run that stretch walks, and on the straight line between the
+    /// two corners only where it walks none** — see [`Reading`], which argues
+    /// what the difference between the two is worth.
+    pub(super) fn crossing(self, from: Corner, to: Corner, reading: Reading<'_>) -> DVec2 {
+        if let Came::Arc(run) = from.came
+            && let Some(curve) = reading.curved(run)
+        {
+            return self.met_along(curve, from, to, reading);
+        }
+        self.met_across(from.at, to.at)
+    }
+
+    /// Where the stretch leaving `from` crosses it, walking `curve` between the
+    /// two corners rather than the straight run between them — see [`Reading`],
+    /// which argues why that is the difference between a body and a refusal.
+    fn met_along(self, curve: Curve, from: Corner, to: Corner, reading: Reading<'_>) -> DVec2 {
+        let start = reading.along(curve, from.at);
+        let end = reading.along(curve, to.at);
+        let middle = (from.at + to.at) / 2.0;
+        // **Which way round the stretch runs, measured rather than assumed.** A
+        // curve answers where a place stands on it in one turn, so the two
+        // corners give the same pair of answers whichever way the boundary
+        // walks between them. What tells the two apart is the stretch itself:
+        // the way round whose middle stands nearer the middle of the straight
+        // run between the corners is the way the boundary goes.
+        //
+        // Taking the near way round instead is right for a flattening, whose
+        // corners are a chord apart, and wrong for the case that has no near
+        // way — a face wrapping a whole cylinder is two corners half a turn
+        // apart, and half a turn is the same distance both ways.
+        let near = start + (end - start + PI).rem_euclid(TAU) - PI;
+        let far = near - TAU.copysign(near - start);
+        let strays = |ended: f64| {
+            reading
+                .at(curve, (start + ended) / 2.0, middle)
+                .distance(middle)
+        };
+        let end = if strays(far) < strays(near) {
+            far
+        } else {
+            near
+        };
+        // Read on the branch the loop itself runs on, which is what the
+        // straight run between the corners is still good for: the face's
+        // parameters are unwrapped along a loop — see
+        // [`Face::flatten`](crate::solid::topology::face::Face) — so a curve's
+        // own answer is as near the wrong end of a long stretch as the right
+        // one.
+        let place = |part: f64| {
+            let along = start + (end - start) * part;
+            reading.at(curve, along, from.at.lerp(to.at, part))
+        };
+        let part = bisect::crossed(0.0, 1.0, |part| self.side(place(part)))
+            .expect("the stretch crosses the cut");
+        place(part)
+    }
+
+    /// The same, across the straight run from `from` to `to`.
     ///
     /// The two have to be on opposite sides, which every caller has just
     /// established — so for a line the denominator is away from nought by at
     /// least twice [`PLACED`], and for a circle exactly one root of the two
     /// lies on the run.
-    pub(super) fn crossing(self, from: DVec2, to: DVec2) -> DVec2 {
+    fn met_across(self, from: DVec2, to: DVec2) -> DVec2 {
         if let Self::Straight { .. } = self {
             let (here, there) = (self.side(from), self.side(to));
             return from.lerp(to, here / (here - there));

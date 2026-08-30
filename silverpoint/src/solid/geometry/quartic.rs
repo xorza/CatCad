@@ -1,16 +1,13 @@
 //! The curve two quadrics meet in where that curve is a smooth quartic, and
 //! the store a body keeps them in.
 //!
-//! **No production caller yet.** What would call it is
-//! [`Meeting`](crate::solid::meeting::Meeting)'s algebraic arm, and that waits
-//! on a `Curve` variant to hand one back through — which in turn waits on the
-//! splitter having a cut it can make from one. See `.notes/KERNEL.md` §7.3 and
-//! §7.4.
+//! **What calls it is the boolean**, meeting a pair no row of the reducible
+//! table answers — see `.notes/KERNEL.md` §7.3 for the route and §7.4 for the
+//! cut it is laid into.
 //!
 //! The store is here beside what it holds, on the terms
 //! [`marchings`](super::marchings) keeps: one file per subject, holding the
 //! arena, the handle and whatever small thing either wants.
-#![allow(dead_code)]
 
 use crate::inline::Inline;
 use crate::math::arc;
@@ -121,6 +118,9 @@ pub(crate) struct Quartic {
     against: Quadric,
     /// `√δ`, and with it the field the ruling is written over.
     field: Quadratic<Rational>,
+    /// The same member as the machine holds it — see [`Quartic::at`], which is
+    /// the only thing that reads it.
+    read: Ruled<f64>,
 }
 
 impl Quartic {
@@ -131,8 +131,8 @@ impl Quartic {
     /// form has to have four distinct roots, or the intersection is a node, a
     /// cusp or a break into conics and each is a case of its own. Then a ruled
     /// member is found by choosing whole places and reading off which member
-    /// holds each — see [`Pencil::through`] — and the first one the signature
-    /// calls ruled is taken.
+    /// holds each — see [`Pencil::through`] — and the first whose rulings there
+    /// are two distinct real lines is taken.
     ///
     /// `None` is not a failure to meet: two quadrics that cross in conics are
     /// answered by the geometric route (§7.3's table) and never reach here.
@@ -164,8 +164,10 @@ impl Quartic {
                 })
             });
             let raised: [Quadratic<Rational>; 4] = Quadric::raised(place).map(|of| lift(&of));
+            let ruled = Ruled::of(&member, &raised, &along, &lift)?;
             Some(Self {
-                ruled: Ruled::of(&member, &raised, &along, &lift)?,
+                read: ruled.read(),
+                ruled,
                 against: against.clone(),
                 field,
             })
@@ -354,26 +356,31 @@ impl Quartic {
     ///
     /// `None` where that place is at infinity, which a projective curve has and
     /// a modeller has nothing to do with, and where `u` names no real place at
-    /// all — see [`Quartic::met`].
+    /// all.
+    ///
+    /// **Read in the machine's own field, where [`Quartic::met`] decides in the
+    /// exact one.** The two are the same routines — the same ruling, the same
+    /// substitution, the same roots in the same order — instantiated over
+    /// `f64` here and over `ℚ(√δ)` there, which is what keeps the branch a
+    /// reader asks for and the branch a decision was taken on the same branch.
+    ///
+    /// **Why a reading rather than the exact place.** A place is three floats
+    /// whatever it is worked out in, and the exact route spends a few hundred
+    /// bignum operations to land on the same three — measured at 2.3 ms against
+    /// a circle's handful of nanoseconds, which is a walk no boolean can pay
+    /// for. What stays exact is every *decision*: which arcs are real, where
+    /// they end, and which member rules — none of which a rounding may settle.
+    ///
+    /// No storey stands over the reading, every non-negative double having a
+    /// root that is a double — so the answer is whole and
+    /// [`Along::plain`](super::roots::Along) holds all of it.
     pub(crate) fn at(&self, u: &[Rational; 2], far: bool) -> Option<DVec3> {
-        let found = self.met(u)?;
-        let which = usize::from(far);
-        // Over the second storey, which is where the branch lives: the two
-        // places share a rootless half and carry opposite roots of `Δ`.
-        let storey = Quadratic::root(found.under.clone());
-        let read = |at: usize| match &storey {
-            Some(storey) => storey
-                .at(
-                    found.plain[which][at].clone(),
-                    found.times[which][at].clone(),
-                )
-                .nearest(),
-            // `Δ` was a square in the field below, so the branch needed no
-            // storey of its own and the answer is already whole.
-            None => found.plain[which][at].nearest(),
-        };
-        let across = read(3);
-        (across != 0.0).then(|| DVec3::new(read(0), read(1), read(2)) / across)
+        let nearest = |of: &Rational| of.nearest();
+        let [from, along] = self.read.ruling(&[nearest(&u[0]), nearest(&u[1])]);
+        let found = self.against.met_by(&from, &along, &nearest)?;
+        let held = found.plain[usize::from(far)];
+        let across = held[3];
+        (across != 0.0).then(|| DVec3::new(held[0], held[1], held[2]) / across)
     }
 }
 
@@ -600,19 +607,28 @@ impl Quartics {
     pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
         let filed = &self.held[run as usize];
         let apart = |t: f64| filed.place(t).map_or(f64::INFINITY, |had| had.distance(at));
-        let coarse = (0..MEASURED)
-            .map(stepped)
-            .min_by(|one, two| apart(*one).total_cmp(&apart(*two)))
-            .expect("a component is measured at more than nothing");
+        // **Each place sounded once and the nearest carried**, rather than
+        // sounded afresh at every comparison: reading one is a whole walk of
+        // the ruling and the root over it, and an inversion is asked of every
+        // corner of every loop the cut lays down.
+        let mut best = 0.0;
+        let mut off = f64::INFINITY;
+        for step in 0..MEASURED {
+            let step = stepped(step);
+            let near = apart(step);
+            if near < off {
+                (best, off) = (step, near);
+            }
+        }
         // Halved about the nearest of the sweep, which is within one step of
         // the answer: the loop is closed, so the two neighbours fence it.
         let mut span = stepped(1);
-        let mut best = coarse;
         for _ in 0..HALVINGS {
             span /= 2.0;
             for step in [best - span, best + span] {
-                if apart(step) < apart(best) {
-                    best = step;
+                let near = apart(step);
+                if near < off {
+                    (best, off) = (step, near);
                 }
             }
         }

@@ -30,6 +30,7 @@ use crate::number::tolerance::{ENCLOSED, PLACED};
 use crate::solid::boolean::splitting::cells::Cells;
 use crate::solid::boolean::splitting::corner::Corner;
 use crate::solid::boolean::splitting::cut::Cut;
+use crate::solid::boolean::splitting::reading::Reading;
 use glam::DVec2;
 
 pub(super) mod bow;
@@ -37,6 +38,7 @@ pub(super) mod cells;
 pub(super) mod corner;
 pub(super) mod cut;
 pub(super) mod oval;
+pub(super) mod reading;
 pub(super) mod ripple;
 pub(super) mod traced;
 
@@ -223,21 +225,33 @@ impl Splitting {
     /// `into` is emptied first. What comes back is every region the cut leaves,
     /// each wholly to one side of it — which is the property a boolean needs
     /// before it can ask of any of them whether to keep it.
-    pub(super) fn split(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
+    pub(super) fn split(
+        &mut self,
+        from: &Cells,
+        cut: Cut<'_>,
+        reading: Reading<'_>,
+        into: &mut Cells,
+    ) -> bool {
         into.clear();
         // Both sides walked whatever the first came to: the two write into one
         // list, and stopping halfway would leave it holding one side of the cut
         // as though that were the whole of it.
-        let one = self.append(from, cut, into);
-        let two = self.append(from, cut.turned(), into);
+        let one = self.append(from, cut, reading, into);
+        let two = self.append(from, cut.turned(), reading, into);
         one && two
     }
 
     /// The same, onto whatever `into` already holds.
-    fn append(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
+    fn append(
+        &mut self,
+        from: &Cells,
+        cut: Cut<'_>,
+        reading: Reading<'_>,
+        into: &mut Cells,
+    ) -> bool {
         let mut written = true;
         for at in 0..from.len() {
-            written &= self.region(from.cell(at), cut, into);
+            written &= self.region(from.cell(at), cut, reading, into);
         }
         written
     }
@@ -249,6 +263,7 @@ impl Splitting {
         &mut self,
         region: impl Iterator<Item = &'a [Corner]> + Clone,
         cut: Cut<'_>,
+        reading: Reading<'_>,
         into: &mut Cells,
     ) -> bool {
         self.chains.clear();
@@ -257,7 +272,7 @@ impl Splitting {
         let mut written = true;
         let mut alongside = false;
         for walk in region {
-            match self.chain(walk, cut) {
+            match self.chain(walk, cut, reading) {
                 Chained::Done => {}
                 Chained::Alongside => alongside = true,
                 Chained::Refused => written = false,
@@ -391,7 +406,7 @@ impl Splitting {
     /// Walking again would find the same thing and put the same place, so it is
     /// refused instead — the one thing here that must not be a loop that never
     /// ends.
-    fn dip(&mut self, walk: &[Corner], cut: Cut<'_>) -> Chained {
+    fn dip(&mut self, walk: &[Corner], cut: Cut<'_>, reading: Reading<'_>) -> Chained {
         let count = walk.len();
         // Lent out and handed back, because [`Splitting::chain`] writes the
         // buffers beside it and cannot be called while this one is borrowed.
@@ -410,7 +425,7 @@ impl Splitting {
             .iter()
             .any(|corner| Side::of(cut, corner.at) == Side::Dropped);
         let chained = match fell {
-            true => self.chain(&dipped, cut),
+            true => self.chain(&dipped, cut, reading),
             false => Chained::Refused,
         };
         self.dipped = dipped;
@@ -423,7 +438,7 @@ impl Splitting {
     /// does cross comes through as open chains, each recorded with where along
     /// the cut it began and ended, because that is what says which chain
     /// carries on from which.
-    fn chain(&mut self, walk: &[Corner], cut: Cut<'_>) -> Chained {
+    fn chain(&mut self, walk: &[Corner], cut: Cut<'_>, reading: Reading<'_>) -> Chained {
         let count = walk.len();
         self.sides.clear();
         self.sides
@@ -437,7 +452,7 @@ impl Splitting {
             // from, so that nothing is closed before it was opened — so one is
             // put where the dip is and the loop walked again.
             if (0..count).any(|at| cut.grazes(walk[at].at, walk[(at + 1) % count].at).is_some()) {
-                return self.dip(walk, cut);
+                return self.dip(walk, cut, reading);
             }
             // Nothing of it fell away. A loop lying wholly *on* the cut is the
             // cut running along the boundary rather than dividing it, which is
@@ -482,7 +497,7 @@ impl Splitting {
                 // Onto the kept side, across the line or off a corner standing
                 // on it. Either way the chain begins where the cut is met.
                 (Side::Dropped, Side::Kept) => {
-                    let at = cut.crossing(from.at, to.at);
+                    let at = cut.crossing(from, to, reading);
                     entered = Some(cut.down(at));
                     self.open(back(at));
                 }
@@ -492,7 +507,7 @@ impl Splitting {
                 }
                 // And off it again.
                 (Side::Kept, Side::Dropped) => {
-                    let at = cut.crossing(from.at, to.at);
+                    let at = cut.crossing(from, to, reading);
                     self.shut(&mut entered, onto(at), cut);
                 }
                 (Side::Kept, Side::On) => self.shut(&mut entered, onto(to.at), cut),
@@ -696,9 +711,15 @@ mod internals {
         /// [`Cut::turned`]. What production wants is both sides at once, which
         /// is [`Splitting::split`]; one side is what a test asks for, to say
         /// which of the two a given piece ended up in.
-        pub(super) fn halve(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
+        pub(super) fn halve(
+            &mut self,
+            from: &Cells,
+            cut: Cut<'_>,
+            reading: Reading<'_>,
+            into: &mut Cells,
+        ) -> bool {
             into.clear();
-            self.append(from, cut, into)
+            self.append(from, cut, reading, into)
         }
     }
 }

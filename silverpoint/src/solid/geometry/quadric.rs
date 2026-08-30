@@ -1,12 +1,8 @@
 //! A natural quadric as the exact matrix that defines it.
 //!
-//! **No production caller yet.** This is the floor M3b is built on and the
-//! first of its pieces to land — the pencil, the repeated-root test and the
-//! parameterization all read the matrix and nothing else. It lands ahead of
-//! them for the reason `number::exact::lazy` did: the whole point is not
-//! finding out late. The tests in `solid::geometry` are what hold it up until
-//! there is a caller.
-#![allow(dead_code)]
+//! **What reads it is the algebraic route.** This is the floor M3b is built
+//! on — the pencil, the repeated-root test and the parameterization all read
+//! the matrix and nothing else.
 
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;

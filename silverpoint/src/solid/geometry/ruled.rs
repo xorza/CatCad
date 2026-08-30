@@ -1,8 +1,7 @@
 //! A ruled quadric written so a place on it is bilinear in two parameters.
 //!
-//! **No production caller yet**, as the rest of M3b's pieces have none. See
+//! What writes one is [`Quartic::of`](super::quartic::Quartic). See
 //! [`quadric`](super::quadric).
-#![allow(dead_code)]
 
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
@@ -107,6 +106,19 @@ impl<T: Field> Ruled<T> {
                 fourth,
             ],
         })
+    }
+
+    /// The same member as the machine holds it.
+    ///
+    /// **What a walk reads**, where the exact one is what a decision is taken
+    /// on — see [`Field`]'s own note on `f64`. The corners are the whole of the
+    /// member, so reading them is the whole of reading it.
+    pub(crate) fn read(&self) -> Ruled<f64> {
+        Ruled {
+            corner: std::array::from_fn(|at| {
+                std::array::from_fn(|of| self.corner[at][of].nearest())
+            }),
+        }
     }
 
     /// The place at `(u₀ : u₁)` along and `(t₀ : t₁)` across.

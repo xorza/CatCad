@@ -1,9 +1,7 @@
 //! The family of quadrics two of them span, and what its degeneracies say.
 //!
-//! **No production caller yet**, for the reason [`quadric`](super::quadric)
-//! has none: this is M3b's second piece and it lands ahead of the route over
-//! it. The tests in `solid::geometry` hold it up until there is one.
-#![allow(dead_code)]
+//! **What takes one is the algebraic route**, which reads a pencil for the
+//! member it rules by — see [`Quartic::of`](super::quartic::Quartic).
 
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
@@ -104,11 +102,6 @@ impl Pencil {
         (!one.is_zero() || !two.is_zero()).then(|| [-two, one])
     }
 
-    /// `det(λQ₁ + μQ₂)`, highest power of `λ` first.
-    pub(crate) fn characteristic(&self) -> &[Rational; 5] {
-        &self.characteristic
-    }
-
     /// The discriminant of the characteristic form, which is nought exactly
     /// when the pencil has a repeated singular member.
     ///
@@ -143,5 +136,22 @@ impl Pencil {
             - whole(27) * square(b) * e.clone()
             - whole(2) * c.clone() * square(c);
         (whole(4) * i.clone() * square(&i) - square(&j)) / whole(27)
+    }
+}
+
+#[cfg(test)]
+mod internals {
+    use super::*;
+
+    impl Pencil {
+        /// `det(λQ₁ + μQ₂)`, highest power of `λ` first.
+        ///
+        /// What the route asks of the form is its discriminant, which
+        /// [`Pencil::discriminant`] answers off the same coefficients. The form
+        /// itself is what a check holds those against, there being no other way
+        /// to say the interpolation found the right one.
+        pub(crate) fn characteristic(&self) -> &[Rational; 5] {
+            &self.characteristic
+        }
     }
 }

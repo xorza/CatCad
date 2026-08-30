@@ -70,3 +70,49 @@ pub(crate) trait Field:
     /// The nearest `f64`, which is a *reading* of this and not this.
     fn nearest(&self) -> f64;
 }
+
+/// The machine's own field, which is what a *reading* of an exact construction
+/// is worked out in.
+///
+/// **Not a member of the exact tier, and it is here for the opposite reason.**
+/// Every other implementor answers exactly; this one answers as well as a
+/// double can. What it buys is that a construction settled over
+/// [`Rational`](super::rational::Rational) is *read* by the same routines that
+/// built it — one spelling of a substitution, of its roots and of the branch
+/// they are ordered in, instantiated twice. A second reading written in floats
+/// beside the exact one would be two spellings of that ordering, which is how
+/// two branches come to swap.
+///
+/// **No storey stands above it.** Every non-negative double has a square root
+/// that is a double, so [`Field::rooted`] always answers and
+/// [`Quadratic`](super::quadratic::Quadratic) never has a root to carry — the
+/// tower the exact tier needs is a tower the reading does not.
+impl Field for f64 {
+    fn zero(&self) -> Self {
+        0.0
+    }
+
+    fn one(&self) -> Self {
+        1.0
+    }
+
+    fn is_zero(&self) -> bool {
+        *self == 0.0
+    }
+
+    fn sign(&self) -> Ordering {
+        self.partial_cmp(&0.0).expect("a NaN reached the reading")
+    }
+
+    fn inverse(&self) -> Option<Self> {
+        (!self.is_zero()).then(|| 1.0 / self)
+    }
+
+    fn rooted(&self) -> Option<Self> {
+        (*self >= 0.0).then(|| self.sqrt())
+    }
+
+    fn nearest(&self) -> f64 {
+        *self
+    }
+}

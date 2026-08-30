@@ -1413,3 +1413,87 @@ fn a_turned_taper_is_bored_up_its_own_axis() {
         last = off;
     }
 }
+
+/// **A bore drilled off the axis of a taper, which is the general quartic's
+/// first consumer.**
+///
+/// A cone meets a cylinder that is neither coaxial with it nor square to it
+/// along a curve no row of the reducible table writes down — see
+/// `.notes/KERNEL.md` §7.3 — so this is the whole of the exact tier's algebraic
+/// route, from the pencil down to the sewn body.
+///
+/// **The arithmetic.** The profile `(1,0) (3,0) (2,2) (1,2)` swept whole about
+/// the `y` axis is a tube: by Pappus it covers `2π · x̄ · A`, and the shoelace
+/// gives `A = 3` and `x̄ = 16/9`, so the taper is `32π/3`. The bore takes a bite
+/// out of that, and the bite is bounded by the quartic — its volume is an
+/// elliptic integral rather than anything to write here.
+///
+/// So the two operations are asked instead of the one, and what is checked is
+/// that they put the tube back: what a cut leaves and what an intersection
+/// keeps are complements, and they add to `32π/3` however hard the piece
+/// between them is to write down. That is a closed form, it is not the
+/// arithmetic either operation ran, and it holds only if the quartic they share
+/// is the same curve read the same way from both sides.
+#[test]
+fn a_bore_off_the_axis_of_a_taper_cuts_a_quartic_and_puts_the_tube_back() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (2.0, 2.0), (1.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    let taper = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        CUBE,
+    )
+    .body();
+    let drill = rod(raised(-1.0), DVec2::new(2.0, 0.0), 0.4, 4.0, TOOL);
+
+    let mut boolean = Boolean::default();
+    let mut bored = Body::default();
+    let mut plug = Body::default();
+    assert!(boolean.combine(&taper, &drill.body, Operation::Cut, &mut bored));
+    assert!(boolean.combine(&taper, &drill.body, Operation::Intersect, &mut plug));
+
+    // Names and not faces: a whole revolve seams every wall, so the body holds
+    // fourteen of them under the taper's four names and the bore's one. The
+    // hole opens on three of the four — the bottom, the cone and the top — and
+    // leaves the bore of the tube itself alone.
+    assert_eq!(bored.names().count(), 5);
+    // Two handles: the tube has one, and the bore through its wall is the
+    // other.
+    assert_eq!(bored.reckoning().genus, 2, "{:?}", bored.reckoning());
+    // The plug is a slug with no handle at all: the bore's wall, and the three
+    // walls the taper shuts it with at either end.
+    assert_eq!(plug.names().count(), 4);
+    assert_eq!(plug.reckoning().genus, 0, "{:?}", plug.reckoning());
+    // Every wall written down rather than walked, which is what says the
+    // quartic went in as a curve and not as a hundred chords.
+    for body in [&bored, &plug] {
+        assert!(body.exact());
+        assert_eq!(body.strays(), 0.0);
+    }
+
+    let want = 32.0 * PI / 3.0;
+    // What a chorded mesh gives up: two thirds of the sagitta over the round
+    // walls the sum does not cancel. The bore's own wall is a hole in one body
+    // and a slug in the other, so its deficit falls out of the sum, leaving the
+    // taper's inner cylinder — `2π · 1 · 2` — and its cone, `π (2 + 3) √5`.
+    let curved = TAU * 2.0 + PI * 5.0 * (5.0f64).sqrt();
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-3, 1e-4, 1e-5] {
+        let off = mesher.volume(&bored, sagitta) + mesher.volume(&plug, sagitta) - want;
+        assert!(
+            off.abs() < (2.0 / 3.0) * sagitta * curved,
+            "the bore and its slug are {off} off the taper at a sagitta of {sagitta}",
+        );
+        assert!(
+            off.abs() < last,
+            "no closer at a sagitta of {sagitta}: {off}"
+        );
+        last = off.abs();
+    }
+}

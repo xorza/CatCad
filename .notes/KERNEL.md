@@ -339,8 +339,9 @@ gates are a strict zero on every frame the pointer can be in the middle of.
 
 **An arm arrives with the routine that produces it, and never before.** A tier
 with nothing on it and a curve nothing writes are both a surface nobody can
-answer a question about. `Curve::Quartic` is the one arm still owed, and it
-lands with the route that makes it — §9.1.
+answer a question about. `Curve::Quartic` was the last arm owed, and it landed
+with the route that makes it — the pencil, the ruled member and the root over
+it, §7.3.
 
 ```rust
 /// The exact tier and the fitted tier, told apart by the type.
@@ -719,9 +720,8 @@ closed form, but where the difference *turns* does: `swing·sin(θ − phase)·d
 the difference is monotone on each piece, and a sign change is bisected to the
 last bit the two ends can be told apart by. Converged, not tolerated.
 
-Refused rather than guessed at: the quartic (`Meeting::Algebraic`), an edge
-claimed by other than exactly two faces, and a cavity with more than one lump to
-hang it on.
+Refused rather than guessed at: an edge claimed by other than exactly two
+faces, and a cavity with more than one lump to hang it on.
 
 ### 7.5 Validity — the primary debugging tool
 
@@ -829,8 +829,8 @@ that does it. What follows is what is not, in the order to take it in.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written. Nothing left here has a
-consumer in the tree, so each step waits for the thing that makes one.
+meets is worse than a routine nobody has written. Only the first step has a
+consumer in the tree; the two after it wait for the thing that makes one.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -838,33 +838,22 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 Step 1 — the general quartic
+### 9.1 Step 1 — the quartic's inversion in closed form
 
-`Curve` carries `Line`, `Circle`, `Ellipse`, `Saddle` and `Marched`. It does not
-carry `Quartic`, and `Meeting::Algebraic` is the refusal a pair wanting one
-gets.
+`Quartics::along` — where on a component a place stands — sweeps the component
+at 32 steps and halves 60 times about the nearest. That is over 150 readings of
+the curve for one answer, about 0.6 ms, and the boolean asks it of every corner
+of every loop a quartic cut lays down. Half of what an off-axis bore costs is
+this one routine.
 
-**The arm and a general cut it can be made into are one piece of work rather
-than two.** The arm alone is a curve the boolean still refuses, and §10's first
-rule says the pair lands together or not at all. What produces one is an
-*off-axis* feature on a cone — the coaxial rows answer the bore a revolve
-reaches, and nothing builds anything off that axis today.
+**It has a closed form.** A component's ruling is two points linear in the
+projective parameter — `Ruled::ruling` is `Ruled::at` held at `[1,0]` and
+`[0,1]`, and `Ruled::at` is bilinear — so a place lies on the ruling at `u`
+exactly where it is dependent on those two points. Every 3×3 minor of the four
+by three matrix that says so is a quadratic in `u`, which is a root to take
+rather than a sweep to run.
 
-The route to the curve is in. `Quadric`, `Pencil`, `Quadric::rulings`,
-`Quadric::met_by`, `Ruled` and `Quartic` take two quadrics to
-`X₁(u) ± X₂(u)·√Δ(u)` in one `√δ` and one `√Δ`, which is the two storeys §4.2
-caps the tower at. What it lacks is somewhere for its answer to live: `Cut` and
-`Curve` are both `Copy` value types and a general quartic holds some ninety heap
-blocks, so it goes in neither by value. It wants an arena and a `Copy` handle
-apiece, §4.5's own shape.
-
-**The arena pays twice**, which is the reason it is one step and not two: a
-marched curve wants the same store rather than the run it carries today, and
-`Marchings::nearest` names that cap in its own doc.
-
-The general case is research-grade but published, complete and proven, which is
-the difference between hard and open-ended. §12 names the two papers to read
-first.
+The consumer is in the tree: `a_bore_off_the_axis_of_a_taper_cuts_a_quartic_and_puts_the_tube_back`.
 
 ### 9.2 Step 2 — the rest of the fitted tier
 

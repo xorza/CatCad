@@ -1,9 +1,8 @@
 //! Where a binary quadratic form is nought, over any field and one root above
 //! it.
 //!
-//! **No production caller yet**, as the rest of M3b's pieces have none. See
+//! Read by both of M3b's solves — a tangent plane's form and a line's. See
 //! [`quadric`](super::quadric).
-#![allow(dead_code)]
 
 use crate::number::exact::field::Field;
 use std::cmp::Ordering;

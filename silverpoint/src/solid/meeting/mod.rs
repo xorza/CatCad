@@ -72,8 +72,13 @@ pub(crate) enum Meeting {
     ///
     /// Not a failure and not nothing: the two surfaces do meet, in a quartic,
     /// and the algebraic route hands that back exactly — see `.notes/KERNEL.md`
-    /// §7.3. Until it lands, an operation that reaches this cannot be built,
-    /// and saying so is better than saying the surfaces are apart.
+    /// §7.3.
+    ///
+    /// **An answer and not a refusal, and the writing is the caller's.** What
+    /// produces one is the boolean, which is the only caller that knows the
+    /// faces it has to reach — the same division [`Meeting::Marched`] keeps one
+    /// tier up, and for the same reason: a caller merely asking *whether* two
+    /// surfaces meet pays for no construction.
     Algebraic,
     /// Along a curve no exact route can parameterize at all.
     ///
