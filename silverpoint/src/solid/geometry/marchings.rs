@@ -46,7 +46,7 @@ pub(crate) struct Strayed {
 /// A curve laid down as a run of places rather than written down.
 ///
 /// **The fitted tier's own curve** — see `.notes/KERNEL.md` §4.1 for the tier
-/// and §9.2 for why this is a handle. What holds the places is [`Marchings`],
+/// and §4.5 for why this is a handle. What holds the places is [`Marchings`],
 /// which a body keeps beside its topology; what is here is the handle and the
 /// two numbers a reader answers without reaching for them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,8 +169,9 @@ impl Marchings {
     ///
     /// **Walked rather than searched**, and that is what caps how finely a run
     /// may be laid down: a place says nothing about where round it stands, so
-    /// the chord nearest it is every chord. The arena that would lift that cap
-    /// is `.notes/KERNEL.md` §9.1's.
+    /// the chord nearest it is every chord. Lifting the cap wants a curve that
+    /// can be solved, which is what the exact tier has and this one does not —
+    /// see [`Quartics::along`](super::quartic::Quartics).
     pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
         let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
         let (mut along, mut off) = (0.0, f64::INFINITY);

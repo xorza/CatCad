@@ -19,8 +19,8 @@ use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::roots::{Along, Roots};
 use crate::solid::geometry::ruled::Ruled;
-use glam::DVec3;
-use std::f64::consts::TAU;
+use glam::{DVec3, DVec4};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 /// How many whole places a search for a ruled member will try.
 ///
@@ -81,6 +81,34 @@ impl Stretch {
         }
         let (sin, cos) = (start + (end - start) * part).sin_cos();
         [Rational::of(cos), Rational::of(sin)]
+    }
+
+    /// How far along it the place `u` stands, which is [`Stretch::at`] the
+    /// other way round.
+    ///
+    /// **Brought onto the arc's own turn first.** An angle and that angle less
+    /// a half turn are one place of the projective line, so a reading has to be
+    /// put on the branch the stretch was walked over — the one within a quarter
+    /// turn either side of its middle, which no place of an arc a half turn
+    /// long or shorter is outside of.
+    ///
+    /// Outside `[0, 1]` where `u` stands off the arc, which is a place of the
+    /// curve this component is not — see [`Filed::along`], which is what holds
+    /// the answer to the component it was asked of.
+    pub(super) fn along(self, u: [f64; 2]) -> f64 {
+        let (start, mut end) = (Self::angle(self.from), Self::angle(self.to));
+        if self.from > self.to {
+            end -= PI;
+        }
+        // A stretch between two roots of `Δ` that fell together, which is one
+        // place and not an arc: every part of it is that place, so any answer
+        // is the answer.
+        if end == start {
+            return 0.0;
+        }
+        let middle = (start + end) / 2.0;
+        let angle = middle + (u[1].atan2(u[0]) - middle + FRAC_PI_2).rem_euclid(PI) - FRAC_PI_2;
+        (angle - start) / (end - start)
     }
 
     /// The angle on the projective line the affine parameter `u` stands at.
@@ -375,12 +403,35 @@ impl Quartic {
     /// root that is a double — so the answer is whole and
     /// [`Along::plain`](super::roots::Along) holds all of it.
     pub(crate) fn at(&self, u: &[Rational; 2], far: bool) -> Option<DVec3> {
+        self.both(u)[usize::from(far)]
+    }
+
+    /// Both places the ruling at `u` meets the other quadric in, in the order
+    /// the branch names them.
+    ///
+    /// **One substitution for the pair.** The two are the two roots of one
+    /// quadratic, so a reader wanting both — see [`Filed::along`], which asks
+    /// which of them a place is — would otherwise solve it twice over.
+    fn both(&self, u: &[Rational; 2]) -> [Option<DVec3>; 2] {
         let nearest = |of: &Rational| of.nearest();
         let [from, along] = self.read.ruling(&[nearest(&u[0]), nearest(&u[1])]);
-        let found = self.against.met_by(&from, &along, &nearest)?;
-        let held = found.plain[usize::from(far)];
-        let across = held[3];
-        (across != 0.0).then(|| DVec3::new(held[0], held[1], held[2]) / across)
+        let Some(found) = self.against.met_by(&from, &along, &nearest) else {
+            return [None; 2];
+        };
+        found.plain.map(|held| {
+            let across = held[3];
+            (across != 0.0).then(|| DVec3::new(held[0], held[1], held[2]) / across)
+        })
+    }
+
+    /// Which ruling the place `at` stands on, which is [`Quartic::at`] the
+    /// other way round as far as `u`.
+    ///
+    /// The branch is not in it: both branches of one `u` stand on the one
+    /// ruling, and what tells them apart is which of the two the place is —
+    /// see [`Filed::along`], where that is asked.
+    fn along(&self, at: DVec3) -> [f64; 2] {
+        self.read.through(DVec4::new(at.x, at.y, at.z, 1.0))
     }
 }
 
@@ -459,6 +510,17 @@ impl Closing {
             Self::Alone { far } => Walk { part: turn, far },
         }
     }
+
+    /// The angle a walk stands at, which is [`Closing::walk`] the other way
+    /// round.
+    fn along(self, walk: Walk) -> f64 {
+        let turn = match self {
+            Self::Round if walk.far => 1.0 - walk.part / 2.0,
+            Self::Round => walk.part / 2.0,
+            Self::Alone { .. } => walk.part,
+        };
+        turn * TAU
+    }
 }
 
 /// Where a walk of a component stands: how far along its arc, and which branch.
@@ -520,8 +582,8 @@ const MEASURED: usize = 32;
 
 /// The angle the `at`th of [`MEASURED`] steps round a loop stands at.
 ///
-/// Stated once because four readers want it and a slip in one would be a
-/// measurement quietly taken somewhere else. `stepped(1)` is the interval
+/// Stated once because the two measurements below both want it and a slip in
+/// one would be a measurement quietly taken somewhere else. `stepped(1)` is the interval
 /// itself, a step being what one of them is.
 fn stepped(at: usize) -> f64 {
     TAU * at as f64 / MEASURED as f64
@@ -591,48 +653,25 @@ impl Quartics {
         arc::chords(self.held[run as usize].bending, span, sagitta)
     }
 
-    /// Which parameter of the component at `run` stands nearest `at`.
+    /// Which angle round the component at `run` the place `at` stands at.
     ///
-    /// **Searched rather than solved**, which is what caps how finely one may
-    /// be read: what asks is the sewing, putting the places found on a curve in
-    /// the order the curve runs — so an answer has to be monotone along it and
-    /// need not be exact. The same standing
-    /// [`Marchings::nearest`](super::marchings::Marchings) takes, and the same
-    /// cap.
+    /// **Solved rather than searched** — see [`Ruled::through`], which is the
+    /// whole of it: a place of the ruled member is written in the member's own
+    /// corner basis by one four by four solve, and the ruling falls out of the
+    /// weights. What is left is the two walks the store lays over that ruling,
+    /// each read the other way round.
     ///
-    /// The exact answer is a place written in the ruled member's own corner
-    /// basis, where `p = αA + βB + γC + δD` reads `u` off as `α : γ` — one
-    /// four-by-four solve. Worth building the day something wants a projection
-    /// rather than an order.
+    /// Exact for a place *of* the curve, which is what every caller asks about:
+    /// a corner of a region's boundary was laid down off this curve, and a
+    /// crossing was solved onto it. A place beside the curve is answered as far
+    /// beside its true parameter as it stands off, the solve being linear. A
+    /// place nowhere near it is answered with some parameter of the component
+    /// and no promise which — and that is still sound for the one caller that
+    /// asks a component about a place that may belong to another, because what
+    /// that reads off the answer is a distance from a place the component
+    /// really holds, which can only be longer than the nearest.
     pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
-        let filed = &self.held[run as usize];
-        let apart = |t: f64| filed.place(t).map_or(f64::INFINITY, |had| had.distance(at));
-        // **Each place sounded once and the nearest carried**, rather than
-        // sounded afresh at every comparison: reading one is a whole walk of
-        // the ruling and the root over it, and an inversion is asked of every
-        // corner of every loop the cut lays down.
-        let mut best = 0.0;
-        let mut off = f64::INFINITY;
-        for step in 0..MEASURED {
-            let step = stepped(step);
-            let near = apart(step);
-            if near < off {
-                (best, off) = (step, near);
-            }
-        }
-        // Halved about the nearest of the sweep, which is within one step of
-        // the answer: the loop is closed, so the two neighbours fence it.
-        let mut span = stepped(1);
-        for _ in 0..HALVINGS {
-            span /= 2.0;
-            for step in [best - span, best + span] {
-                let near = apart(step);
-                if near < off {
-                    (best, off) = (step, near);
-                }
-            }
-        }
-        best.rem_euclid(TAU)
+        self.held[run as usize].along(at)
     }
 }
 
@@ -644,9 +683,38 @@ impl Filed {
     /// curve measured on one path and read on another.
     fn place(&self, t: f64) -> Option<DVec3> {
         let walk = self.closing.walk(t);
+        self.walked(walk.part)[usize::from(walk.far)]
+    }
+
+    /// Both branches `part` of the way along the arc that reads.
+    fn walked(&self, part: f64) -> [Option<DVec3>; 2] {
         let [low, high] = self.holds;
-        self.curve
-            .at(&self.arc.at(low + (high - low) * walk.part), walk.far)
+        self.curve.both(&self.arc.at(low + (high - low) * part))
+    }
+
+    /// Which angle round it the place `at` stands at — see
+    /// [`Quartics::along`], which is what this answers.
+    fn along(&self, at: DVec3) -> f64 {
+        let [low, high] = self.holds;
+        // Held to the arc that reads. A place off the component is answered
+        // with the end of it nearest, which is a place the component holds —
+        // and a component that reads at one place only holds nothing else.
+        let part = match high == low {
+            true => 0.0,
+            false => ((self.arc.along(self.curve.along(at)) - low) / (high - low)).clamp(0.0, 1.0),
+        };
+        let far = match self.closing {
+            Closing::Alone { far } => far,
+            // Both branches of one ruling stand at the one `u`, so which of the
+            // two the place is is settled by reading, not by the solve.
+            Closing::Round => {
+                let apart = self
+                    .walked(part)
+                    .map(|had| had.map_or(f64::INFINITY, |had| had.distance(at)));
+                apart[1] < apart[0]
+            }
+        };
+        self.closing.along(Walk { part, far })
     }
 
     /// The parts of the arc that read, each end halved inward until one does.

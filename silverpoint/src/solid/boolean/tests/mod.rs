@@ -872,9 +872,8 @@ fn bicylinder(wide: f64, narrow: f64, off: f64) -> f64 {
 ///
 /// **Drilled three ways, and the third is where the seam is.** An offset axis
 /// is the same shape with one number moved — see [`Bow`], where that is
-/// argued — and the two together are two of the three cases §9.1 names; the
-/// third is tangent axes, which the meeting refuses rather than answers, the
-/// curve crossing itself there.
+/// argued. Tangent axes are the standing none of the three is: the meeting
+/// refuses those rather than answering them, the curve crossing itself there.
 ///
 /// The last drilling runs along the world's `x` rather than its `z`, which is
 /// where the bar's own wall is split: no face may wrap, so a whole cylinder is

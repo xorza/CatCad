@@ -5,8 +5,8 @@
 //! how far a place stands off it by asking the *other surface*, and lays its
 //! corners down by walking the curve — neither of which asks how the curve was
 //! made. So one cut serves the fitted tier's marched runs and the exact tier's
-//! quartics alike, and the arm that would have been a second copy of this is
-//! the one `.notes/KERNEL.md` §9.1 no longer owes.
+//! quartics alike, and the quartic arm took this cut rather than growing a
+//! second copy of it.
 
 use crate::loops::Loops;
 use crate::math::bisect;

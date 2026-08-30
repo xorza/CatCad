@@ -2208,8 +2208,8 @@ fn an_arc_through_the_charts_edge_is_one_arc() {
 ///
 /// **What is checked is that the walk stays on the curve and closes.** Every
 /// place of it is on both surfaces, whatever `t`; the loop comes back to where
-/// it started; a place handed back is found again by [`Quartics::along`]; and
-/// the chord count falls as the sagitta does.
+/// it started; every place handed out is handed back the parameter it was read
+/// at by [`Quartics::along`]; and the chord count falls as the sagitta does.
 #[test]
 fn a_quartic_answers_as_a_curve() {
     let cone = Quadric::of(&Natural::Cone(Cone {
@@ -2279,6 +2279,18 @@ fn a_quartic_answers_as_a_curve() {
             for (which, off) in on(at).into_iter().enumerate() {
                 assert!(off.abs() < READ, "{at:?} is off surface {which} at {t}");
             }
+            // And the *parameter* comes back, not merely the place: the
+            // ruling a place stands on is read off the ruled member's own
+            // corner basis — see [`Ruled::through`] — so an inversion is as
+            // exact as the reading it undoes. Swept over the whole turn, so
+            // both branches of a loop walked out and back are asked, and both
+            // ends where the two meet.
+            let found = curve.along(at, &carried);
+            let off = (found - t).abs();
+            assert!(
+                off.min(TAU - off) < 1e-9,
+                "{at:?} was read at {t} and found at {found}",
+            );
         }
 
         // Closed, which is what makes it a loop rather than an arc: a whole
@@ -2287,16 +2299,6 @@ fn a_quartic_answers_as_a_curve() {
         assert!(
             start.abs_diff_eq(round_again, 1e-9),
             "{start:?} and {round_again:?} are not one place",
-        );
-
-        // And a place handed back is found again. Read at a third of the way
-        // round, which is on the far branch of one loop and the near of the
-        // other, so neither answer can be the parameter it was handed.
-        let third = curve.at(TAU / 3.0, &carried);
-        let found = curve.along(third, &carried);
-        assert!(
-            curve.at(found, &carried).abs_diff_eq(third, 1e-6),
-            "{third:?} was found at {found}, which is somewhere else",
         );
 
         // A finer sagitta wants more chords, which is what says the bound was

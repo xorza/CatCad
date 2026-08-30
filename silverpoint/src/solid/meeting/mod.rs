@@ -171,7 +171,7 @@ impl Meeting {
             // turns a taper and the hole goes up its own axis, and two
             // surfaces of revolution about one line meet in circles about it.
             // Everything else stands one storey up — see [`Meeting::Algebraic`]
-            // — and `.notes/KERNEL.md` §9.1 is where that route is argued.
+            // — and `.notes/KERNEL.md` §7.3 is where that route is argued.
             (one @ Surface::Natural(Natural::Cone(cone)), other)
             | (other, one @ Surface::Natural(Natural::Cone(cone))) => {
                 match Self::coaxial(one, other, cone.axis) {

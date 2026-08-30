@@ -6,6 +6,7 @@
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::quadric::Quadric;
+use glam::{DMat4, DVec4};
 
 /// A ruled quadric as the four places its two parameters weigh.
 ///
@@ -151,5 +152,34 @@ impl<T: Field> Ruled<T> {
             self.at(u, &[one.clone(), zero.clone()]),
             self.at(u, &[zero, one]),
         ]
+    }
+}
+
+impl Ruled<f64> {
+    /// Which of its rulings the place `at` stands on, as `(u₀ : u₁)`.
+    ///
+    /// **A solve and not a search**, which is the whole of why an inversion
+    /// costs what a reading costs. A place of the member is
+    /// `w₀·A + w₁·B + w₂·C + w₃·D` for the weights `[u₀t₀, u₀t₁, u₁t₀, u₁t₁]`
+    /// [`Ruled::at`] builds — so the four corners are a basis of the space the
+    /// places are written in, the weights come off one four by four solve, and
+    /// `(u₀ : u₁)` is `(w₀ : w₂)` and `(w₁ : w₃)` over again.
+    ///
+    /// **The larger of those two pairs answers.** They are the one ratio
+    /// scaled by `t₀` and by `t₁`, so for a place at either end of its own
+    /// ruling one of them comes to nought and carries no answer, and neither
+    /// comes to nought at once. A place that is *not* on the member has no
+    /// ruling through it at all and the two disagree — by as much as it stands
+    /// off, and no more, the solve being linear. See
+    /// [`Quartics::along`](super::quartic::Quartics), which is what that
+    /// bounds.
+    pub(crate) fn through(&self, at: DVec4) -> [f64; 2] {
+        let weight = DMat4::from_cols_array_2d(&self.corner).inverse() * at;
+        debug_assert!(weight.is_finite(), "a ruled member with no basis in it");
+        match weight.x * weight.x + weight.z * weight.z >= weight.y * weight.y + weight.w * weight.w
+        {
+            true => [weight.x, weight.z],
+            false => [weight.y, weight.w],
+        }
     }
 }

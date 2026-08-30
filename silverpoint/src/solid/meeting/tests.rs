@@ -627,7 +627,7 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
 /// The whole of the table [`Meeting::coaxial`] answers for a cone — a cylinder,
 /// a sphere either side of the apex, and a second cone — where the plane above
 /// is answered one row up. Everything off-axis stands one storey up and still
-/// says so, for which see `.notes/KERNEL.md` §9.1.
+/// says so, for which see `.notes/KERNEL.md` §7.3.
 #[test]
 fn a_cone_meets_a_coaxial_surface_in_the_circles_its_half_angle_sets() {
     let cone = taper();
@@ -933,7 +933,7 @@ fn a_plane_holding_a_torus_axis_cuts_it_in_two_tube_circles() {
 ///
 /// A plane through the middle leaning so that `cos α = √(major² − minor²)/major`
 /// touches the tube at two places, and what it cuts is two circles of the
-/// *major* radius crossing at both of them. §9.2's spike walked `574.6` of
+/// *major* radius crossing at both of them. A spike walked `574.6` of
 /// curve where the truth is two circles of `2π·3`, and no tangency threshold
 /// saved it: subdivision gives one seed for two curves, and a march has no
 /// direction where they cross.

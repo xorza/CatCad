@@ -71,7 +71,8 @@ pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Option<Inline<DVec3, 8
 /// stretch carries one closed piece — the two angles at a `v` inside it are that
 /// piece's two halves, and they join where the stretch ends. Where there is no
 /// end at all the two halves never join and are two pieces of their own, which
-/// is the same pair of regimes a cross drilling has (§9.1).
+/// is the same pair of regimes the exact tier's own curve has — see
+/// [`Closing`](crate::solid::geometry::quartic::Closing).
 ///
 /// What is per pair is `A`, `B` and where the stretches end, and that is all
 /// [`Against`] holds. Everything above it is one walk.
