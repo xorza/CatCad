@@ -1,10 +1,15 @@
-//! The curve two quadrics meet in, where that curve is a smooth quartic.
+//! The curve two quadrics meet in where that curve is a smooth quartic, and
+//! the store a body keeps them in.
 //!
 //! **No production caller yet.** What would call it is
 //! [`Meeting`](crate::solid::meeting::Meeting)'s algebraic arm, and that waits
 //! on a `Curve` variant to hand one back through — which in turn waits on the
 //! splitter having a cut it can make from one. See `.notes/KERNEL.md` §7.3 and
 //! §7.4.
+//!
+//! The store is here beside what it holds, on the terms
+//! [`marchings`](super::marchings) keeps: one file per subject, holding the
+//! arena, the handle and whatever small thing either wants.
 #![allow(dead_code)]
 
 use crate::inline::Inline;
@@ -266,6 +271,51 @@ impl Quartic {
         };
         let across = read(3);
         (across != 0.0).then(|| DVec3::new(read(0), read(1), read(2)) / across)
+    }
+}
+
+/// Every quartic one body's curves are cut from.
+///
+/// **Not flat, where [`Marchings`](super::marchings::Marchings) is**, and that
+/// is the one thing about it worth arguing. A marched run is places, which pack
+/// into one buffer; a quartic is a ruled member and a quadric over exact
+/// rationals, which are bignums and own blocks of their own. Clearing keeps the
+/// room for the constructions and hands back the room inside them.
+///
+/// **What that costs is an allocation per quartic edge per rebuild**, on a body
+/// the drawing under it rebuilds every frame of a drag. A handful of blocks for
+/// a handful of edges, against a marched run's none — worth naming, and not
+/// worth a second representation of an exact curve to avoid.
+#[derive(Debug, Default)]
+pub(crate) struct Quartics {
+    held: Vec<Quartic>,
+}
+
+impl Quartics {
+    /// Forget every curve, keeping the room they took.
+    pub(crate) fn clear(&mut self) {
+        self.held.clear();
+    }
+
+    /// How many are filed, which is the number the next one takes.
+    pub(crate) fn len(&self) -> u32 {
+        self.held.len() as u32
+    }
+
+    /// File `curve` as one of its own, and say which it is.
+    pub(crate) fn add(&mut self, curve: Quartic) -> u32 {
+        let at = self.len();
+        self.held.push(curve);
+        at
+    }
+
+    /// The curve filed at `at`.
+    ///
+    /// Panics on a handle this store never minted, which is a mistake in
+    /// whatever named it rather than a state a reader has to handle — the same
+    /// standing every arena here takes.
+    pub(crate) fn at(&self, at: u32) -> &Quartic {
+        &self.held[at as usize]
     }
 }
 
