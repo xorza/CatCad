@@ -2274,7 +2274,7 @@ fn a_quartic_answers_as_a_curve() {
         assert!(curve.reach(0.0) > 0.0, "the component reaches nowhere");
 
         for step in 0..24 {
-            let t = f64::from(step) / 24.0;
+            let t = TAU * f64::from(step) / 24.0;
             let at = curve.at(t, &carried);
             for (which, off) in on(at).into_iter().enumerate() {
                 assert!(off.abs() < READ, "{at:?} is off surface {which} at {t}");
@@ -2283,7 +2283,7 @@ fn a_quartic_answers_as_a_curve() {
 
         // Closed, which is what makes it a loop rather than an arc: a whole
         // turn of the parameter comes back to where it began.
-        let (start, round_again) = (curve.at(0.0, &carried), curve.at(1.0, &carried));
+        let (start, round_again) = (curve.at(0.0, &carried), curve.at(TAU, &carried));
         assert!(
             start.abs_diff_eq(round_again, 1e-9),
             "{start:?} and {round_again:?} are not one place",
@@ -2292,7 +2292,7 @@ fn a_quartic_answers_as_a_curve() {
         // And a place handed back is found again. Read at a third of the way
         // round, which is on the far branch of one loop and the near of the
         // other, so neither answer can be the parameter it was handed.
-        let third = curve.at(1.0 / 3.0, &carried);
+        let third = curve.at(TAU / 3.0, &carried);
         let found = curve.along(third, &carried);
         assert!(
             curve.at(found, &carried).abs_diff_eq(third, 1e-6),
@@ -2301,8 +2301,8 @@ fn a_quartic_answers_as_a_curve() {
 
         // A finer sagitta wants more chords, which is what says the bound was
         // measured rather than made up.
-        let coarse = curve.steps(1.0, 1e-2, &carried);
-        let fine = curve.steps(1.0, 1e-5, &carried);
+        let coarse = curve.steps(TAU, 1e-2, &carried);
+        let fine = curve.steps(TAU, 1e-5, &carried);
         assert!(fine > coarse, "{fine} chords is no more than {coarse}");
     }
 }

@@ -23,6 +23,7 @@ use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::roots::{Along, Roots};
 use crate::solid::geometry::ruled::Ruled;
 use glam::DVec3;
+use std::f64::consts::TAU;
 
 /// How many whole places a search for a ruled member will try.
 ///
@@ -377,27 +378,30 @@ pub(crate) enum Closing {
 }
 
 impl Closing {
-    /// Where round the loop the parameter `t` stands: how far along the arc,
-    /// and on which branch.
+    /// Where round the loop the angle `t` stands: how far along the arc, and on
+    /// which branch.
     ///
-    /// `t` wraps, a component being closed — the same standing a circle's angle
-    /// takes.
+    /// **A whole turn to the loop**, which is what every closed curve here is
+    /// parameterized by — a circle's own angle, an ellipse's, and a marched
+    /// run's, which is normalized to one turn. An arm measuring its parameter
+    /// differently would be an arm whose `Edge::bounds` and whose chord count
+    /// meant something else from every other.
     fn walk(self, t: f64) -> Walk {
-        let t = t.rem_euclid(1.0);
+        let turn = t.rem_euclid(TAU) / TAU;
         match self {
             // Out on the near branch and back on the far, so the halves meet at
             // both ends of the arc and the whole is one loop.
-            Self::Round => match t < 0.5 {
+            Self::Round => match turn < 0.5 {
                 true => Walk {
-                    part: t * 2.0,
+                    part: turn * 2.0,
                     far: false,
                 },
                 false => Walk {
-                    part: 2.0 - t * 2.0,
+                    part: 2.0 - turn * 2.0,
                     far: true,
                 },
             },
-            Self::Alone { far } => Walk { part: t, far },
+            Self::Alone { far } => Walk { part: turn, far },
         }
     }
 }
@@ -458,6 +462,15 @@ pub(crate) struct Quartics {
 /// hundredth of a turn's error on a circle, and a quartic bends no more sharply
 /// than the tightest circle through three of its places.
 const MEASURED: usize = 32;
+
+/// The angle the `at`th of [`MEASURED`] steps round a loop stands at.
+///
+/// Stated once because four readers want it and a slip in one would be a
+/// measurement quietly taken somewhere else. `stepped(1)` is the interval
+/// itself, a step being what one of them is.
+fn stepped(at: usize) -> f64 {
+    TAU * at as f64 / MEASURED as f64
+}
 
 /// How many times a search over the parameter halves what it is looking in.
 ///
@@ -540,12 +553,12 @@ impl Quartics {
         let filed = &self.held[run as usize];
         let apart = |t: f64| filed.place(t).map_or(f64::INFINITY, |had| had.distance(at));
         let coarse = (0..MEASURED)
-            .map(|step| step as f64 / MEASURED as f64)
+            .map(stepped)
             .min_by(|one, two| apart(*one).total_cmp(&apart(*two)))
             .expect("a component is measured at more than nothing");
         // Halved about the nearest of the sweep, which is within one step of
         // the answer: the loop is closed, so the two neighbours fence it.
-        let mut span = 1.0 / MEASURED as f64;
+        let mut span = stepped(1);
         let mut best = coarse;
         for _ in 0..HALVINGS {
             span /= 2.0;
@@ -555,7 +568,7 @@ impl Quartics {
                 }
             }
         }
-        best.rem_euclid(1.0)
+        best.rem_euclid(TAU)
     }
 }
 
@@ -603,9 +616,9 @@ impl Filed {
     /// Measured rather than worked out: a quartic has no closed form for it the
     /// way a saddle does, and the construction is evaluable everywhere.
     fn bending(&self) -> f64 {
-        let step = 1.0 / MEASURED as f64;
+        let step = stepped(1);
         (0..MEASURED).fold(0.0f64, |most, at| {
-            let t = at as f64 / MEASURED as f64;
+            let t = stepped(at);
             let (Some(back), Some(here), Some(on)) =
                 (self.place(t - step), self.place(t), self.place(t + step))
             else {
@@ -617,11 +630,9 @@ impl Filed {
 
     /// How far from the origin the component reaches.
     fn reaching(&self) -> f64 {
-        (0..MEASURED).fold(0.0f64, |most, at| {
-            match self.place(at as f64 / MEASURED as f64) {
-                Some(place) => most.max(place.length()),
-                None => most,
-            }
+        (0..MEASURED).fold(0.0f64, |most, at| match self.place(stepped(at)) {
+            Some(place) => most.max(place.length()),
+            None => most,
         })
     }
 }
