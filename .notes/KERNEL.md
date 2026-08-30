@@ -840,81 +840,62 @@ cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- 
 
 ### 9.1 Step 1 — seeding a drill that leans
 
-**A drill through a ring is answered both ways round now** — see
-`a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back`, which
-takes the bore and the slug it left and adds them back to the ring. A drill that
-*leans* is not: `meeting::seeding::Against` covers a plane at any lean and a
-cylinder parallel to the torus axis, and nothing else, so `Reading::of` hands
-back nothing and the march is never seeded.
+**A drill through a ring is answered both ways round** — see
+`a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back`. A
+drill that *leans* is not: `meeting::seeding::Against` covers a plane at any
+lean and a cylinder parallel to the torus axis and nothing else, so
+`Reading::of` hands back nothing and the march is never seeded.
 
-**Spiked, and the shape is not what this section used to claim.** What follows
-is measured, not reasoned — §10's second rule, run outside the workspace.
+What follows is measured rather than reasoned, on a spike outside the workspace
+— §10's second rule.
 
 **One form covers all three pairs.** Standing on the other surface is
 `A₀(v) + A₁(v)·cos u + B₁(v)·sin u + A₂(v)·cos 2u + B₂(v)·sin 2u = 0`, and the
-two pairs already written are that with the second harmonic nought. A leaning
-cylinder is the one that carries it: `((p − c)·w)²` puts `out(v)²·W²·cos²(u − φ)`
-into the equation, where `W` is how much of the cylinder's direction stands
-square to the torus axis — nought exactly when the two axes are parallel, which
-is why the arm that is written does not meet it. Checked against a leaning
-plane, a parallel cylinder, two leaning drills, one off the plane the two axes
-share, and one straight across the ring: every root of all five lands on both
-surfaces to `2e-14`. Two further leans were tried and answer nothing, the drill
-missing the ring altogether.
+two pairs written are that with the second harmonic nought. A leaning cylinder
+is what carries it: `((p − c)·w)²` puts `out(v)²·W²·cos²(u − φ)` into the
+equation, where `W` is how much of the drill's direction stands square to the
+torus axis — nought exactly when the axes are parallel, which is why the written
+arm never meets it. Every root of a leaning plane, a parallel cylinder, two
+leaning drills, one off the plane the axes share and one straight across the
+ring lands on both surfaces to `2e-14`. Two steeper leans answer nothing, the
+drill missing the ring altogether.
 
-**So `u` at a given `v` is a quartic**, in `tan(u/2)`, and a leaning pair has up
-to *four* branches where `Reading::at(v, far)` offers two.
+**Solve it on the unit circle, not in `tan(u/2)`.** `z²F` is a quartic in
+`z = e^{iu}` whose coefficients `[(A₂ − iB₂)/2, (A₁ − iB₁)/2, A₀, …]` read back
+conjugate, so a leaning pair has up to *four* branches where `Reading::at(v,
+far)` offers two.
 
-**And the ends are a trigonometric polynomial of degree twelve, not eight.** Each
-of the five coefficients is degree two in `v`, and a quartic's discriminant is
-degree six in its coefficients — measured by transforming the discriminant over
-a turn of `v` and reading the spectrum, which carries harmonics to twelve and
-nothing above. That is degree twenty-four in `tan(v/2)`. Measured on a drill
-whose leading coefficient holds between `32` and `59` over the whole turn, so
-nothing of what follows is in it.
+The half-angle chart cannot name `u = π`, and that is not a corner case: a drill
+straight across the ring crosses it. It begins and ends its stretches four times
+over a turn of `v`, confirmed against the equation on a fine grid, and the
+half-angle quartic's discriminant changes sign at only two of them — its leading
+coefficient `A₀ − A₁ + A₂` is the equation read at `u = π`, and it falls through
+`4e-4` there where the leaning drill's holds `[32, 59]`. A discriminant taken at
+the nominal degree goes blind as the quartic falls to a cubic.
 
-Its *real* roots are few — two or four in every case tried, so the eight
-`Reading::ends` allows still holds — but finding them is a degree twenty-four
-root find, which is not the bargain this module strikes. Its own doc says the
-seeding is done "per pair and in closed form", and that is what does not extend.
+**In `z` the ends come out whole.** That discriminant caught *every* end of five
+leaning pairs — two, two, two, four and six, none missed. It vanishes at each to
+`5e-15` of its own scale over eight ends, so both its parts vanish and a sign
+change of either finds it. Both parts are degree twelve in `v` — five
+coefficients of degree two, and a quartic's discriminant is degree six in its
+coefficients — with the thirteenth harmonic fifteen orders down.
 
-**And that discriminant does not even name every end.** A drill straight across
-the ring begins and ends its stretches four times over a turn of `v`, confirmed
-against the equation itself on a fine grid, and the quartic's discriminant
-changes sign at only two of them. At the other two the quartic's leading
-coefficient is `4e-4` and `-9e-4` — which is `A₀ − A₁ + A₂`, the equation read
-at `u = π`, and it changes sign twice over the turn where the leaning drill's
-never leaves `[32, 59]`. So the curve is crossing the one place `tan(u/2)`
-cannot name, the quartic is falling to a cubic, and a discriminant taken at the
-nominal degree loses its sign there.
+Its own leading coefficient is nought exactly where the second harmonic is,
+which is the plane and the parallel cylinder. So the degeneracy that sinks the
+other chart never meets this one.
 
-The ends therefore cannot be read off that chart at all. Whatever is built has
-to find them where the whole turn is named — two charts, or the trigonometric
-form itself.
-
-**Isolate the roots rather than solve for them.** What the seeding owes is one
-place on *every* piece, and a piece missed is a boolean quietly short of a
-crossing — so the measure of a route is whether it can promise it found them
-all, not what it costs. A companion-matrix solve at degree twenty-four cannot:
-two roots lost to conditioning merge two stretches and swallow a seed, without
-saying so. Sturm sequences or an interval subdivision can — but not on the
-discriminant above, which is the very thing that goes blind at the seam. What
-they want is the ends stated where the whole turn is named: the resultant of the
-trigonometric form and its own derivative in `u`, or the same chart taken twice
-with the second turned a half turn so that neither seam is trusted.
-
-The objection this module raises to sampling does not carry over: that one is
-about hunting a small loop over a *surface*, where this is root isolation on one
-variable with computable bounds.
-
-So: the harmonic form above, a quartic in `tan(u/2)` for the branches with the
-seam carried, and the ends isolated on something that has no seam.
-
-The form is worth landing on its own first — it is what the two written pairs
-already are, so their own tests hold it up. What it does *not* keep for free is
-which branch `far` names: `acos` gives the two halves an order and a quartic
-solver gives its roots another, and that label is carried out of here into
-`Closing::Alone`. It has to be defined rather than inherited.
+**What to build: a third arm, not a rewrite.** The two written pairs solve
+`A·cos(u − phase) = B` with one `acos`, exact and cheap where a quartic on the
+unit circle is neither, and they keep it. The arm carries the five harmonics,
+reads `at` off the roots of `z²F` on the unit circle, and takes `ends` from the
+zeros in `v` of that discriminant — isolated rather than solved. What the
+seeding owes is one place on *every* piece, and a companion-matrix solve at
+degree twenty-four can lose two roots to conditioning and swallow a seed without
+saying so, where Sturm or interval subdivision cannot. Extra ends cost nothing:
+the seeding already takes "as many as the ends allow rather than as many as the
+geometry gives". The objection this module raises to sampling does not carry
+over — that one is about hunting a small loop over a *surface*, where this is
+root isolation on one variable with computable bounds.
 
 ### 9.2 Step 2 — M7, fillet, chamfer, STEP
 
