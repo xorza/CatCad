@@ -66,7 +66,8 @@ impl Filtered {
     pub(crate) fn read(at: f64) -> Self {
         Self {
             at,
-            bound: (HALF_ULP * at.abs()).next_up(),
+            // One product, the absolute value rounding nothing.
+            bound: upward(HALF_ULP * at.abs(), 1),
         }
     }
 
@@ -151,8 +152,17 @@ impl Filtered {
 ///
 /// `count` is how many `f64` operations the caller's bound expression takes.
 /// Each caller says which, and says it where the expression is.
+///
+/// **Counted in the bits.** The floats from nought upwards run in the same order
+/// as the integers their bits spell, so adding `count` to those bits *is*
+/// `count` steps up — and a bound is a sum of non-negative terms, so nought is
+/// the lowest it ever starts from. Worth the argument because of what asks: one
+/// orientation test is five sums and two products of these and carries
+/// twenty-nine of these widenings, on the path every containment in the crate
+/// is counted out of.
 fn upward(at: f64, count: usize) -> f64 {
-    (0..count).fold(at, |at, _| at.next_up())
+    debug_assert!(at >= 0.0, "{at} is no bound to widen");
+    f64::from_bits(at.to_bits() + count as u64)
 }
 
 impl Add for Filtered {
@@ -252,6 +262,41 @@ mod tests {
     use crate::number::exact::field::Field;
     use crate::number::exact::internals::turning;
     use crate::number::exact::rational::Rational;
+
+    /// **Counting in the bits is stepping, exactly**, which is what lets the
+    /// hot path add rather than loop.
+    ///
+    /// The floats from nought upwards run in the same order as the unsigned
+    /// integers their bits spell, so adding `count` to those bits lands on the
+    /// same float `count` calls to [`f64::next_up`] do. Held against that at
+    /// nought, at a subnormal, at the smallest normal — which is where the
+    /// exponent starts counting and the step changes size — either side of a
+    /// power of two, and at a magnitude whose ulp is a whole number.
+    ///
+    /// The counts are the ones the arithmetic above asks for, and one past
+    /// them.
+    #[test]
+    fn a_bound_widened_by_the_bits_is_the_bound_stepped_up() {
+        for at in [
+            0.0,
+            f64::from_bits(3),
+            f64::MIN_POSITIVE,
+            1e-9,
+            1.0,
+            f64::from_bits(1.0f64.to_bits() - 1),
+            2.0,
+            1e17,
+        ] {
+            for count in [0usize, 1, 3, 6, 7, 8] {
+                let stepped = (0..count).fold(at, |at, _| at.next_up());
+                assert_eq!(
+                    upward(at, count).to_bits(),
+                    stepped.to_bits(),
+                    "{at} widened by {count}",
+                );
+            }
+        }
+    }
 
     /// **The filter is never wrong, fires where it must, and answers where it
     /// need not** — the three things that make it a filter rather than a hope.

@@ -903,23 +903,30 @@ came back in two loops. `Cut::met_across` now puts its two ends in one order
 before it measures anything, so a crossing is the same place from either side of
 the stretch it fell on. That is exact and costs a comparison.
 
-**What blocks it now is that the merge moves an edge another face still ends
-at.** Measured on `(A ∪ B) ∪ C`. During `A ∪ B`, `B`'s wall is cut by `A`'s own
-wall and comes back as two faces meeting along that line; merged, it is one face
-spanning it. Then `C` cuts the pair, and §7.4's uniform cut gives `C`'s own face
-a corner where `A`'s wall surface crosses it while the merged wall has none —
-so one edge is claimed by one face and the sewing refuses. Every other case the
-suite holds passes: the merge takes a milled flat from seventeen faces to eleven
-with its genus and its volume unmoved.
+**And it cannot be taken before the sewing, which is what the measurement
+settled.** On `(A ∪ B) ∪ C`: during `A ∪ B`, `B`'s wall is cut by `A`'s wall and
+comes back as two faces meeting along that line; merged, it is one face spanning
+it, and the line is no longer an edge. `C` then cuts the pair, and §7.4's
+uniform cut gives `C`'s own face a corner where `A`'s wall *surface* crosses it
+— a surface the merged body still has — while the merged wall has none. One edge
+is claimed by one face and the sewing refuses. Every boolean that *ends* with a
+merged body is fine: the whole suite passes bar a face count, the merge taking a
+milled flat from seventeen faces to eleven with its genus and its volume
+unmoved. It is the next boolean over that body that breaks.
 
-So the merge is the second of two steps, and this is the first:
+**The rule it breaks, stated:** the splits one boolean makes are part of the
+answer's contract for the next, because cutting by whole surfaces means a
+surface of a body divides the *other* body wherever it reaches — including where
+this body's own faces no longer end. A merge that removes an edge removes half
+of a place the next uniform cut will put back on one side only.
 
-**A face's boundary carries every place another face of the body ends at**,
-which is what a boolean leans on when it cuts that body next. Two faces merged
-across an edge take that place off one side of it, and nothing yet puts it back.
-Either the merge refuses a pair whose shared stretch is the end of a third face,
-or the corner is kept as a corner and only the *edge* goes. Which of the two is
-right is the question to answer before any of the above is written again.
+So §4.4 had it right and this section had it wrong. The merge belongs at output,
+where a body is drawn or exported and nothing will cut it again — which is worth
+having for the mesher and the painter, and buys none of §11 back, the count
+being paid for in the sewing before output is reached.
+
+**What §11 costs is therefore not the face count**, and where it does go is
+below.
 
 What has to hold, and each is a test that breaks a merged body one way:
 
@@ -987,8 +994,8 @@ nobody has made yet.
 
 **What is measured is the boolean, and it grows faster than the body does.**
 Cutting one straight-walled tool out of a six-faced block, release, on a
-13980HX: 0.05 ms for a four-sided tool, 0.7 ms for sixteen, 3.4 ms for
-thirty-two, 21 ms for sixty-four, 150 ms for a hundred and twenty-eight. Each
+13980HX: 0.07 ms for a four-sided tool, 0.6 ms for sixteen, 2.9 ms for
+thirty-two, 18 ms for sixty-four, 130 ms for a hundred and twenty-eight. Each
 doubling of the tool's faces costs between three and seven times the last, so
 the growth is between quadratic and cubic. Raising the same tools costs 0.4 µs
 to 13 µs and is linear throughout; meshing the answer at the paint sagitta costs
@@ -1013,9 +1020,32 @@ of the four sides comes back in nine, all kept. They share a surface, a name and
 an orientation, and §5 already calls the set of them one face of the body, so
 nothing above the kernel can tell — but the kernel pays for every one.
 
-So the merge §4.4 puts off to output is the wrong place for it: adjacent regions
-of one surface should never become separate faces at all. That is §9.1, and it
-is the whole of the gap between 9140 and 134.
+**And they cannot be merged away before the sewing**, which §9.1 measures: the
+splits one boolean makes are what the next one's uniform cut leans on. So the
+count stands, and where the time goes is a question about the work done per
+face rather than about how many there are.
+
+**It goes into one predicate.** Profiled over the hundred-and-twenty-eight-sided
+cut, a third of the boolean is `math::intersect::swept` — the exact orientation
+test — and a fifth is `math::winding::within`, which is the ray cast that calls
+it. Every containment the kernel asks is counted out of that pair, once per
+corner of every loop of every region of every cut.
+
+Most of that was bookkeeping rather than arithmetic. `Filtered` widened its
+bound by *stepping* it up an ulp at a time, seven steps to a product and three
+to a sum, so one orientation test carried twenty-nine — and the floats above
+nought run in the order their bits spell, so the steps are an addition. Counting
+in the bits instead took the hundred-and-twenty-eight-sided cut from 154 ms to
+130 and the sixty-four-sided one from 28 ms to 18.
+
+What is left in `swept` is the filter itself, which builds the determinant in
+`Filtered` and carries a bound through four differences and two products before
+it compares. A *static* filter — the raw `f64` determinant against a constant
+times the size of its two halves, Shewchuk's `orient2d` — decides the same
+question in a handful of operations and declines to the same expansion. That is
+the next thing to measure, and the constant is the part to get right rather than
+guess: the exact tier is its own oracle, so a sweep holding every decision the
+filter claims against what the expansion says is what would license it.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the
