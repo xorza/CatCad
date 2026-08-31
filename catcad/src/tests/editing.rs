@@ -2,7 +2,7 @@
 //! dragging past the edge of the view.
 
 use crate::hud::internals;
-use crate::prompt::marked;
+use crate::marked;
 use crate::prompt::{Asking, Prompt};
 use crate::tests::harness::Raised;
 use glam::{DVec2, Vec2, Vec3};

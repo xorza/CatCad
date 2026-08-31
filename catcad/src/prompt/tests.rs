@@ -1,6 +1,5 @@
 use super::*;
 use crate::prompt::Form;
-use crate::prompt::marked::internals::EVERY;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
 
@@ -232,43 +231,6 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         }),
         Some(Done::Commit)
     );
-}
-
-/// **Every mark on the form carries a word, and no two of them collide.**
-///
-/// What is left for this to say now that the marks are artwork rather than
-/// characters. That the artwork *exists* is the icon table's own check —
-/// `every_source_sits_at_its_own_glyph_and_paints_in_one_colour`, which walks
-/// all of it rather than the eight rows a form draws.
-///
-/// The collisions are this table's alone, and both are silent. A form records a
-/// chip under its glyph, so two of them sharing one would be two controls
-/// sharing an id — the second would never be pressed. Two rows under one word
-/// would be a tooltip saying the same thing twice, and two forms under one mark
-/// would be two forms that look alike.
-#[test]
-fn every_mark_on_the_form_is_drawn_and_named() {
-    for mark in EVERY {
-        assert!(
-            !mark.word.trim().is_empty(),
-            "{mark:?} carries no word, so nothing on the form says what it is",
-        );
-    }
-
-    for (at, one) in EVERY.iter().enumerate() {
-        for two in &EVERY[at + 1..] {
-            assert_ne!(one.glyph, two.glyph, "{one:?} and {two:?} share a mark");
-            assert_ne!(one.word, two.word, "{one:?} and {two:?} share a word");
-        }
-    }
-
-    // And the three the row is laid out from are three, which is what says the
-    // pairing carries the operation rather than dropping it.
-    let [joins, cuts, shares] =
-        [Operation::Join, Operation::Cut, Operation::Intersect].map(marked::doing);
-    assert_ne!(joins, cuts, "a join and a cut draw as one chip");
-    assert_ne!(cuts, shares, "a cut and an intersect draw as one chip");
-    assert_ne!(joins, shares, "a join and an intersect draw as one chip");
 }
 
 /// **What a form is about is what it stands over, asked once for both.**

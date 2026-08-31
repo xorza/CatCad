@@ -30,16 +30,14 @@ use crate::intent::change::Change;
 use crate::intent::{Choice, Intents, Opening, Step};
 use crate::look::Theme;
 use crate::look::icons::Icons;
+use crate::marked::{self, Marked};
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
-use crate::prompt::marked::Marked;
 use crate::timeline::{Axle, FeatureId, Sweep};
 use crate::tool::Tool;
-
-pub(crate) mod marked;
 
 /// What a form is about, and so what committing it asks for.
 ///
@@ -1355,8 +1353,8 @@ impl Form {
 pub(crate) mod internals {
     use palantir::WidgetId;
 
+    use crate::marked::Marked;
     use crate::prompt::Prompt;
-    use crate::prompt::marked::Marked;
 
     impl Prompt {
         /// What the `nth` field is recorded under.
@@ -1365,7 +1363,7 @@ pub(crate) mod internals {
         }
 
         /// What the chip `marked` draws for an operation is recorded under —
-        /// see [`marked`](crate::prompt::marked), which is where the rows are.
+        /// see [`marked`](crate::marked), which is where the rows are.
         pub(crate) fn operation_id(marked: Marked) -> WidgetId {
             Self::doing_id(marked)
         }

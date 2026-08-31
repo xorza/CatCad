@@ -10,6 +10,7 @@ use crate::intent::change::Change;
 use crate::intent::{Choice, Intent, Intents, Opening, Step};
 use crate::look::Theme;
 use crate::look::icons::{Glyph, Icons};
+use crate::marked::{self, Marked};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::part::Part;
@@ -59,13 +60,6 @@ pub(super) fn relation_id(label: &str) -> WidgetId {
 /// pointed at under one name and read under another would be a preview that
 /// never showed.
 pub(super) const REMOVE: &str = "Remove";
-
-/// What the chip that puts a blend in is recorded under, and what it is called.
-///
-/// **"Fillet" where the kernel says "rounding"**, because that is the word a
-/// draughtsman uses for it — the same split [`wording`] already makes over an
-/// edge and a segment.
-const FILLET: &str = "Fillet";
 
 /// Show it, where there is anything to show.
 ///
@@ -143,11 +137,16 @@ pub(super) fn show(
             // First, because it is the one thing here that can be asked of a
             // document nobody is drawing in.
             if let Some(on) = startable
-                && Chip::icon(relation_id("Sketch"), "Start a sketch", Glyph::Sketch).show(
-                    ui,
-                    shown.icons,
-                    theme,
+                // The one chip here that does not go through [`offering`]: it
+                // is drawn and recorded off the table like every other, and
+                // captioned as the *command* that makes a sketch rather than as
+                // the thing the recipe's row names.
+                && Chip::icon(
+                    relation_id(marked::SKETCH.word),
+                    "Start a sketch",
+                    marked::SKETCH.glyph,
                 )
+                .show(ui, shown.icons, theme)
             {
                 intents.push(Change::AddSketch { on });
             }
@@ -157,11 +156,7 @@ pub(super) fn show(
             // [`Change::Round`](crate::intent::change::Change).
             if let Some(along) = roundable {
                 scrub(ui, &mut radius.0);
-                if Chip::icon(relation_id(FILLET), FILLET, Glyph::Round).show(
-                    ui,
-                    shown.icons,
-                    theme,
-                ) {
+                if offering(ui, shown.icons, theme, marked::FILLET) {
                     // The list reaches the heap on the frame the chip is
                     // pressed and on no other, as the extrude's profile does.
                     intents.push(Change::Round {
@@ -209,11 +204,7 @@ pub(super) fn show(
             // Before the relations, because it is the one thing here that
             // builds rather than states.
             if let Some(growable) = region
-                && Chip::icon(relation_id("Extrude"), "Extrude", Glyph::Extrude).show(
-                    ui,
-                    shown.icons,
-                    theme,
-                )
+                && offering(ui, shown.icons, theme, marked::EXTRUDE)
                 && let Some(model) = models.at(growable.sketch)
             {
                 // Asks rather than builds. The solid appears at no depth at all
@@ -231,15 +222,8 @@ pub(super) fn show(
             // appears whole from the moment the form opens, there being no
             // number to wait for, and the form beside it decides what it does
             // to the model.
-            //
-            // The extrude's own glyph until a revolve has one drawn for it, as
-            // the recipe's row does — the word is what tells the two apart.
             if let Some(spinnable) = spinning
-                && Chip::icon(relation_id("Revolve"), "Revolve", Glyph::Extrude).show(
-                    ui,
-                    shown.icons,
-                    theme,
-                )
+                && offering(ui, shown.icons, theme, marked::REVOLVE)
                 && let Some(model) = models.at(spinnable.sketch)
             {
                 intents.push(Choice::Ask(Some(Opening::Revolve {
@@ -323,6 +307,15 @@ fn scrub(ui: &mut Ui, value: &mut f64) -> Scrubbed {
 struct Scrubbed {
     changed: bool,
     committed: bool,
+}
+
+/// The chip that offers to build `what`, drawn and named off the one table.
+///
+/// **The word is the id as well as the caption**, which is what keeps a chip
+/// pointed at under the same name it is drawn under — see [`REMOVE`], where
+/// that is argued for the one chip a second reader looks up.
+fn offering(ui: &mut Ui, icons: &Icons, theme: &Theme, what: Marked) -> bool {
+    Chip::icon(relation_id(what.word), what.word, what.glyph).show(ui, icons, theme)
 }
 
 /// One offer, drawn as the drawing draws it.

@@ -16,6 +16,7 @@ mod hud;
 mod intent;
 mod lens;
 mod look;
+mod marked;
 mod model;
 mod paint;
 mod part;

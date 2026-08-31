@@ -13,6 +13,7 @@ use crate::look::Theme;
 use crate::look::drawing;
 use crate::look::icons::{Glyph, Icons};
 use crate::look::wearing::{Standing, Wearing};
+use crate::marked::{self, Marked};
 use crate::part::Part;
 use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;
@@ -94,38 +95,31 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
                 // holds is what somebody put there, and the three the world
                 // comes with — the only steps that carry a name of their own —
                 // are not among them. See [`Models::chosen`].
-                let (glyph, named, nth) = match feature {
+                //
+                // Grouped rather than one counter per kind, because what a
+                // reader counts is what a step *leaves*: every kind that makes
+                // a body is a solid in this list, however it made one.
+                let nth = match feature {
                     Feature::Plane(_) => {
                         planes += 1;
-                        (Glyph::Plane, "Plane", planes)
+                        planes
                     }
                     Feature::Sketch { .. } => {
                         sketches += 1;
-                        (Glyph::Sketch, "Sketch", sketches)
+                        sketches
                     }
-                    Feature::Extrude { .. } => {
+                    Feature::Extrude { .. } | Feature::Revolve { .. } | Feature::Round { .. } => {
                         solids += 1;
-                        (Glyph::Extrude, "Extrude", solids)
-                    }
-                    // The extrude's own glyph until a revolve has one drawn for
-                    // it. The row's word is what tells the two apart meanwhile,
-                    // and both are solids in one numbering because both are.
-                    Feature::Revolve { .. } => {
-                        solids += 1;
-                        (Glyph::Extrude, "Revolve", solids)
-                    }
-                    // Numbered with the solids, because a rounding is a solid
-                    // in the one sense this list counts them by: it leaves a
-                    // body behind, and the step after it builds on that.
-                    Feature::Round { .. } => {
-                        solids += 1;
-                        (Glyph::Round, "Fillet", solids)
+                        solids
                     }
                 };
+                // Off the one table the relation bar and the form read too, so
+                // no two of the three can draw a kind differently.
+                let Marked { glyph, word } = marked::making(feature);
                 // Interned into the pass's own arena rather than formatted into a
                 // `String`: this is a row per step per frame, and the record pass is
                 // gated at zero allocations.
-                let label = ui.fmt(format_args!("{named} {nth}{came}"));
+                let label = ui.fmt(format_args!("{word} {nth}{came}"));
                 let showing = Row {
                     at,
                     glyph,
