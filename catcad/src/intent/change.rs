@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity, Operation, Sector, SegmentId};
+use silverpoint::{Constraint, ConstraintId, Entity, Named, Operation, Sector, SegmentId};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -152,6 +152,25 @@ pub(crate) enum Change {
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
     },
+    /// Put a blend of `radius` where each edge `along` names was.
+    ///
+    /// The fourth change that *adds* a step, and the one that names no drawing
+    /// at all: a pick is a pair of face names, and a face of a body answers to
+    /// its name without anything being resolved — see
+    /// [`Feature::Round`](crate::timeline::feature::Feature).
+    ///
+    /// **The whole list, because a pick is one edge.** Two faces picked out
+    /// name the edge between them, so several edges are several pairs and the
+    /// list is what a gesture carries. It is also why an intent is [`Clone`]
+    /// and not [`Copy`], as [`Change::Extrude`] already is.
+    Round { along: Vec<[Named; 2]>, radius: f64 },
+    /// Blend a rounding to a new radius.
+    ///
+    /// [`Change::Carry`]'s twin below, and it names the radius it wants rather
+    /// than a step to take for the same reason: a scrub sends one of these a
+    /// frame, and a replayed pass restates the same number where "a little
+    /// wider" would grow twice over.
+    Blend { round: FeatureId, to: f64 },
     /// Start a sketch on a plane.
     ///
     /// The second change that *adds* a step rather than rewriting one — see
@@ -312,19 +331,21 @@ impl Change {
             | Change::Resize { sketch, .. } => gesture(*sketch),
             Change::MovePlane { plane, .. } => gesture(*plane),
             Change::Carry { extrude, .. } => gesture(*extrude),
+            Change::Blend { round, .. } => gesture(*round),
             Change::AddPoint { sketch, .. }
             | Change::AddSegment { sketch, .. }
             | Change::AddCircle { sketch, .. }
             | Change::Constrain { sketch, .. }
             | Change::Tidy { sketch }
             | Change::Delete { sketch, .. } => once(*sketch),
-            // The three that make a step. What each names is what the new step is
+            // The four that make a step. What each names is what the new step is
             // built *on* rather than a step this is about: the one it makes does
             // not exist until it lands, so there is nothing here for a history
             // to record a *before* against.
-            Change::Extrude { .. } | Change::Revolve { .. } | Change::AddSketch { .. } => {
-                About::Makes
-            }
+            Change::Extrude { .. }
+            | Change::Revolve { .. }
+            | Change::Round { .. }
+            | Change::AddSketch { .. } => About::Makes,
             // And the one that takes steps away, which has no *after* for the
             // same reason a creation has no before.
             Change::DeleteStep { .. } => About::Removes,

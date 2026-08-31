@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::{Operation, Plane, Sector, SegmentId, Sketch};
+use silverpoint::{Named, Operation, Plane, Sector, SegmentId, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -69,6 +69,21 @@ pub(crate) enum Feature {
         sector: Sector,
         operation: Operation,
     },
+    /// A blend put in where each picked edge of the model was.
+    ///
+    /// **The edges are named by the faces they divide**, which is the only
+    /// durable name an edge has: the kernel keeps no identity for one across a
+    /// rebuild, where a *face* answers to a [`Named`] that survives whatever is
+    /// drawn under it — see `.notes/KERNEL.md` §4.9 and §7.5. So a pick is a
+    /// pair of face names, and picking two faces of a solid out is naming the
+    /// edge between them. One pick may find several edges, exactly as one name
+    /// may cover several patches.
+    ///
+    /// **The one step that sweeps nothing**, which is why it holds neither a
+    /// profile nor an operation: it names no region, lies on no plane, and
+    /// raises no second solid to put into the model. What it changes is the
+    /// model standing before it, which every other step here builds *onto*.
+    Round { along: Vec<[Named; 2]>, radius: f64 },
 }
 
 // Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
@@ -102,6 +117,10 @@ impl Clone for Feature {
                 axis: *axis,
                 sector: *sector,
                 operation: *operation,
+            },
+            Feature::Round { along, radius } => Feature::Round {
+                along: along.clone(),
+                radius: *radius,
             },
         }
     }
@@ -153,6 +172,17 @@ impl Clone for Feature {
                 *sector = *through;
                 *operation = *doing;
             }
+            (
+                Feature::Round { along, radius },
+                Feature::Round {
+                    along: picks,
+                    radius: to,
+                },
+            ) => {
+                along.clear();
+                along.extend_from_slice(picks);
+                *radius = *to;
+            }
             // A plane is a handful of numbers, and two steps of different kinds
             // share nothing there would be any point writing over.
             (this, source) => *this = source.clone(),
@@ -166,28 +196,43 @@ impl Feature {
     /// Named for [`Constraint::referents`](silverpoint::Constraint), which
     /// answers the same question one level down — what a thing names, so that
     /// whatever holds them both can check it is still there.
-    pub(crate) fn referents(&self) -> impl Iterator<Item = FeatureId> {
-        match self {
-            Feature::Plane(datum) => datum.referents(),
-            Feature::Sketch { on, .. } => Some(*on).into_iter(),
+    pub(crate) fn referents(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        // **One step for every kind but the rounding**, which names the step
+        // that grew each face it picked: a face's name carries one — see
+        // [`Named`] — so a rounding is built on every one of them, and taking
+        // any of them away takes the rounding with it.
+        let (one, picked): (Option<FeatureId>, &[[Named; 2]]) = match self {
+            Feature::Plane(datum) => (datum.referents(), &[]),
+            Feature::Sketch { on, .. } => (Some(*on), &[]),
             // The sketch the region is of, and nothing else. The plane is not a
             // referent of this step but of that one — see [`Feature::Extrude`],
             // on why an extrude names no plane of its own.
             Feature::Extrude { profile, .. } | Feature::Revolve { profile, .. } => {
-                Some(profile.sketch()).into_iter()
+                (Some(profile.sketch()), &[])
             }
-        }
+            Feature::Round { along, .. } => (None, along),
+        };
+        one.into_iter().chain(
+            picked
+                .iter()
+                .flatten()
+                .map(|named| FeatureId::from(named.by)),
+        )
     }
 
-    /// Whether it raises a solid off a region of a drawing.
+    /// Whether it makes a body.
     ///
-    /// **What every reader that does not care *how* asks.** A step that grows
-    /// material has a profile, an operation, a body of its own and a place in
-    /// the model; which sweep made it is the business of the build and of the
-    /// one form that edits it, and of nothing else. Written once so that a
-    /// third sweep is one arm here rather than a hunt through the callers.
-    pub(crate) fn grows(&self) -> bool {
-        matches!(self, Feature::Extrude { .. } | Feature::Revolve { .. })
+    /// **What every reader that does not care *how* asks.** A step that makes
+    /// one has a body of its own and a place in the model; whether it swept
+    /// that body off a drawing or put a blend into the model standing before it
+    /// is the business of the build and of the one bar that edits it, and of
+    /// nothing else. Written once so that a fourth way to make a body is one
+    /// arm here rather than a hunt through the callers.
+    pub(crate) fn makes(&self) -> bool {
+        matches!(
+            self,
+            Feature::Extrude { .. } | Feature::Revolve { .. } | Feature::Round { .. }
+        )
     }
 
     /// Whether somebody chose to put this step in the document.
@@ -224,6 +269,7 @@ impl Feature {
             Feature::Sketch { .. } => "a sketch",
             Feature::Extrude { .. } => "an extrude",
             Feature::Revolve { .. } => "a revolve",
+            Feature::Round { .. } => "a rounding",
         }
     }
 }
@@ -249,11 +295,11 @@ pub(crate) enum Datum {
 }
 
 impl Datum {
-    /// The planes this one is measured from.
-    fn referents(&self) -> std::option::IntoIter<FeatureId> {
+    /// The plane this one is measured from, where it is measured off one.
+    fn referents(&self) -> Option<FeatureId> {
         match self {
-            Datum::World(_) => None.into_iter(),
-            Datum::Offset { from, .. } => Some(*from).into_iter(),
+            Datum::World(_) => None,
+            Datum::Offset { from, .. } => Some(*from),
         }
     }
 }

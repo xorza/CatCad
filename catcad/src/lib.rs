@@ -610,6 +610,7 @@ impl CatCad {
             }),
             lost: models.lost(),
             unmerged: models.unmerged(),
+            unrounded: models.unrounded(),
             hovered: self.view.hovered(),
             reported: self.build.reported(),
             unsaved: self.filing.unsaved(self.document.edits()),

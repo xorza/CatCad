@@ -75,6 +75,12 @@ pub(crate) enum Fault {
     /// The bar is not a step and has no position of its own, so there would be
     /// nothing honest to put in that field.
     UnknownRollback { names: usize },
+    /// A rounding picks a face of a step that has no such face.
+    ///
+    /// Two mistakes in one answer, because they read the same to whoever has to
+    /// fix the file: a pick naming a plane or a sketch, neither of which grows
+    /// a face at all, and one naming a wall of a step that swept no drawing.
+    NoSuchFace { at: usize, names: usize },
     /// A coordinate, a radius or a dimension that is not a number.
     ///
     /// Infinities and NaN parse perfectly well and would poison the first
@@ -139,6 +145,12 @@ impl fmt::Display for Fault {
                 write!(
                     f,
                     "step {at} is grown from step {names}, which is not a sketch"
+                )
+            }
+            Fault::NoSuchFace { at, names } => {
+                write!(
+                    f,
+                    "step {at} picks a face of step {names}, which has none of that kind"
                 )
             }
             Fault::Unknown { at, what } => write!(f, "step {at} names {what}"),

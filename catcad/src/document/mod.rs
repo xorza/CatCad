@@ -243,7 +243,7 @@ impl Document {
     /// Reads the document and writes only `build`, like everything derived: what
     /// an extrude says is written down, and where that currently lands is not.
     fn rebuilt(&self, build: &mut Build) {
-        build.rebuild(self.timeline.swept());
+        build.rebuild(self.timeline.making());
     }
 
     /// Write the document to `path`, making it if it is not there and replacing
@@ -418,13 +418,14 @@ impl Document {
         // its number back is the whole of it.
         match was {
             Feature::Sketch { .. } => self.sketching(at).measured(build),
-            // Neither has anything to solve. A plane's number and an extrude's
-            // profile and distance are what they are; putting them back is the
-            // whole of it, and where the drawing then *lands* is worked out by
-            // whoever reads it.
-            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
-                build.revised()
-            }
+            // None of them has anything to solve. A plane's number, an
+            // extrude's profile and distance and a rounding's picks and radius
+            // are what they are; putting them back is the whole of it, and
+            // where the drawing then *lands* is worked out by whoever reads it.
+            Feature::Plane(_)
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => build.revised(),
         }
         self.rebuilt(build);
         self.edits = self.edits.next();
@@ -505,6 +506,13 @@ impl Document {
                 self.timeline.carry(extrude, to);
                 build.revised();
             }
+            // Nothing to solve either, on the terms the carry above states: a
+            // blend's radius is a number the step holds, and what it does to
+            // the model follows from a replay.
+            Change::Blend { round, to } => {
+                self.timeline.blend(round, to);
+                build.revised();
+            }
             // The one change that puts a step on the end. It arrives already
             // named, a profile of several regions being a list an intent
             // carries rather than positions it resolves a pass later — see
@@ -537,9 +545,16 @@ impl Document {
                 }));
                 build.revised();
             }
-            // The other step-adder, and the simpler of the two: a sketch is
-            // born empty, so there is nothing to name and nothing to resolve
-            // against the drawing it is starting on.
+            // The step-adder that resolves nothing at all. Its picks are face
+            // names, which a body answers to without a drawing being read —
+            // see [`Change::Round`].
+            Change::Round { along, radius } => {
+                shaped = Shaped::Made(self.timeline.add(Feature::Round { along, radius }));
+                build.revised();
+            }
+            // The last step-adder, and the simplest: a sketch is born empty, so
+            // there is nothing to name and nothing to resolve against the
+            // drawing it is starting on.
             //
             // Solved all the same, by the remodel below. An empty sketch has no
             // geometry to settle and no region to enclose, but everything that

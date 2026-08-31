@@ -65,6 +65,16 @@ pub(crate) struct Hud {
     /// Scratch: what a dimension *is* lives in the sketch, and this is only what
     /// one gesture has made of it so far.
     draft: f64,
+    /// The number the radius field is showing.
+    ///
+    /// **Remembered where the draft above is re-seeded**, and the difference is
+    /// what each field is a view of: a dimension is in the drawing, and a
+    /// fillet still being offered is not in anything yet. So this keeps what it
+    /// was last scrubbed to and a second fillet opens at the first one's
+    /// radius, and a rounding already in the recipe overwrites it while it is
+    /// picked out. See [`Radius`](relations::Radius), which is what says the
+    /// field opens on a number the kernel will take.
+    radius: relations::Radius,
     /// The view the orientation cube is on its way to, if it is on its way
     /// anywhere. The same kind of thing as the draft above: one gesture's
     /// worth of intent, where the camera itself is the document's.
@@ -127,6 +137,7 @@ impl Hud {
             &mut self.offers,
             &self.picked,
             &mut self.draft,
+            &mut self.radius,
             intents,
         );
     }

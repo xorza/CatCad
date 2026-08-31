@@ -29,7 +29,7 @@ pub(crate) struct Status<'a> {
     /// being looked at rather than drawn in has no sketch to report on. Four
     /// `Option`s would be four chances to show three of them and not the fourth.
     pub(crate) solved: Option<Solved>,
-    /// How many extrudes no longer know which region they are grown from.
+    /// How many steps no longer know what they are built on.
     ///
     /// The one thing a document can say about a step *downstream* of the sketch
     /// being worked in, and the reason it is worth a line: a drawing whose
@@ -40,12 +40,19 @@ pub(crate) struct Status<'a> {
     /// How many solids the kernel would not put into the model.
     ///
     /// Beside the count above rather than folded into it, because a person does
-    /// something different about each: a lost profile is the drawing having
-    /// moved out from under a step, and this is a boolean the kernel cannot do
-    /// yet — the solid is on screen and whole, standing apart from the rest of
+    /// something different about each: a step adrift is the model having moved
+    /// out from under it, and this is a boolean the kernel cannot do yet — the
+    /// solid is on screen and whole, standing apart from the rest of
     /// the model instead of joined into it. See
     /// [`Models::unmerged`](crate::model::Models::unmerged).
     pub(crate) unmerged: usize,
+    /// How many blends the kernel would not put in.
+    ///
+    /// Beside the two counts above on the terms they stand beside each other:
+    /// a person mends this one by scrubbing a radius down, where a step adrift
+    /// wants drawing or picking again and an unmerged solid wants moving. See
+    /// [`Models::unrounded`](crate::model::Models::unrounded).
+    pub(crate) unrounded: usize,
     pub(crate) hovered: Option<Part>,
     /// What the last edit is worth saying, where it was the last thing done.
     ///
@@ -165,14 +172,15 @@ impl fmt::Display for Rest<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(status) = self;
         if status.lost > 0 {
-            // Named for what was lost rather than for the step that lost it: a
-            // profile is what an extrude is grown from, and "1 extrude" would
-            // read as though the extrude itself had gone.
-            write!(f, " · {} profile", status.lost)?;
+            // **Adrift rather than lost**, which is the one word that does not
+            // read as the step itself having gone — and "profile" is no longer
+            // true of all of them, a rounding being built on face names rather
+            // than on a region.
+            write!(f, " · {} step", status.lost)?;
             if status.lost != 1 {
                 f.write_str("s")?;
             }
-            f.write_str(" lost")?;
+            f.write_str(" adrift")?;
         }
         if status.unmerged > 0 {
             // Named for the solid rather than for the step, like the clause
@@ -183,6 +191,16 @@ impl fmt::Display for Rest<'_> {
                 f.write_str("s")?;
             }
             f.write_str(" not merged")?;
+        }
+        if status.unrounded > 0 {
+            // Named for the blend rather than for the step, like the two
+            // clauses above: what a person sees is a corner that stayed sharp,
+            // and the step it came from is intact.
+            write!(f, " · {} blend", status.unrounded)?;
+            if status.unrounded != 1 {
+                f.write_str("s")?;
+            }
+            f.write_str(" refused")?;
         }
         if status.unsaved {
             f.write_str(" · unsaved")?;

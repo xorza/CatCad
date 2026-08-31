@@ -1,7 +1,7 @@
 //! What can be asked of what is picked out, along the bottom.
 
 use palantir::{Align, DragValue, Ui, WidgetId};
-use silverpoint::{Constraint, ConstraintId, Entity, SegmentId};
+use silverpoint::{Constraint, ConstraintId, Entity, Named, SegmentId};
 
 use crate::control::chip::Chip;
 use crate::control::pill::{self, Pill};
@@ -19,10 +19,34 @@ use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
 use crate::wording;
 
-/// Sketch units per pixel of scrub. A hundredth, so a drag reads a dimension
-/// out at the same precision the drawing prints it to and a slow pull can land
-/// on a round number.
-const DIMENSION_SPEED: f64 = 0.01;
+/// Sketch units per pixel of scrub. A hundredth, so a drag reads a number out
+/// at the same precision the drawing prints it to and a slow pull can land on a
+/// round number.
+const SCRUB_SPEED: f64 = 0.01;
+
+/// What the radius field opens at, before anybody has scrubbed one.
+///
+/// **A number rather than nothing**, because a blend of no radius is one the
+/// kernel refuses — see [`Rounding::round`](silverpoint::Rounding) — so a field
+/// opening at nought would offer a chip whose only answer is a step that will
+/// not build. One is what a document with no unit can honestly seed, and the
+/// field keeps whatever it is scrubbed to for the next fillet.
+const FIRST_RADIUS: f64 = 1.0;
+
+/// The number the radius field is showing.
+///
+/// **A type for one number, because its default is not nought.** The bar keeps
+/// it between frames — see [`Hud`](crate::hud::Hud) — and a derived default
+/// there would open the field on a radius the kernel refuses. Spelled here, so
+/// what the field opens at and what it means are one line apart.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Radius(f64);
+
+impl Default for Radius {
+    fn default() -> Self {
+        Self(FIRST_RADIUS)
+    }
+}
 
 pub(super) fn relation_id(label: &str) -> WidgetId {
     control("relation", label)
@@ -36,6 +60,13 @@ pub(super) fn relation_id(label: &str) -> WidgetId {
 /// never showed.
 pub(super) const REMOVE: &str = "Remove";
 
+/// What the chip that puts a blend in is recorded under, and what it is called.
+///
+/// **"Fillet" where the kernel says "rounding"**, because that is the word a
+/// draughtsman uses for it — the same split [`wording`] already makes over an
+/// edge and a segment.
+const FILLET: &str = "Fillet";
+
 /// Show it, where there is anything to show.
 ///
 /// Shown only when there is something to offer, rather than a fixed bar of
@@ -45,8 +76,9 @@ pub(super) const REMOVE: &str = "Remove";
 ///
 /// **Almost everything here wants a sketch open**, and for one reason: what it
 /// offers is what can be *said about* a drawing, and none of that is asked of a
-/// document you are only looking at. Starting a sketch is the one offer that is
-/// not, so it is the one read before that gate.
+/// document you are only looking at. Three are not — starting a sketch, and the
+/// two a fillet is asked through, which are about the model rather than about
+/// any drawing — so those are the ones read before that gate.
 ///
 /// **Centred, which the rest of the overlay is not.** Two edges picked in the
 /// middle of the view deserve an answer in the middle of the view. It is safe
@@ -58,6 +90,7 @@ pub(super) fn show(
     offers: &mut Vec<Constraint>,
     picked: &Picked,
     draft: &mut f64,
+    radius: &mut Radius,
     intents: &mut Intents,
 ) {
     let Shown {
@@ -65,6 +98,8 @@ pub(super) fn show(
     } = shown;
     let startable = picked.plane(models);
     let removable = picked.removable(models);
+    let roundable = picked.roundable();
+    let blendable = picked.blendable(models);
     let open = models.open();
     match open {
         Some(model) => model.offers(selection.picked(), offers),
@@ -83,6 +118,8 @@ pub(super) fn show(
         && spinning.is_none()
         && startable.is_none()
         && removable.is_none()
+        && roundable.is_none()
+        && blendable.is_none()
     {
         return;
     }
@@ -92,6 +129,12 @@ pub(super) fn show(
     // notice.
     if let Some(resizable) = dimension {
         *draft = resizable.value;
+    }
+    // The same, for a rounding already in the recipe. A fillet still being
+    // *offered* names no step, so the field keeps what it was last scrubbed to
+    // — which is what makes a second fillet open at the first one's radius.
+    if let Some(stated) = blendable.map(|blendable| blendable.radius) {
+        radius.0 = stated;
     }
     let theme = shown.theme;
     Pill::hstack(theme, "relations")
@@ -108,14 +151,47 @@ pub(super) fn show(
             {
                 intents.push(Change::AddSketch { on });
             }
+            // Before the gate below, because neither wants a drawing: what a
+            // fillet is asked of is the model, and a face of it is picked in the
+            // viewport rather than drawn — see
+            // [`Change::Round`](crate::intent::change::Change).
+            if let Some(along) = roundable {
+                scrub(ui, &mut radius.0);
+                if Chip::icon(relation_id(FILLET), FILLET, Glyph::Round).show(
+                    ui,
+                    shown.icons,
+                    theme,
+                ) {
+                    // The list reaches the heap on the frame the chip is
+                    // pressed and on no other, as the extrude's profile does.
+                    intents.push(Change::Round {
+                        along: vec![along],
+                        radius: radius.0,
+                    });
+                }
+            }
+            // The fillet already in the recipe, restated. The same field, so
+            // the number is read and scrubbed in one place whether the step
+            // exists yet or not.
+            if let Some(blendable) = blendable {
+                let edited = scrub(ui, &mut radius.0);
+                if edited.changed {
+                    intents.push(Change::Blend {
+                        round: blendable.at,
+                        to: radius.0,
+                    });
+                }
+                // One gesture, one step to take back, on the terms the
+                // dimension above states: `Blend` coalesces.
+                if edited.committed {
+                    intents.push(Step::Release);
+                }
+            }
             let Some(sketch) = open.map(Model::of) else {
                 return;
             };
             if let Some(resizable) = dimension {
-                let edited = DragValue::new(&mut *draft)
-                    .speed(DIMENSION_SPEED)
-                    .decimals(DECIMALS)
-                    .show(ui);
+                let edited = scrub(ui, draft);
                 if edited.changed {
                     intents.push(Change::Resize {
                         sketch,
@@ -192,7 +268,9 @@ pub(super) fn show(
                     || dimension.is_some()
                     || region.is_some()
                     || spinning.is_some()
-                    || removable.is_some())
+                    || removable.is_some()
+                    || roundable.is_some()
+                    || blendable.is_some())
             {
                 pill::divider(ui, theme, "offers");
             }
@@ -213,6 +291,38 @@ pub(super) fn show(
                 }
             }
         });
+}
+
+/// Show one number the bar scrubs, writing what the gesture makes of it into
+/// `value`.
+///
+/// Its own call because three readings show one — a dimension, a fillet being
+/// offered, and a fillet already in the recipe — and a field spelled three
+/// times would be three places for the speed and the precision to differ.
+///
+/// The widget's own response is read here and not handed back: it borrows both
+/// the number and the surface for as long as it lives, which would leave every
+/// caller unable to read the number it had just been scrubbed.
+fn scrub(ui: &mut Ui, value: &mut f64) -> Scrubbed {
+    let edited = DragValue::new(value)
+        .speed(SCRUB_SPEED)
+        .decimals(DECIMALS)
+        .show(ui);
+    Scrubbed {
+        changed: edited.changed,
+        committed: edited.committed,
+    }
+}
+
+/// What one scrub of a number came to.
+///
+/// Two answers rather than one, because they close different things: a change
+/// is what the document is asked to become, and a commit is the end of the
+/// gesture that asked — see [`Step::Release`].
+#[derive(Debug, Clone, Copy)]
+struct Scrubbed {
+    changed: bool,
+    committed: bool,
 }
 
 /// One offer, drawn as the drawing draws it.
@@ -251,12 +361,19 @@ pub(super) struct Picked {
     entities: Vec<Entity>,
     /// Every step picked.
     steps: Vec<FeatureId>,
-    /// Whether anything picked is none of those three, or is of a second
+    /// Every face of the model picked, in the order they were picked.
+    ///
+    /// **A [`Named`] rather than the [`Part`] it came off**, which is where a
+    /// pick becomes a name the kernel takes: a face answers to one across every
+    /// edit, and the pair of them a fillet is asked for is exactly the two
+    /// picked out — see [`Change::Round`].
+    faces: Vec<Named>,
+    /// Whether anything picked is none of those four, or is of a second
     /// drawing.
     ///
     /// One flag rather than a list, because every reading below refuses the
-    /// moment it is set: what the bar offers is what can be said about *one*
-    /// drawing, and a face of a solid is not something it says anything about.
+    /// moment it is set: what the bar offers is what can be said about one
+    /// drawing or about the model, and what is left is a handle on a form.
     strays: bool,
 }
 
@@ -271,6 +388,7 @@ impl Picked {
         self.regions.clear();
         self.entities.clear();
         self.steps.clear();
+        self.faces.clear();
         self.strays = false;
         for &part in selection.picked() {
             match part {
@@ -283,7 +401,8 @@ impl Picked {
                     self.entities.push(entity);
                 }
                 Part::Step(at) => self.steps.push(at),
-                _ => self.strays = true,
+                Part::Solid { of, face } => self.faces.push(of.step().grew(face)),
+                Part::Growing | Part::Turning => self.strays = true,
             }
         }
     }
@@ -296,12 +415,30 @@ impl Picked {
         }
     }
 
+    /// Whether nothing is picked out beyond the lists `wanted` names.
+    ///
+    /// **One reading rather than one per offer.** Every offer below refuses a
+    /// selection holding anything it did not ask for, and a spelling apiece is
+    /// a spelling apiece to forget when a fifth kind of thing becomes pickable
+    /// — which fails silently, an offer appearing for a selection it has no
+    /// answer for.
+    fn only(&self, wanted: Wanted) -> bool {
+        !self.strays
+            && (wanted.regions || self.regions.is_empty())
+            && (wanted.entities || self.entities.is_empty())
+            && (wanted.steps || self.steps.is_empty())
+            && (wanted.faces || self.faces.is_empty())
+    }
+
     /// The one dimension picked out, if what is picked is exactly that.
     ///
     /// One rather than any, because the field edits a value and two values have
     /// no single answer.
     fn resizable(&self, model: Model<'_>) -> Option<Resizable> {
-        if self.strays || !self.regions.is_empty() || !self.steps.is_empty() {
+        if !self.only(Wanted {
+            entities: true,
+            ..Wanted::default()
+        }) {
             return None;
         }
         let [Entity::Constraint(id)] = self.entities[..] else {
@@ -326,7 +463,10 @@ impl Picked {
     /// The regions picked out, if regions of one drawing are all that is.
     fn growable(&self) -> Option<Growable<'_>> {
         let sketch = self.sketch?;
-        let alone = !self.strays && self.entities.is_empty() && self.steps.is_empty();
+        let alone = self.only(Wanted {
+            regions: true,
+            ..Wanted::default()
+        });
         (alone && !self.regions.is_empty()).then_some(Growable {
             sketch,
             regions: &self.regions,
@@ -339,7 +479,12 @@ impl Picked {
     /// **Which was clicked first says nothing**, which is what sorting bought.
     fn spinnable(&self) -> Option<Spinnable<'_>> {
         let sketch = self.sketch?;
-        if self.strays || self.regions.is_empty() || !self.steps.is_empty() {
+        let alone = self.only(Wanted {
+            regions: true,
+            entities: true,
+            ..Wanted::default()
+        });
+        if !alone || self.regions.is_empty() {
             return None;
         }
         let [Entity::Segment(axis)] = self.entities[..] else {
@@ -370,13 +515,51 @@ impl Picked {
     /// about either, and two spellings of that would be two chances to differ
     /// over which of them to refuse.
     fn step(&self) -> Option<FeatureId> {
-        if self.strays || !self.regions.is_empty() || !self.entities.is_empty() {
+        if !self.only(Wanted {
+            steps: true,
+            ..Wanted::default()
+        }) {
             return None;
         }
         let [at] = self.steps[..] else {
             return None;
         };
         Some(at)
+    }
+
+    /// The pair of faces a fillet would be asked for, if what is picked is
+    /// exactly two of them.
+    ///
+    /// **Two, because a pick names one edge**, which is the edge those two
+    /// faces divide — see [`Feature::Round`](crate::timeline::feature::Feature).
+    /// One face names no edge and three name no one edge, so neither is
+    /// something the bar has an answer for.
+    ///
+    /// The two have to differ. A face picked twice cannot be, a selection
+    /// holding nothing twice over — but the *same name* twice is reachable, a
+    /// face of the body coming in several patches, and an edge between a face
+    /// and itself is one the kernel refuses.
+    fn roundable(&self) -> Option<[Named; 2]> {
+        if !self.only(Wanted {
+            faces: true,
+            ..Wanted::default()
+        }) {
+            return None;
+        }
+        let [one, two] = self.faces[..] else {
+            return None;
+        };
+        (one != two).then_some([one, two])
+    }
+
+    /// The one rounding picked out and the radius it states, if what is picked
+    /// is exactly that step.
+    ///
+    /// The mirror of [`Picked::resizable`] one level up: a step somebody may
+    /// restate, and what it says as it stands.
+    fn blendable(&self, models: Models<'_>) -> Option<Blendable> {
+        let at = self.step()?;
+        models.radius_at(at).map(|radius| Blendable { at, radius })
     }
 
     /// The one plane picked out, if what is picked is exactly that.
@@ -392,11 +575,36 @@ impl Picked {
     }
 }
 
+/// Which of the sorted lists an offer reads, and so which it will tolerate
+/// something in.
+///
+/// Named rather than four bools in a row, on the terms [`Scrubbed`] states
+/// about two: they are all one type, so any two could change places without a
+/// word from the compiler — and an offer that tolerated steps where it meant
+/// faces would appear for a selection it has no answer for.
+#[derive(Debug, Clone, Copy, Default)]
+struct Wanted {
+    regions: bool,
+    entities: bool,
+    steps: bool,
+    faces: bool,
+}
+
 /// A dimension the bar can scrub, and the number it states as it stands.
 #[derive(Debug, Clone, Copy)]
 struct Resizable {
     constraint: ConstraintId,
     value: f64,
+}
+
+/// A rounding the bar can scrub, and the radius it states as it stands.
+///
+/// [`Resizable`]'s twin, and the same shape for the same reason: which step to
+/// name in the change it raises, and what to seed the field with.
+#[derive(Debug, Clone, Copy)]
+struct Blendable {
+    at: FeatureId,
+    radius: f64,
 }
 
 /// The regions the bar can grow a solid off.

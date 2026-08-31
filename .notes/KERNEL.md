@@ -918,12 +918,23 @@ inbox was for, and a clone ends it just as well — only the two that carry a
 profile reach the heap, and each of those is one press.
 
 **Each step builds on the model the step before it left**, and `Models::solids`
-is what the last of them made rather than one body per extrude. `Build` holds a
-`Bodied` per extrude beside `settled`, keyed by a digest — the settled sketch's
-`Revision`, the plane **by value** because moving a plane settles nothing and
-bumps no revision, the region, the distance and the operation. Equal digest →
-keep the body that is already there, refilled *over* rather than into a fresh
-one, so a drag reaches the heap not at all (§4.5).
+is what the last of them made rather than one body per step. `Build` holds a
+`Bodied` per such step beside `settled`, keyed by what it was built *on* — the
+version the step before it left — and by what it was built *from*: for a sweep
+the settled sketch's `Revision`, the plane **by value** because moving a plane
+settles nothing and bumps no revision, the regions, the sweep and the operation.
+Both equal → keep the body that is already there, refilled *over* rather than
+into a fresh one, so a drag reaches the heap not at all (§4.5).
+
+**And one step that sweeps nothing.** `Feature::Round { along, radius }` names
+no drawing, lies on no plane and raises no second solid: it rewrites the model
+standing before it. §7.5 is what it does; what it is *named by* is §5's own
+vocabulary — a pick is a pair of `Named`, which is the only durable name an edge
+has, so picking two faces in the viewport *is* naming the edge between them and
+the picker needs no way to pick an edge of its own. The bar offers it for
+exactly two faces, with the radius on a field beside the chip, and picking the
+step again restates that radius. `Timeline::making` is the walk both kinds go
+down; `Recipe` is the pair of shapes a rebuild is decided by.
 
 **A step the kernel will not merge is not dropped.** Its own solid stands beside
 the model, the tree counts it among what went wrong, and the step after it goes
@@ -935,16 +946,24 @@ on building from the model that was worked out.
 ```rust
 pub(crate) enum Built {
     Made,
-    /// The profile no longer names a region.
-    LostProfile,
+    /// What it was built on is no longer there.
+    Lost,
     /// It built, and what it built encloses nothing.
     Empty,
+    /// The kernel would not put its solid into the model.
+    Refused,
+    /// The kernel would not put its blend in.
+    Unrounded,
 }
 ```
 
 An extrusion of no depth is a number somebody is still typing; a profile drawn
-across is a step that has lost its footing. `Models::lost` counts only the
-second.
+across is a step that has lost its footing. The last two are the kernel's own
+refusals, told apart because they are mended differently and leave different
+pictures: a refused boolean leaves the step's solid standing *beside* the model,
+where a refused blend leaves nothing at all and wants its radius scrubbed down.
+`Models::lost`, `unmerged` and `unrounded` count the three, and the status line
+says which.
 
 **Painting and picking.** `paint::write::solids` writes one `Object` per named
 face, because a tag names a primitive and a face to be hovered, picked and built
@@ -963,8 +982,8 @@ comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
 
 **§9.1 through §9.4 are done**, and the plane row of §7.3's table now has no
-gap in it. What is left below is M7, whose first slice — the blend itself — is
-in the tree and whose consumer is not.
+gap in it. What is left below is M7, whose first slice — the blend, and the step
+of the document that asks for one — is in the tree.
 
 **Two refusals stand outside all of it, and they are one shape.** A bitangent
 plane on a torus cuts Villarceau's two circles, which cross at both places it
@@ -1325,7 +1344,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **the blend is done**
+### 9.5 M7 — fillet, chamfer, STEP — **the blend and its consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -1335,6 +1354,16 @@ mark the body fitted.
 **The first slice is in the tree**: a constant-radius blend down a straight edge
 between two planes, exact, convex or concave, several edges at a time, and a
 body like any other afterwards. §7.5 is how it works and what it refuses.
+
+**And it lands in CatCad**, which is rule 1. `Feature::Round { along, radius }`
+is a step of the timeline like any other — replayed, cached, saved, reopened,
+reordered and taken back — and §8 is the shape of it. The gesture is two faces
+picked in the viewport and a chip with a radius beside it, which needed no new
+picking: a pick is a pair of face names, so the faces the edge divides *are* its
+name. Picking the step again restates the radius on the same field. A blend the
+kernel refuses is its own kind of trouble, counted apart from a lost profile and
+from a solid that would not merge, because a person mends it by scrubbing the
+radius down.
 
 **It cannot be a boolean, which is measured rather than assumed.** The tempting
 route is to build the fillet from what already works: for a straight edge
@@ -1356,16 +1385,16 @@ arcs is §7.5.
 
 **What is not done, in the order §10's first rule puts it:**
 
-- **A consumer**, and rule 1 says a milestone has one. The application's
-  timeline is a list of *sweeps* — each a profile, a plane and an operation —
-  and a rounding is none of those: it wants a step kind that changes the model
-  without sweeping anything, a digest over the picks and the radius rather than
-  over an arrangement, a record in the file, and a way to pick an *edge* in the
-  viewport, which today picks faces. So this is half a milestone, and the other
-  half is the next chunk rather than a later one.
 - **A vertex blend.** Three rounded edges meeting at a corner leave a patch
   between their three cylinders that no one of them holds. It is why two picks
-  sharing a corner are refused.
+  sharing a corner are refused — and it is what a document reaches first, a
+  block whose two top edges are both wanted round being the ordinary ask.
+- **A blend down an edge a boolean split.** A cut whose wall reaches the picked
+  edge leaves it as two edges meeting at a corner, and both are picked by the
+  one pair of names — which is the case above by another road, and refused by
+  the same rule. What the document hands the kernel is the *pieces*, because
+  §9.3 measures that the splits are the answer's contract for the next boolean;
+  merging first would trade this refusal for that one.
 - **A blend onto anything but a plane.** The rulings are the whole of why this
   slice stays exact — a cylinder tangent to two planes is one cylinder, where a
   blend running out onto a cylinder or a cone is a surface of the fitted tier

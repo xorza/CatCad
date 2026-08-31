@@ -86,6 +86,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
                 let came = match models.came_at(at) {
                     Some(Built::Lost) => " · lost",
                     Some(Built::Refused) => " · apart",
+                    Some(Built::Unrounded) => " · refused",
                     Some(Built::Empty) => " · empty",
                     Some(Built::Made) | None => "",
                 };
@@ -112,6 +113,13 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
                     Feature::Revolve { .. } => {
                         solids += 1;
                         (Glyph::Extrude, "Revolve", solids)
+                    }
+                    // Numbered with the solids, because a rounding is a solid
+                    // in the one sense this list counts them by: it leaves a
+                    // body behind, and the step after it builds on that.
+                    Feature::Round { .. } => {
+                        solids += 1;
+                        (Glyph::Round, "Fillet", solids)
                     }
                 };
                 // Interned into the pass's own arena rather than formatted into a

@@ -6,7 +6,7 @@ use crate::document::file::error::Missing;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, World};
 use glam::DVec2;
-use silverpoint::{Constraint, Dimension, Operation, Sector};
+use silverpoint::{Constraint, Dimension, Grown, Operation, Sector};
 
 /// The text `timeline` is written as.
 ///
@@ -190,7 +190,7 @@ fn a_document_is_written_exactly_like_this() {
     // the sketch it belongs to, with both sides of a curve told apart. Whether
     // the drawing holds such a region is the arrangement's question and is asked
     // where regions are named rather than where they are written down.
-    timeline.add(Feature::Extrude {
+    let grown = timeline.add(Feature::Extrude {
         profile: Profile::of(
             drawn,
             [[
@@ -229,6 +229,20 @@ fn a_document_is_written_exactly_like_this() {
         },
         operation: Operation::Cut,
     });
+    // And a rounding last, which is the one step that names *faces* rather
+    // than a drawing. Both halves of a face's name are written: the step that
+    // grew it, and what of that step it is — a wall carrying the very curve
+    // the extrude above was swept from, in that same sketch's numbering.
+    timeline.add(Feature::Round {
+        along: vec![[
+            grown.step().grew(Grown::Far),
+            grown.step().grew(Grown::Side(Bound {
+                of: Entity::Segment(edge),
+                along: true,
+            })),
+        ]],
+        radius: 0.25,
+    });
 
     // And back again, which is what says the reading matches the writing. A
     // sector especially: it is the one field here a file spells out of a type
@@ -243,7 +257,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 5,
+    version: 6,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -303,6 +317,18 @@ fn a_document_is_written_exactly_like_this() {
                 sweep: 1.5707963267948966,
             ),
             operation: Cut,
+        ),
+        Round(
+            along: [
+                ((
+                    by: 5,
+                    grew: Far,
+                ), (
+                    by: 5,
+                    grew: Side(Segment(at: 0, along: true)),
+                )),
+            ],
+            radius: 0.25,
         ),
     ],
     rolled: None,
@@ -481,7 +507,7 @@ fn saving_compacts_the_holes_an_edit_left() {
 /// two pieces of this program; a file is neither piece.
 #[test]
 fn a_document_that_says_something_impossible_is_refused() {
-    let refused: [(String, Fault); 14] = [
+    let refused: [(String, Fault); 17] = [
         // A version this cannot claim to understand, whatever it goes on to
         // say — here the one that came before, which is the way a stamp is
         // actually met in the wild.
@@ -572,6 +598,45 @@ fn a_document_that_says_something_impossible_is_refused() {
                 ),
             ),
             Fault::NotFinite { at: 2 },
+        ),
+        // A rounding picking a face of a sketch, which grows none at all.
+        (
+            document(
+                VERSION,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Round(along: [((by: 1, grew: Base), (by: 1, grew: Far))], radius: 1.0)"
+                ),
+            ),
+            Fault::NoSuchFace { at: 2, names: 1 },
+        ),
+        // And one picking a *wall* of a rounding, which grows faces that name
+        // no curve — the same complaint by the other of its two paths.
+        (
+            document(
+                VERSION,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Extrude(profile: (sketch: 1, regions: []), distance: 1.0, operation: Join), \
+                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], radius: 1.0), \
+                     Round(along: [((by: 3, grew: Blend(0)), \
+                     (by: 3, grew: Side(Segment(at: 0, along: true))))], radius: 1.0)"
+                ),
+            ),
+            Fault::NoSuchFace { at: 4, names: 3 },
+        ),
+        // A blend of a radius that is not a number, which is the same complaint
+        // a distance gets and reached through the one field a rounding states.
+        (
+            document(
+                VERSION,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Extrude(profile: (sketch: 1, regions: []), distance: 1.0, operation: Join), \
+                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], radius: inf)"
+                ),
+            ),
+            Fault::NotFinite { at: 3 },
         ),
         // An edge between points the sketch does not hold.
         (

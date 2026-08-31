@@ -2,9 +2,10 @@ use super::*;
 use crate::build::Build;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
+use crate::profile::Profile;
 use aperture::Motion;
 use glam::{DVec2, DVec3, Vec3};
-use silverpoint::{Plane, Sketch};
+use silverpoint::{Grown, Operation, Plane, Sketch};
 
 /// A step names an earlier step and never itself, and a handle stays dead once
 /// its step is gone.
@@ -355,6 +356,63 @@ fn a_step_still_built_on_cannot_be_taken_out() {
         sketch: Sketch::default(),
     });
     timeline.uproot(ground);
+}
+
+/// A rounding is built on every step whose faces it picked, and goes when any
+/// of them does.
+///
+/// **The one step that names more than one referent**, and the reason it has to:
+/// a pick is a pair of face names, each carrying the step that grew the face —
+/// see [`Named`](silverpoint::Named). So a rounding across two solids stands on
+/// both, and a delete of either takes it.
+///
+/// Two extrudes rather than one, which is what makes the claim more than "the
+/// step before it": a rounding picking a face of each is doomed by the first as
+/// readily as by the second, and neither extrude is doomed by the other.
+#[test]
+fn a_rounding_stands_on_every_step_it_picked_a_face_of() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let drawn = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    let profile = || Profile::of(drawn, std::iter::empty());
+    let first = timeline.add(Feature::Extrude {
+        profile: profile(),
+        distance: 1.0,
+        operation: Operation::Join,
+    });
+    let second = timeline.add(Feature::Extrude {
+        profile: profile(),
+        distance: 1.0,
+        operation: Operation::Join,
+    });
+    let round = timeline.add(Feature::Round {
+        along: vec![[
+            first.step().grew(Grown::Far),
+            second.step().grew(Grown::Base),
+        ]],
+        radius: 0.5,
+    });
+
+    let mut doomed = Vec::new();
+    timeline.doomed(first, &mut doomed);
+    assert_eq!(
+        doomed,
+        [first, round],
+        "the rounding does not stand on the first extrude it picked",
+    );
+    timeline.doomed(second, &mut doomed);
+    assert_eq!(
+        doomed,
+        [second, round],
+        "the rounding does not stand on the second extrude it picked",
+    );
+    // And neither extrude stands on the other, which is what says the cascade
+    // reads referents rather than everything later.
+    timeline.doomed(round, &mut doomed);
+    assert_eq!(doomed, [round], "a rounding took a step standing beside it");
 }
 
 /// Deleting a step takes everything built on it, however far down, and nothing

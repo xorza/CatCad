@@ -29,7 +29,7 @@ use silverpoint::{Bound, Entity};
 /// anything else outright rather than guessing at it: a format that changes
 /// shape and keeps its number is one where a wrong answer looks like a right
 /// one, and the whole point of the stamp is to make the mismatch loud.
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 /// A document as it is written down: what was done, and where it is being
 /// looked at from.
@@ -82,9 +82,10 @@ impl Saved {
             .steps()
             .map(|(_, feature)| match feature {
                 Feature::Sketch { sketch, .. } => Handles::of(sketch),
-                Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
-                    Handles::default()
-                }
+                Feature::Plane(_)
+                | Feature::Extrude { .. }
+                | Feature::Revolve { .. }
+                | Feature::Round { .. } => Handles::default(),
             })
             .collect();
         Self {
@@ -93,7 +94,7 @@ impl Saved {
             rolled: timeline.rolled().map(|at| steps.of(at)),
             steps: timeline
                 .steps()
-                .map(|(_, feature)| Step::of(feature, &steps, &handles))
+                .map(|(_, feature)| Step::of(feature, timeline, &steps, &handles))
                 .collect(),
         }
     }

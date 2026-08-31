@@ -1,8 +1,8 @@
-//! Where two solids are put together, and the answer tidied.
+//! Where the model is changed, and the answer tidied.
 
-use silverpoint::{Body, Boolean, Merging, Operation};
+use silverpoint::{Body, Boolean, Merging, Named, Operation, Round, Rounding, Step};
 
-/// The room a solid is put together in, and every buffer that takes.
+/// The room the model is changed in, and every buffer that takes.
 ///
 /// **One place where a preview and a commit agree.** A step's own rebuild puts
 /// its solid together here, and so does the form still deciding a depth — see
@@ -15,6 +15,7 @@ use silverpoint::{Body, Boolean, Merging, Operation};
 #[derive(Debug, Default)]
 pub(crate) struct Putting {
     boolean: Boolean,
+    rounding: Rounding,
     merging: Merging,
     /// What the boolean answers, before the pieces of every face are put back
     /// together. Lives no longer than the call.
@@ -53,6 +54,32 @@ impl Putting {
             return true;
         };
         self.boolean.combine(standing, raised, operation, into)
+    }
+
+    /// Put a blend of `radius` where each edge `along` names was in `standing`,
+    /// into `into`, and say whether the kernel would.
+    ///
+    /// **A local edit to one body rather than a boolean between two**, which
+    /// `.notes/KERNEL.md` §7.5 measures: a fillet's cylinder lies tangent to
+    /// both faces it runs out onto, and every arrangement of that as a boolean
+    /// is refused for exactly that reason. So nothing here is cut against
+    /// anything.
+    ///
+    /// `by` is the step asking, which is what names the faces the blend raises
+    /// — see [`Grown::Rounded`](silverpoint::Grown).
+    ///
+    /// A refusal leaves `into` emptied and the model untouched, there being no
+    /// second solid to stand beside it.
+    pub(crate) fn round(
+        &mut self,
+        standing: &Body,
+        along: &[[Named; 2]],
+        radius: f64,
+        by: Step,
+        into: &mut Body,
+    ) -> bool {
+        self.rounding
+            .round(&Round::new(along, radius, by), standing, into)
     }
 
     /// `from` with the pieces of every face put back together, into `into`.

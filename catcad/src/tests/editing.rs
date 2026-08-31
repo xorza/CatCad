@@ -206,6 +206,98 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
     raised.frame();
 }
 
+/// **Two faces of the model picked out offer a fillet, and pressing it puts a
+/// rounding on the end of the recipe.**
+///
+/// The path a user has for the one step that sweeps nothing: pick the two faces
+/// an edge divides, set a radius, press the chip. A pick is a pair of face
+/// names — see [`Feature::Round`] — so picking the faces *is* naming the edge,
+/// and the viewport needs no way to pick an edge of its own.
+///
+/// **Two, and not one.** One face names no edge, so the chip is not offered —
+/// which is asserted here because an offer that appeared for any selection
+/// would be one whose answer was a guess.
+///
+/// The demo's solid is a disc carried off the ground, so the edge picked here
+/// divides a plane from a cylinder and the kernel will not blend it — see
+/// `.notes/KERNEL.md` §9.5, where a blend onto anything but a plane is what is
+/// not done yet. That is the honest thing to assert of this document: the step
+/// lands, the model goes on standing, and the recipe says which step could not
+/// go in. What a blend that *does* go in comes to is asked over a block in
+/// [`build::tests`](crate::build).
+#[test]
+fn two_faces_picked_out_offer_a_fillet_and_one_face_does_not() {
+    let mut raised = Raised::new();
+    assert_eq!(raised.solids(), 1);
+
+    // The two faces the demo's solid always has, in the order a body promises
+    // them — see [`Body::names`](silverpoint::Body).
+    let picked: Vec<Part> = {
+        let models = raised.models();
+        let (_, body) = models.model().expect("the demo grows a solid");
+        body.names()
+            .take(2)
+            .map(|named| Part::Solid {
+                of: FeatureId::from(named.by),
+                face: named.grown,
+            })
+            .collect()
+    };
+    let [one, two] = picked[..] else {
+        panic!("a solid has at least two faces");
+    };
+
+    // One face names no edge, so there is nothing to offer.
+    raised.choose(Choice::Select(Some(one)));
+    raised.frame();
+    assert!(
+        !raised.shows(internals::relation("Fillet")),
+        "one face picked out offered a fillet"
+    );
+
+    raised.choose(Choice::Include(two));
+    raised.frame();
+    assert!(
+        raised.shows(internals::relation("Fillet")),
+        "two faces picked out offered no fillet: {}",
+        raised.app.status()
+    );
+
+    raised.press(internals::relation("Fillet"));
+    raised.frame();
+    let rounding = |raised: &Raised| {
+        raised
+            .models()
+            .chosen()
+            .filter(|(_, feature)| matches!(feature, Feature::Round { .. }))
+            .count()
+    };
+    assert_eq!(
+        rounding(&raised),
+        1,
+        "pressing Fillet put no rounding in the recipe: {}",
+        raised.app.status()
+    );
+    // The model is the disc it was, and the recipe says which step could not go
+    // in — where a refusal reported as nothing would be a chip that read as
+    // broken.
+    assert_eq!(
+        raised.models().unrounded(),
+        1,
+        "a blend the kernel refused went unreported: {}",
+        raised.app.status()
+    );
+    assert_eq!(raised.solids(), 1, "a refused blend left a solid behind");
+
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        rounding(&raised),
+        0,
+        "Ctrl+Z left the rounding behind, so the creation went unrecorded"
+    );
+}
+
 /// **A region picked out grows a solid, and Ctrl+Z takes the whole step back.**
 ///
 /// The path a user actually has: click a region, press Extrude, and a step

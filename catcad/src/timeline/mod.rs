@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use glam::{DVec2, DVec3};
-use silverpoint::{Operation, Plane, Sector, SegmentId, Sketch, Step};
+use silverpoint::{Named, Operation, Plane, Sector, SegmentId, Sketch, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -222,9 +222,10 @@ impl Timeline {
                     ..base
                 }
             }
-            Feature::Sketch { .. } | Feature::Extrude { .. } | Feature::Revolve { .. } => {
-                wrong_kind(at, "a plane", feature)
-            }
+            Feature::Sketch { .. }
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => wrong_kind(at, "a plane", feature),
         }
     }
 
@@ -239,7 +240,8 @@ impl Timeline {
             other @ (Feature::Plane(Datum::World(_))
             | Feature::Sketch { .. }
             | Feature::Extrude { .. }
-            | Feature::Revolve { .. }) => wrong_kind(at, "a plane that can be moved", other),
+            | Feature::Revolve { .. }
+            | Feature::Round { .. }) => wrong_kind(at, "a plane that can be moved", other),
         }
     }
 
@@ -255,9 +257,26 @@ impl Timeline {
             // A revolve has no distance to carry. What its own drag would move
             // is the line it spins about, which is a segment of a drawing and
             // is dragged there.
-            other @ (Feature::Plane(_) | Feature::Sketch { .. } | Feature::Revolve { .. }) => {
-                wrong_kind(at, "an extrude", other)
-            }
+            other @ (Feature::Plane(_)
+            | Feature::Sketch { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. }) => wrong_kind(at, "an extrude", other),
+        }
+    }
+
+    /// Blend the rounding at `at` to a new radius.
+    ///
+    /// The third of the one-number edits beside [`Timeline::offset`] and
+    /// [`Timeline::carry`], and the same shape for the same reason: restating
+    /// the number is the whole of the edit, and what it does to the model
+    /// follows from a replay.
+    pub(crate) fn blend(&mut self, at: FeatureId, to: f64) {
+        match self.feature_mut(at) {
+            Feature::Round { radius, .. } => *radius = to,
+            other @ (Feature::Plane(_)
+            | Feature::Sketch { .. }
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }) => wrong_kind(at, "a rounding", other),
         }
     }
 
@@ -274,9 +293,10 @@ impl Timeline {
                 at,
                 along: Along::on(self.plane_of(profile.sketch())),
             },
-            Feature::Plane(_) | Feature::Sketch { .. } | Feature::Revolve { .. } => {
-                wrong_kind(at, "an extrude", feature)
-            }
+            Feature::Plane(_)
+            | Feature::Sketch { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => wrong_kind(at, "an extrude", feature),
         }
     }
 
@@ -596,7 +616,8 @@ impl Timeline {
             Feature::Plane(Datum::World(_))
             | Feature::Sketch { .. }
             | Feature::Extrude { .. }
-            | Feature::Revolve { .. } => None,
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => None,
         }
     }
 
@@ -621,7 +642,10 @@ impl Timeline {
     pub(crate) fn sketched(&self, at: FeatureId) -> Option<Drawing<'_>> {
         match self.held(at)? {
             Feature::Sketch { on, sketch } => Some(Drawing::new(sketch, self.plane(*on))),
-            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => None,
+            Feature::Plane(_)
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => None,
         }
     }
 
@@ -634,9 +658,10 @@ impl Timeline {
         let plane = self.plane_of(at);
         match self.feature_mut(at) {
             Feature::Sketch { sketch, .. } => Sketching::new(at, sketch, plane),
-            other @ (Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. }) => {
-                wrong_kind(at, "a sketch", other)
-            }
+            other @ (Feature::Plane(_)
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. }) => wrong_kind(at, "a sketch", other),
         }
     }
 
@@ -652,28 +677,28 @@ impl Timeline {
             .map(|(id, _)| id)
     }
 
-    /// Every extrude the timeline holds, whole.
+    /// Every step the timeline holds that makes a body, whole.
     ///
     /// What a step *says* rather than the handle alone, unlike
-    /// [`Timeline::sketches`]: an extrude is two values and every reader wants
-    /// both — resolving one asks the profile, drawing one asks the profile and
-    /// the distance together. Handing back the handle and making each caller
-    /// fetch the step again would be a second lookup and a match on an arm the
-    /// walk has already ruled out.
-    pub(crate) fn swept(&self) -> impl Iterator<Item = Swept<'_>> {
+    /// [`Timeline::sketches`]: a step that makes a body is several values and
+    /// every reader wants them together — resolving a sweep asks the profile,
+    /// drawing one asks the profile and the distance at once. Handing back the
+    /// handle and making each caller fetch the step again would be a second
+    /// lookup and a match on an arm the walk has already ruled out.
+    pub(crate) fn making(&self) -> impl Iterator<Item = Making<'_>> {
         self.steps().filter_map(|(at, feature)| {
-            let (profile, sweep, operation) = match feature {
+            let doing = match feature {
                 Feature::Extrude {
                     profile,
                     distance,
                     operation,
-                } => (profile, Sweep::Carried(*distance), *operation),
+                } => self.sweeping(profile, Sweep::Carried(*distance), *operation),
                 Feature::Revolve {
                     profile,
                     axis,
                     sector,
                     operation,
-                } => (
+                } => self.sweeping(
                     profile,
                     Sweep::Spun {
                         axle: self.axle(profile, *axis),
@@ -681,16 +706,27 @@ impl Timeline {
                     },
                     *operation,
                 ),
+                Feature::Round { along, radius } => Doing::Round {
+                    along,
+                    radius: *radius,
+                },
                 Feature::Plane(_) | Feature::Sketch { .. } => return None,
             };
-            Some(Swept {
-                at,
-                profile,
-                sweep,
-                operation,
-                plane: self.plane_of(profile.sketch()),
-            })
+            Some(Making { at, doing })
         })
+    }
+
+    /// One sweep as the walk above reads it, its drawing resolved to a plane.
+    ///
+    /// Written once for the two arms that reach it, so where an extrude lands
+    /// and where a revolve lands are worked out the same way.
+    fn sweeping<'a>(&self, profile: &'a Profile, sweep: Sweep, operation: Operation) -> Doing<'a> {
+        Doing::Sweep {
+            profile,
+            sweep,
+            operation,
+            plane: self.plane_of(profile.sketch()),
+        }
     }
 
     /// The line at `axis` in the drawing `profile` is a region of, or `None`
@@ -712,9 +748,10 @@ impl Timeline {
         let feature = self.feature(at);
         match feature {
             Feature::Sketch { on, .. } => *on,
-            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
-                wrong_kind(at, "a sketch", feature)
-            }
+            Feature::Plane(_)
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }
+            | Feature::Round { .. } => wrong_kind(at, "a sketch", feature),
         }
     }
 
@@ -798,37 +835,64 @@ pub(crate) struct Uprooted {
     pub(crate) feature: Feature,
 }
 
-/// One extrude the timeline holds: which step it is, what it is grown from, and
-/// how far.
+/// One step the timeline holds that makes a body: which step it is, and what it
+/// makes one out of.
 ///
 /// A named satellite rather than a tuple, for the reason [`Movable`] above is
-/// one: the three answer one question between them and none of them answers it
-/// alone. Where a solid *is* follows from the region and the distance at once,
-/// and which step it is names it.
+/// one: the two answer one question between them and neither answers it alone.
+/// What a step *makes* is [`Doing`]'s to say, and which step it is names it.
 ///
-/// Borrowed and [`Copy`], like every other reading here — the profile belongs to
-/// the step, and this is a way of looking at one rather than a thing the
-/// timeline holds.
+/// Borrowed and [`Copy`], like every other reading here — what it points at
+/// belongs to the step, and this is a way of looking at one rather than a thing
+/// the timeline holds.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Swept<'a> {
+pub(crate) struct Making<'a> {
     pub(crate) at: FeatureId,
-    pub(crate) profile: &'a Profile,
-    /// What is done to that region to raise a solid off it.
-    pub(crate) sweep: Sweep,
-    /// What it does with the solid the steps before it left standing.
-    pub(crate) operation: Operation,
-    /// Where in the world the drawing it was grown from lies.
+    pub(crate) doing: Doing<'a>,
+}
+
+/// What one step makes a body out of.
+///
+/// **Two ways to make one, and the split is the whole of the type.** A sweep
+/// raises a solid off a region of a drawing and puts it into the model; a
+/// rounding changes the model standing before it and raises nothing. Neither is
+/// a case of the other, and every field below belongs to exactly one of them —
+/// which is why this is an enum rather than a struct with half its fields
+/// carrying `None` for the other kind.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Doing<'a> {
+    /// Raise a solid off the regions a profile names, and put it into the
+    /// model.
+    Sweep {
+        profile: &'a Profile,
+        /// What is done to those regions to raise a solid off them.
+        sweep: Sweep,
+        /// What it does with the solid the steps before it left standing.
+        operation: Operation,
+        /// Where in the world the drawing it was grown from lies.
+        ///
+        /// Most readers here do not want it, and it is carried anyway, because
+        /// the one that does is on the far side of a boundary: what crosses
+        /// into [`Build`](crate::build::Build) is what each step names and
+        /// nothing else, so a rebuild cannot go and look this up for itself.
+        /// Resolving it is two hops — to the sketch, then to its plane — and
+        /// neither reaches the heap.
+        ///
+        /// It is also what a body is cached against, and the reason that cache
+        /// needs it: a plane that moves solves no sketch and bumps no revision,
+        /// and moves every solid grown off it.
+        plane: Plane,
+    },
+    /// Put a blend of `radius` where each edge `along` names was.
     ///
-    /// Most readers here do not want it, and it is carried anyway, because the
-    /// one that does is on the far side of a boundary: what crosses into
-    /// [`Build`](crate::build::Build) is what each step names and nothing else,
-    /// so a rebuild cannot go and look this up for itself. Resolving it is two
-    /// hops — to the sketch, then to its plane — and neither reaches the heap.
-    ///
-    /// It is also what a body is cached against, and the reason that cache
-    /// needs it: a plane that moves solves no sketch and bumps no revision, and
-    /// moves every solid grown off it.
-    pub(crate) plane: Plane,
+    /// Nothing is resolved against a drawing, which is what makes this the one
+    /// arm with no plane and no sketch: a pick is a pair of face names, and a
+    /// face of a body answers to its name without anything being looked up —
+    /// see [`Feature::Round`](feature::Feature).
+    Round {
+        along: &'a [[Named; 2]],
+        radius: f64,
+    },
 }
 
 /// What one step does to a region to raise a solid off it.

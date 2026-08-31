@@ -5,10 +5,11 @@ use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::model::{Broken, Models};
+use crate::profile::Profile;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
-use silverpoint::{Entity, Operation, Plane, Sector, SegmentId};
+use silverpoint::{Entity, Grown, Named, Operation, Plane, Sector, SegmentId};
 use std::f64::consts::FRAC_PI_2;
 
 /// A square: four free points and the edges between them, which shuts one
@@ -49,56 +50,109 @@ impl Lathed {
     }
 }
 
-/// A document holding one revolve, and what it takes to read the solid back.
+/// A document holding one solid, and what it takes to read the solid back.
 ///
 /// Everything owned, because the three are made together and a reading borrows
 /// all of them: a test that kept only the document would have nothing to hand
 /// [`Document::models`].
-struct Spun {
+///
+/// One fixture for the two shapes the tests here start from, because the only
+/// thing they differ in is the change that raises the solid.
+struct Standing {
     document: Document,
     build: Build,
     sketch: FeatureId,
 }
 
-impl Spun {
-    /// [`Lathed`]'s ring spun through `sector`, by the whole path a press
-    /// takes: a change naming a region and a segment, a step of the timeline,
-    /// and a body built from it.
-    fn new(sector: Sector) -> Self {
+impl Standing {
+    /// [`Lathed`]'s ring spun through `sector`.
+    fn spun(sector: Sector) -> Self {
+        let drawn = Lathed::new(3.0, 1.0);
+        let axis = drawn.axis;
+        Self::raised(drawn.sketch, |profile| Change::Revolve {
+            profile,
+            axis,
+            sector,
+            operation: Operation::Join,
+        })
+    }
+
+    /// [`square`] carried two deep.
+    fn blocked() -> Self {
+        Self::raised(square(), |profile| Change::Extrude {
+            profile,
+            distance: 2.0,
+            operation: Operation::Join,
+        })
+    }
+
+    /// `sketch` on the ground, and the solid `raising` makes of its first
+    /// region.
+    ///
+    /// By the whole path a press takes: a change naming the region, a step of
+    /// the timeline, and a body built from it.
+    fn raised(sketch: Sketch, raising: impl FnOnce(Profile) -> Change) -> Self {
         let mut timeline = Timeline::default();
         let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
-        let drawn = Lathed::new(3.0, 1.0);
-        let sketch = timeline.add(Feature::Sketch {
-            on: ground,
-            sketch: drawn.sketch,
-        });
+        let drawn = timeline.add(Feature::Sketch { on: ground, sketch });
         let mut build = Build::default();
-        timeline.edit(sketch).opened(&mut build);
+        timeline.edit(drawn).opened(&mut build);
         let mut document = Document::new(&mut build, timeline);
         let profile = document
-            .models(&build, Some(sketch))
-            .at(sketch)
+            .models(&build, Some(drawn))
+            .at(drawn)
             .expect("a fixture names the sketch it drew")
             .profile(&[0]);
-        document.apply(
-            &mut build,
-            Change::Revolve {
-                profile,
-                axis: drawn.axis,
-                sector,
-                operation: Operation::Join,
-            },
-        );
+        document.apply(&mut build, raising(profile));
         Self {
             document,
             build,
-            sketch,
+            sketch: drawn,
         }
     }
 
     /// What it built, and what the drawing made of it.
     fn models(&self) -> Models<'_> {
         self.document.models(&self.build, Some(self.sketch))
+    }
+
+    /// The names of the model's faces, in the order the solid made them.
+    ///
+    /// Owned, because what asks goes on to *write* the document: a pick is a
+    /// name and the change carrying it is applied a line later.
+    fn names(&self) -> Vec<Named> {
+        let (_, body) = self.models().model().expect("the solid is the model");
+        body.names().collect()
+    }
+
+    /// Round the edge between the far cap and the first wall to `radius`, and
+    /// hand back the step that did it.
+    ///
+    /// **The pair of names a block always has an edge between**, which is what
+    /// keeps the row readable: [`Body::names`](silverpoint::Body) promises the
+    /// base, the far end, then one wall per curve bounding the region.
+    fn round(&mut self, radius: f64) -> FeatureId {
+        let names = self.names();
+        self.document.apply(
+            &mut self.build,
+            Change::Round {
+                along: vec![[names[1], names[2]]],
+                radius,
+            },
+        );
+        self.models()
+            .chosen()
+            .filter(|(_, feature)| matches!(feature, Feature::Round { .. }))
+            .map(|(at, _)| at)
+            .last()
+            .expect("the change put a rounding in the recipe")
+    }
+
+    /// Restate the radius of the rounding at `round`, the way the bar's field
+    /// does.
+    fn blend(&mut self, round: FeatureId, to: f64) {
+        self.document
+            .apply(&mut self.build, Change::Blend { round, to });
     }
 }
 
@@ -281,6 +335,130 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     assert_eq!(models.broken_at(first), None);
 }
 
+/// **A rounding is a step of the recipe like any other**: it becomes the model,
+/// its blend answers to the step that asked for it, and the faces it was
+/// picked from are still there.
+///
+/// What the arithmetic of a blend comes to is the kernel's own claim and is
+/// asserted there — see `silverpoint/src/solid/rounding/tests.rs`. What is
+/// under test here is the wiring: that a pair of face names picked in the
+/// viewport reaches the kernel, that the answer becomes what the next step
+/// builds on, and that the blend is named durably enough to pick again.
+#[test]
+fn a_rounding_becomes_the_model_and_names_its_blend() {
+    let mut standing = Standing::blocked();
+    let picked = {
+        let names = standing.names();
+        assert_eq!(names.len(), 6, "a block has six faces");
+        [names[1], names[2]]
+    };
+
+    let round = standing.round(0.5);
+    let models = standing.models();
+    assert_eq!(
+        models.came_at(round),
+        Some(Built::Made),
+        "a half-radius blend down a two-long edge was refused",
+    );
+    let (at, body) = models.model().expect("a rounded block is the model");
+    assert_eq!(at, round, "the rounding is not what the model stands as");
+    assert_eq!(
+        body.names().count(),
+        7,
+        "the block's six faces and the blend",
+    );
+    // Named by the pick rather than by the edge, which is the one thing a
+    // rounding can name durably — see [`Grown::Rounded`](silverpoint::Grown).
+    assert!(
+        body.holds(round.step().grew(Grown::Rounded(0))),
+        "the blend does not answer to the step that asked for it",
+    );
+    // And the two faces it was cut back stayed themselves, which is what lets a
+    // second fillet be asked for against the same pair.
+    for named in picked {
+        assert!(
+            body.holds(named),
+            "a face the blend ran out onto stopped answering to its name",
+        );
+    }
+    assert_eq!(models.unrounded(), 0);
+    assert_eq!(models.lost(), 0);
+    assert_eq!(models.broken_at(round), None);
+}
+
+/// **A blend the kernel will not put in leaves the model standing**, and says
+/// so as its own kind of trouble.
+///
+/// The edges the blend runs out onto are two long, so a radius of two would put
+/// a corner of the answer exactly on the far end of one — which the kernel
+/// refuses, wanting those edges rounded too. What the document then shows is
+/// the block, unrounded, and a row that says which step could not go in.
+///
+/// **Its own count rather than a step adrift**, and the difference is what a
+/// person does about it: this is mended by scrubbing the radius down, where a
+/// step that lost what it was built on is mended by drawing or by picking
+/// again.
+#[test]
+fn a_blend_the_kernel_refuses_leaves_the_model_standing() {
+    let mut standing = Standing::blocked();
+    let round = standing.round(2.0);
+    let models = standing.models();
+    assert_eq!(
+        models.came_at(round),
+        Some(Built::Unrounded),
+        "a blend as wide as the edges it runs out onto was answered",
+    );
+    assert_eq!(models.broken_at(round), Some(Broken::Unrounded));
+    assert_eq!(models.unrounded(), 1, "the refusal went unreported");
+    assert_eq!(
+        models.lost(),
+        0,
+        "a refused blend was counted as a step adrift"
+    );
+    assert_eq!(
+        models.unmerged(),
+        0,
+        "a refused blend was counted as a solid apart"
+    );
+
+    // The model is the block the step before it left, and the rounding is not
+    // what the model stands as: a step that came to nothing hands nothing on.
+    let (at, body) = models.model().expect("the block goes on standing");
+    assert_ne!(at, round);
+    assert_eq!(
+        body.names().count(),
+        6,
+        "the refused blend left a face behind on the model",
+    );
+
+    // And scrubbing the radius down is what mends it, which is the whole reason
+    // the refusal is counted apart from a step adrift: nothing has to be drawn
+    // and nothing has to be picked again.
+    standing.blend(round, 0.5);
+    let models = standing.models();
+    assert_eq!(
+        models.radius_at(round),
+        Some(0.5),
+        "restating the radius did not reach the step",
+    );
+    assert_eq!(
+        models.came_at(round),
+        Some(Built::Made),
+        "a radius the kernel takes was refused after one it would not",
+    );
+    assert_eq!(models.unrounded(), 0, "the mended blend is still counted");
+    let (at, body) = models.model().expect("a rounded block is the model");
+    assert_eq!(
+        at, round,
+        "the mended rounding is not what the model stands as"
+    );
+    assert_eq!(
+        body.names().count(),
+        7,
+        "the block's six faces and the blend"
+    );
+}
+
 /// **A profile holds while the geometry moves, and is lost when the region is
 /// cut.**
 ///
@@ -450,7 +628,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
 /// numbers its steps from zero — so an answer left behind would be one about an
 /// extrude that no longer exists, filed under the name of one that does.
 #[test]
-#[should_panic(expected = "this sweep has not been built")]
+#[should_panic(expected = "this step has not been built")]
 fn reopening_forgets_what_the_last_document_built() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
@@ -652,7 +830,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
         .into();
 
     // Forwards first, which is what every rebuild does today.
-    let walk: Vec<_> = timeline.swept().collect();
+    let walk: Vec<_> = timeline.making().collect();
     build.rebuild(walk.iter().copied());
     let found: Vec<Vec<usize>> = grown
         .iter()
@@ -694,7 +872,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
 /// marched.
 #[test]
 fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
-    let whole = Spun::new(Sector::WHOLE);
+    let whole = Standing::spun(Sector::WHOLE);
     let models = whole.models();
     assert_eq!(models.lost(), 0, "the revolve lost its footing");
     let (_, body) = models.solids().next().expect("the revolve raised no solid");
@@ -708,7 +886,7 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
     // buys. Asked by the names, which is what a document sees: a whole turn is
     // the one wall, and a quarter is that wall and the two caps a part of a
     // turn has ends to raise.
-    let quarter = Spun::new(Sector {
+    let quarter = Standing::spun(Sector {
         from: 0.0,
         sweep: FRAC_PI_2,
     });
@@ -720,7 +898,7 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
     // different answers about a step: a name that stopped fitting is a step
     // with nothing to stand on, where this one stands on a region it still
     // finds and sweeps no space — which is what an extrude of no depth is.
-    let none = Spun::new(Sector {
+    let none = Standing::spun(Sector {
         from: 0.0,
         sweep: 0.0,
     });
@@ -747,7 +925,7 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
 /// again. The revision is checked first and the forgetting is the panic, on the
 /// terms the test above states.
 #[test]
-#[should_panic(expected = "this sweep has not been built")]
+#[should_panic(expected = "this step has not been built")]
 fn a_new_document_forgets_what_the_last_one_built() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));

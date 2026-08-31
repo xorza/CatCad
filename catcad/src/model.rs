@@ -353,19 +353,28 @@ pub(crate) struct Sheeted {
 
 /// What went wrong with one step of the recipe.
 ///
-/// Two states and not one bool, because they are different things to a person
-/// and mended differently: a lost profile is the drawing having moved out from
-/// under a step, and is mended by drawing; an unmerged solid is the kernel
-/// refusing a boolean it cannot do yet, and is mended by moving the solid or by
-/// waiting for the kernel to widen. A reader handed `true` would have to go
-/// back to the build to find out which it had.
+/// Three states and not one bool, because they are different things to a person
+/// and mended differently: a step adrift is the model having moved out from
+/// under it, and is mended by drawing or by picking again; an unmerged solid is
+/// the kernel refusing a boolean it cannot do yet, and is mended by moving the
+/// solid or by waiting for the kernel to widen; a blend the kernel would not
+/// put in is mended by scrubbing its radius down. A reader handed `true` would
+/// have to go back to the build to find out which it had.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Broken {
-    /// Its profile no longer names a region of the drawing it was grown from.
-    Profile,
+    /// What it was built on is gone: a profile that no longer names a region of
+    /// its drawing, or a pick that no longer names a face of the model.
+    ///
+    /// **Named for the footing rather than for the profile**, which is what the
+    /// second reading cost: a rounding is built on face names and not on a
+    /// region, and both come to the same thing here.
+    Footing,
     /// The kernel would not put its solid into the model, so the solid stands
     /// beside one — see [`Models::solids`].
     Unmerged,
+    /// The kernel would not put its blend in, so the model stands as the step
+    /// before it left it — see [`Built::Unrounded`].
+    Unrounded,
 }
 
 /// Every sketch a document holds, as it currently stands.
@@ -535,7 +544,7 @@ impl<'a> Models<'a> {
     /// come through here, so what the tree marks and what the status line
     /// totals cannot come to disagree.
     ///
-    /// Only a step that grows a solid can. Every other kind answers `None`,
+    /// Only a step that makes a body can. Every other kind answers `None`,
     /// and not for want of asking: a plane and a sketch are what they say they
     /// are, and there is nothing for either to fail at.
     ///
@@ -556,16 +565,17 @@ impl<'a> Models<'a> {
         // whole, a fifth thing a step can come to is a compile error here
         // instead of a step that quietly reads as fine.
         match self.came_at(at)? {
-            Built::Lost => Some(Broken::Profile),
+            Built::Lost => Some(Broken::Footing),
             Built::Refused => Some(Broken::Unmerged),
+            Built::Unrounded => Some(Broken::Unrounded),
             Built::Made | Built::Empty => None,
         }
     }
 
-    /// What the step at `at` came to, where it is one that grows a solid.
+    /// What the step at `at` came to, where it is one that makes a body.
     ///
     /// **Wider than [`Models::broken_at`] beside it, and the source of it.**
-    /// That one answers what went *wrong*, which is two of the four; this
+    /// That one answers what went *wrong*, which is three of the five; this
     /// answers what a step came to at all, which a reader listing steps wants —
     /// a step that came to nothing is not broken, and a list that could not say
     /// so drew it exactly like one that built.
@@ -574,8 +584,25 @@ impl<'a> Models<'a> {
     /// plane and a sketch are what they say they are, and neither has a solid
     /// to come to anything.
     pub(crate) fn came_at(self, at: FeatureId) -> Option<Built> {
-        (self.timeline.built(at) && self.timeline.feature(at).grows())
+        (self.timeline.built(at) && self.timeline.feature(at).makes())
             .then(|| self.build.bodied(at).built())
+    }
+
+    /// The radius the rounding at `at` states, or `None` where that step is not
+    /// one.
+    ///
+    /// A fair question of any step rather than of a rounding known to be one,
+    /// on the terms [`Models::broken_at`] states: what is picked out is a step,
+    /// and being told its kind first is what a caller should not have to
+    /// arrange.
+    pub(crate) fn radius_at(self, at: FeatureId) -> Option<f64> {
+        match self.timeline.feature(at) {
+            Feature::Round { radius, .. } => Some(*radius),
+            Feature::Plane(_)
+            | Feature::Sketch { .. }
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. } => None,
+        }
     }
 
     /// Whether the step at `at` is one somebody may take away.
@@ -647,12 +674,13 @@ impl<'a> Models<'a> {
         Some(self.timeline.drawn_on(self.open()?.of()))
     }
 
-    /// How many sweeps no longer know which region they are grown from.
+    /// How many steps no longer know what they are built on.
     ///
     /// What a drawing can do to a feature standing downstream of it: a line
     /// drawn across a region takes away the thing a sweep was built on, and
-    /// neither of the two regions that replaced it is what the name meant. Said
-    /// as a count because that is what a reader can act on — which sweep went
+    /// neither of the two regions that replaced it is what the name meant. A
+    /// rounding goes the same way where a face it picked stops answering. Said
+    /// as a count because that is what a reader can act on — which step went
     /// wrong is a question for the timeline, which nothing shows yet.
     ///
     /// Here rather than on the build, though the build could count these on its
@@ -662,7 +690,7 @@ impl<'a> Models<'a> {
     /// steps currently below the rollback bar, and only the timeline knows
     /// where that is.
     pub(crate) fn lost(self) -> usize {
-        self.broken(Broken::Profile)
+        self.broken(Broken::Footing)
     }
 
     /// How many steps the kernel would not put into the model.
@@ -677,10 +705,20 @@ impl<'a> Models<'a> {
         self.broken(Broken::Unmerged)
     }
 
+    /// How many blends the kernel would not put in.
+    ///
+    /// The third thing a step can come to — see [`Broken::Unrounded`]. Counted
+    /// apart from the two above on the terms they are counted apart from each
+    /// other: a person mends this one by scrubbing a radius down, which is
+    /// neither of the other two answers.
+    pub(crate) fn unrounded(self) -> usize {
+        self.broken(Broken::Unrounded)
+    }
+
     /// How many of the steps currently built came to `trouble`.
     fn broken(self, trouble: Broken) -> usize {
         self.timeline
-            .swept()
+            .making()
             .filter(|step| self.broken_at(step.at) == Some(trouble))
             .count()
     }
@@ -750,7 +788,7 @@ impl<'a> Models<'a> {
             timeline, build, ..
         } = self;
         timeline
-            .swept()
+            .making()
             .filter(|step| timeline.built(step.at))
             .filter(|step| build.bodied(step.at).built().modelled())
             .map(|step| (step.at, build.bodied(step.at).body()))
@@ -784,7 +822,7 @@ impl<'a> Models<'a> {
         } = self;
         let model = self.model().map(|(at, _)| at);
         timeline
-            .swept()
+            .making()
             .filter(move |step| timeline.built(step.at))
             .filter_map(move |step| {
                 let bodied = build.bodied(step.at);
@@ -799,7 +837,7 @@ mod internals {
     use crate::model::Models;
 
     impl Models<'_> {
-        /// How many of the document's steps grew a solid of their own.
+        /// How many of the document's steps left a solid of their own.
         ///
         /// Not how many solids there are — there is one, and it is what the
         /// last step left standing. What this counts is the steps that put
@@ -809,7 +847,7 @@ mod internals {
         pub(crate) fn grown(self) -> usize {
             self.chosen()
                 .filter(|(at, feature)| {
-                    feature.grows()
+                    feature.makes()
                         && self.timeline.built(*at)
                         && self.build.bodied(*at).built().raised()
                 })

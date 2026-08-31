@@ -10,7 +10,7 @@ use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
-use silverpoint::{Operation, Sector};
+use silverpoint::{Grown, Named, Operation, Sector};
 
 /// One step, as a file holds it.
 ///
@@ -49,6 +49,144 @@ pub(super) enum Step {
         sector: Sectored,
         operation: Operated,
     },
+    /// A blend put where each edge a pair of face names divides was.
+    Round {
+        /// One pair of face names per pick, each pair naming the edge between
+        /// the two faces.
+        along: Vec<[Facing; 2]>,
+        radius: f64,
+    },
+}
+
+/// One face of the model, as a file holds it.
+///
+/// The mirror of [`Named`] on the terms [`Operated`] states, and the two halves
+/// a name is made of: which step grew the face, and what of that step it is.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct Facing {
+    /// Which step of the file grew it.
+    by: usize,
+    grew: Grew,
+}
+
+impl Facing {
+    /// `named` as a file would hold it.
+    fn of(
+        named: Named,
+        timeline: &Timeline,
+        steps: &Numbering<FeatureId>,
+        handles: &[Handles],
+    ) -> Self {
+        let by = FeatureId::from(named.by);
+        Self {
+            by: steps.of(by),
+            // `None` for a step that swept no drawing, which only a wall minds
+            // — see [`Grew::of`], where the numbering is read.
+            grew: Grew::of(
+                named.grown,
+                drawn_from(timeline, by).map(|sketch| &handles[steps.of(sketch)]),
+            ),
+        }
+    }
+
+    /// This as a face name, or the first thing wrong with it.
+    ///
+    /// `at` is the step complaining, on the terms every reference here states:
+    /// `added` says whether the step it names is behind it, and the timeline
+    /// says what that step turned out to be.
+    fn named(
+        &self,
+        at: usize,
+        timeline: &Timeline,
+        added: &[FeatureId],
+        handles: &[Handles],
+    ) -> Result<Named, Fault> {
+        let names = self.by;
+        let &by = added.get(names).ok_or(Fault::UnknownStep { at, names })?;
+        if !timeline.feature(by).makes() {
+            return Err(Fault::NoSuchFace { at, names });
+        }
+        // The drawing the step was swept off, where it was swept off one — a
+        // wall carries the curve it came from, and that curve is numbered in
+        // that drawing. A step that swept nothing grows no wall, so a file
+        // naming one is a file naming a face that step cannot have.
+        let numbering = drawn_from(timeline, by)
+            .and_then(|sketch| added.iter().position(|&step| step == sketch))
+            .map(|sketch| &handles[sketch]);
+        Ok(Named {
+            by: by.step(),
+            grown: self.grew.grown(at, names, numbering)?,
+        })
+    }
+}
+
+/// What of the step that grew it a face is, as a file holds it.
+///
+/// The mirror of [`Grown`], on the terms [`Operated`] states — and the one
+/// mirror here whose arms are not all alike: a wall carries the curve it was
+/// swept from, which is written in its own drawing's numbering, and the other
+/// three carry a number or nothing at all.
+#[derive(Debug, Serialize, Deserialize)]
+enum Grew {
+    /// The region itself, in the plane it was drawn on.
+    Base,
+    /// The region carried to the far end of the sweep.
+    Far,
+    /// The wall swept from one curve bounding the region.
+    Side(Bounded),
+    /// The blend one of a rounding's own picks raised.
+    Blend(u32),
+}
+
+impl Grew {
+    /// `grown` as a file would hold it, with `handles` saying what number the
+    /// curves of its own drawing are written as.
+    ///
+    /// Panics on a wall whose step swept no drawing, which is a logic error
+    /// here and never a file's doing: a name being written came off a body, and
+    /// only a sweep grows a wall.
+    fn of(grown: Grown, handles: Option<&Handles>) -> Self {
+        match grown {
+            Grown::Base => Grew::Base,
+            Grown::Far => Grew::Far,
+            Grown::Side(bound) => Grew::Side(Bounded::of(
+                bound,
+                handles.expect("a wall is grown by a step that swept a drawing"),
+            )),
+            Grown::Rounded(pick) => Grew::Blend(pick),
+        }
+    }
+
+    /// The same, as a body names one, or the first thing wrong with it.
+    ///
+    /// `numbering` is the drawing the step that grew it was swept off, and is
+    /// `None` where that step swept none — which only a wall minds, every other
+    /// arm naming no curve.
+    fn grown(&self, at: usize, names: usize, numbering: Option<&Handles>) -> Result<Grown, Fault> {
+        Ok(match self {
+            Grew::Base => Grown::Base,
+            Grew::Far => Grown::Far,
+            Grew::Side(bounded) => {
+                let numbering = numbering.ok_or(Fault::NoSuchFace { at, names })?;
+                Grown::Side(bounded.bound(at, numbering)?)
+            }
+            Grew::Blend(pick) => Grown::Rounded(*pick),
+        })
+    }
+}
+
+/// The drawing the step at `at` was swept off, or `None` where it swept none.
+///
+/// What a face of that step is named in, for the one kind of face that carries
+/// a curve — see [`Grown::Side`]. A plane and a sketch grow no faces at all, and
+/// a rounding grows faces that name no curve.
+fn drawn_from(timeline: &Timeline, at: FeatureId) -> Option<FeatureId> {
+    match timeline.feature(at) {
+        Feature::Extrude { profile, .. } | Feature::Revolve { profile, .. } => {
+            Some(profile.sketch())
+        }
+        Feature::Plane(_) | Feature::Sketch { .. } | Feature::Round { .. } => None,
+    }
 }
 
 /// What an extrude does with what stands before it, as a file holds it.
@@ -218,7 +356,12 @@ impl Step {
     /// `feature` as a file would hold it, with `steps` saying what number each
     /// of the timeline's handles is written as and `handles` what number each
     /// step's own geometry is.
-    pub(super) fn of(feature: &Feature, steps: &Numbering<FeatureId>, handles: &[Handles]) -> Self {
+    pub(super) fn of(
+        feature: &Feature,
+        timeline: &Timeline,
+        steps: &Numbering<FeatureId>,
+        handles: &[Handles],
+    ) -> Self {
         match feature {
             Feature::Plane(Datum::World(World::Ground)) => Step::Ground,
             Feature::Plane(Datum::World(World::Front)) => Step::Front,
@@ -250,6 +393,13 @@ impl Step {
                 profile: Profiled::of(profile, steps, handles),
                 sector: Sectored::of(*sector),
                 operation: Operated::of(*operation),
+            },
+            Feature::Round { along, radius } => Step::Round {
+                along: along
+                    .iter()
+                    .map(|pair| pair.map(|named| Facing::of(named, timeline, steps, handles)))
+                    .collect(),
+                radius: *radius,
             },
         }
     }
@@ -315,6 +465,21 @@ impl Step {
                     profile: region,
                     sector: sector.sector(at)?,
                     operation: operation.operation(),
+                }))
+            }
+            Step::Round { along, radius } => {
+                finite(at, *radius)?;
+                let mut picks = Vec::with_capacity(along.len());
+                for pair in along {
+                    let [one, two] = pair;
+                    picks.push([
+                        one.named(at, timeline, added, handles)?,
+                        two.named(at, timeline, added, handles)?,
+                    ]);
+                }
+                Ok(Loaded::plain(Feature::Round {
+                    along: picks,
+                    radius: *radius,
                 }))
             }
         }

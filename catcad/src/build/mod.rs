@@ -3,10 +3,10 @@
 
 use silverpoint::{Body, Builder, Drive, PointId, Removed, Sketch, Solver};
 
-use crate::build::bodied::{Bodied, Digest, Rebuilding};
+use crate::build::bodied::{Bodied, Digest, Rebuilding, Recipe};
 use crate::build::putting::Putting;
 use crate::build::settled::Settled;
-use crate::timeline::{FeatureId, Swept};
+use crate::timeline::{Doing, FeatureId, Making};
 
 pub(crate) mod bodied;
 pub(crate) mod putting;
@@ -52,15 +52,15 @@ pub(crate) struct Build {
     /// that way, which is the one thing this costs: a sketch is settled for the
     /// first time once per document, and read on every frame that draws one.
     settled: Vec<Settled>,
-    /// The solid each sweep stands for, **in handle order**, and searched as
+    /// The solid each step stands for, **in handle order**, and searched as
     /// such like the list above.
     ///
     /// Rewritten whole by [`Build::rebuild`] rather than kept in step entry by
     /// entry: a sweep names its region by what bounds it, and every edit to
     /// a sketch is an edit that could have taken one of those away. Whole, but
-    /// not from scratch — an entry whose [`Digest`] has not moved keeps the
-    /// body it already had, which is what makes an edit to one drawing cost
-    /// nothing to the solids grown off another.
+    /// not from scratch — an entry whose reading has not moved keeps the body
+    /// it already had, which is what makes an edit to one drawing cost nothing
+    /// to the solids grown off another.
     ///
     /// **Put in order rather than arriving in it**, unlike the list above,
     /// which is why `rebuild` ends in a sort: the walk that fills this is the
@@ -72,8 +72,8 @@ pub(crate) struct Build {
     /// moving, sixty times a second, and the buffers come out the same size
     /// every time.
     builder: Builder,
-    /// The room putting two of them together works in, kept for the same
-    /// reason.
+    /// The room changing the model works in — putting two solids together, and
+    /// putting a blend where an edge was — kept for the same reason.
     putting: Putting,
     /// Where each step's profile is resolved to positions among its sketch's
     /// faces, one step at a time.
@@ -261,7 +261,7 @@ impl Build {
     /// [`Document`](crate::document::Document)'s: what crosses between the two
     /// is what each step names and nothing else, which is the same line
     /// [`Models`](crate::model::Models) sits on.
-    pub(crate) fn rebuild<'a>(&mut self, swept: impl Iterator<Item = Swept<'a>>) {
+    pub(crate) fn rebuild<'a>(&mut self, making: impl Iterator<Item = Making<'a>>) {
         let Self {
             settled,
             bodied,
@@ -291,20 +291,39 @@ impl Build {
         // builds on what *they* were handed. By position because the list it
         // points into is being pushed to — see [`Built::merged`].
         let mut model: Option<usize> = None;
-        for step in swept {
-            let settled = filed_under(settled, step.profile.sketch(), Settled::of, UNSETTLED);
+        for step in making {
             let on = model.map(|at| &bodied[at]);
-            let digest = Digest::new(
-                settled.revision(),
-                step.plane,
-                step.sweep,
-                step.operation,
-                on.map(Bodied::version).unwrap_or_default(),
-            );
-            // Resolved into one buffer the whole walk shares, because it is
-            // read and compared here and never kept: what a `Bodied` keeps is
-            // its own copy of what it was built from.
-            step.profile.faces_in(settled.arrangement(), regions);
+            let version = on.map(Bodied::version).unwrap_or_default();
+            let (arrangement, recipe) = match step.doing {
+                Doing::Sweep {
+                    profile,
+                    sweep,
+                    operation,
+                    plane,
+                } => {
+                    let settled = filed_under(settled, profile.sketch(), Settled::of, UNSETTLED);
+                    // Resolved into one buffer the whole walk shares, because
+                    // it is read and compared here and never kept: what a
+                    // `Bodied` keeps is its own copy of what it was built from.
+                    profile.faces_in(settled.arrangement(), regions);
+                    (
+                        Some(settled.arrangement()),
+                        Recipe::Sweep {
+                            digest: Digest {
+                                sketch: settled.revision(),
+                                plane,
+                                sweep,
+                                operation,
+                            },
+                            regions,
+                        },
+                    )
+                }
+                // No drawing at all, which is what makes a rounding the one
+                // step here that resolves nothing: a pick is a pair of face
+                // names — see [`Doing::Round`].
+                Doing::Round { along, radius } => (None, Recipe::Round { along, radius }),
+            };
             let mut had = match standing.iter().position(|had| had.of() == step.at) {
                 Some(at) => standing.swap_remove(at),
                 None => Bodied::new(step.at),
@@ -314,10 +333,10 @@ impl Build {
                     builder,
                     putting,
                     raised,
-                    arrangement: settled.arrangement(),
+                    arrangement,
                 },
-                digest,
-                regions,
+                version,
+                recipe,
                 on.map(Bodied::body).unwrap_or(&nothing),
             );
             if had.built().modelled() {
@@ -396,14 +415,14 @@ impl Build {
         filed_under(&self.settled, of, Settled::of, UNSETTLED)
     }
 
-    /// What building the sweep at `of` came to.
+    /// What building the step at `of` came to.
     ///
-    /// Every sweep the document holds has been through [`Build::rebuild`] by
-    /// the time anything asks — raising a document rebuilds it, and so does
-    /// every edit — so a sweep with no answer here is one nothing has
-    /// replayed, which is a mistake in whatever raised the document rather than
-    /// a state a reader has to handle. That the build *failed* is a different
-    /// thing and a fair answer: see [`Built`](crate::build::bodied::Built).
+    /// Every step that makes a body has been through [`Build::rebuild`] by the
+    /// time anything asks — raising a document rebuilds it, and so does every
+    /// edit — so a step with no answer here is one nothing has replayed, which
+    /// is a mistake in whatever raised the document rather than a state a
+    /// reader has to handle. That the build *failed* is a different thing and a
+    /// fair answer: see [`Built`](crate::build::bodied::Built).
     pub(crate) fn bodied(&self, of: FeatureId) -> &Bodied {
         filed_under(&self.bodied, of, Bodied::of, UNBUILT)
     }
@@ -461,7 +480,7 @@ fn filed_under<'a, T>(
 // which is a mistake in whatever raised it rather than anything a reader can
 // handle.
 const UNSETTLED: &str = "this sketch has not been settled";
-const UNBUILT: &str = "this sweep has not been built";
+const UNBUILT: &str = "this step has not been built";
 
 /// Which of the solver's entry points an edit is settled through.
 ///

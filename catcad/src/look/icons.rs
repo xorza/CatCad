@@ -27,6 +27,7 @@ pub(crate) enum Glyph {
     Sketch,
     Extrude,
     Revolve,
+    Round,
     Perspective,
     Orthographic,
     Fit,
@@ -43,7 +44,7 @@ pub(crate) enum Glyph {
 /// by `glyph as usize` rather than search. The atlas sorts its own table by
 /// name, so the ids are resolved back by name into this order — the two orders
 /// are unrelated and neither may be assumed of the other.
-const SOURCES: [(Glyph, &str, &str); 23] = [
+const SOURCES: [(Glyph, &str, &str); 24] = [
     (Glyph::Pointer, "pointer", POINTER),
     (Glyph::Point, "point", POINT),
     (Glyph::Line, "line", LINE),
@@ -59,6 +60,7 @@ const SOURCES: [(Glyph, &str, &str); 23] = [
     (Glyph::Sketch, "sketch", SKETCH),
     (Glyph::Extrude, "extrude", EXTRUDE),
     (Glyph::Revolve, "revolve", REVOLVE),
+    (Glyph::Round, "round", ROUND),
     (Glyph::Perspective, "perspective", PERSPECTIVE),
     (Glyph::Orthographic, "orthographic", ORTHOGRAPHIC),
     (Glyph::Fit, "fit", FIT),
@@ -164,6 +166,14 @@ const SKETCH: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24
 const EXTRUDE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2.5 19.5L8 12.5h13.5L16 19.5z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 10.5V3M12 3L9.3 5.9M12 3l2.7 2.9" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 
 const REVOLVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 3v18" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 2.6"/><path d="M9.5 8h5.5v8H9.5z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 5.4c3.4 1 5.6 3.5 5.6 6.6 0 3.1-2.2 5.7-5.6 6.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M13.2 3.6l2.4 1.9-2.6 1.7" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+
+/// The corner a blend takes, dashed, and the arc that replaces it.
+///
+/// **Both halves, because either alone is another icon.** The solid run is an
+/// edge with its corner rounded, which on its own reads as a bent line; the
+/// dashed square is the material taken away, which on its own reads as nothing
+/// at all. Together they say what a fillet does to a corner.
+const ROUND: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 20.5V12a7.5 7.5 0 0 1 7.5-7.5H20" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M4 4.5h7.5M4 4.5V12" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 2.6"/></svg>"##;
 
 const PERSPECTIVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4.5l16 3v9l-16 3z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 12h16" fill="none" stroke="#fff" stroke-width="1.6"/></svg>"##;
 
