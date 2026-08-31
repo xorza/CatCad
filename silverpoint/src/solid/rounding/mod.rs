@@ -266,6 +266,15 @@ enum Ending {
     /// [`Cornered`] holds the whole of what the three leave, and this blend
     /// finds its own arc and its own two corners in it by the faces it divides.
     Cornered { corner: usize },
+    /// On the two legs a star leaves, where a third *flat* pick runs to the
+    /// same corner.
+    ///
+    /// **The one ending that is two edges rather than one.** Three chamfer
+    /// planes meet at a point, so what fills the corner is three lines to it
+    /// and no face at all — and a blend closing on it runs out along the leg on
+    /// one of its sides and back down the leg on the other. [`Starred`] holds
+    /// the whole of what the three leave.
+    Starred { star: usize },
 }
 
 /// What fills a corner of the body that more than one blend lands on.
@@ -277,8 +286,10 @@ enum Ending {
 enum Filled {
     /// The junction two of them left — see [`Junction`].
     Junction(usize),
-    /// The patch three of them left — see [`Cornered`].
+    /// The patch three round ones left — see [`Cornered`].
     Corner(usize),
+    /// The star three flat ones left — see [`Starred`].
+    Star(usize),
 }
 
 /// Where two blends meet at one corner of the body.
@@ -315,36 +326,58 @@ struct Junction {
     bounds: [f64; 2],
 }
 
-/// The patch put in at a corner where three picked edges met.
+/// The corner three blend ends land on, before anything is put in it.
 ///
-/// **A sphere of the blends' own radius**, which is what a rolling ball leaves:
-/// the ball rolls along each of the three edges and pivots in place at the
-/// corner, sweeping the sphere tangent to all three faces. Its centre stands a
-/// radius off every one of them, which is the one point all three cylinder axes
-/// run through — so the sphere is inscribed in each of them and touches it
-/// along a whole circle. The patch is the triangle those three circles cut out.
-///
-/// **And not where the three cylinders themselves cross.** They do cross
-/// pairwise, and the three curves even meet at a point — but that point stands
-/// `r√(3/2)` off the centre where the answer stands `r`, so trimming the three
-/// against each other would keep material the ball had taken. See
-/// `.notes/KERNEL.md` §7.5.
+/// **Three faces between them, one apiece, and one side of the material.**
+/// Both fillings below want exactly that much settled and neither can do
+/// without it: a corner where the three divide other than three faces is not
+/// the trihedral one either fills, and one where they do not agree which way
+/// the material lies is a corner no single surface answers.
 #[derive(Debug, Clone, Copy)]
-struct Cornered {
+struct Trihedral {
     /// The three ends meeting, in the order the blends were found.
     ends: [Swallow; 3],
-    /// The sphere it lies on, and whether the material is inside it.
-    sphere: Sphere,
-    outward: bool,
-    /// The three picks that met there, in order — see [`Grown::Cornered`].
-    picks: [u32; 3],
-    /// The three faces the sphere touches, and where it touches each.
+    /// The spine at each of them, in the same order.
+    tips: [Spine; 3],
+    /// The three faces they divide between them, the first blend's two first.
     faces: [FaceId; 3],
-    made: [DVec3; 3],
+    /// Which side of each blend the material is on, which all three share.
+    outward: bool,
 }
 
-impl Cornered {
-    /// Which of the three touch points lies on `face`.
+impl Trihedral {
+    /// What the three ends have in common, or `None` where they have not
+    /// enough.
+    fn of(blends: &[Blend], runs: &[Spine], ends: [Swallow; 3]) -> Option<Self> {
+        let tips = ends.map(|end| blends[end.blend].tip(runs, end.end));
+        // The first blend divides two of them and the second brings the third,
+        // every blend already dividing two that differ — see
+        // [`Rounding::blended`].
+        let first = tips[0].between;
+        let &across = tips[1].between.iter().find(|face| !first.contains(face))?;
+        let faces = [first[0], first[1], across];
+        if tips
+            .iter()
+            .any(|tip| !tip.between.iter().all(|face| faces.contains(face)))
+        {
+            return None;
+        }
+        // **A corner the three do not agree about is neither filling's.** A
+        // rolling ball is on one side of the material throughout, so a corner
+        // where one edge is convex and another concave wants a surface whose
+        // radius moves — which §9.5 names and neither of these is.
+        let outward = blends[ends[0].blend].outward;
+        ends.iter()
+            .all(|end| blends[end.blend].outward == outward)
+            .then_some(Self {
+                ends,
+                tips,
+                faces,
+                outward,
+            })
+    }
+
+    /// Which of the three faces is `face`.
     fn seat(&self, face: FaceId) -> usize {
         self.faces
             .iter()
@@ -361,15 +394,118 @@ impl Cornered {
     }
 }
 
+/// The patch put in at a corner where three round picked edges met.
+///
+/// **A sphere of the blends' own radius**, which is what a rolling ball leaves:
+/// the ball rolls along each of the three edges and pivots in place at the
+/// corner, sweeping the sphere tangent to all three faces. Its centre stands a
+/// radius off every one of them, which is the one point all three cylinder axes
+/// run through — so the sphere is inscribed in each of them and touches it
+/// along a whole circle. The patch is the triangle those three circles cut out.
+///
+/// **And not where the three cylinders themselves cross.** They do cross
+/// pairwise, and the three curves even meet at a point — but that point stands
+/// `r√(3/2)` off the centre where the answer stands `r`, so trimming the three
+/// against each other would keep material the ball had taken. See
+/// `.notes/KERNEL.md` §7.5.
+#[derive(Debug, Clone, Copy)]
+struct Cornered {
+    held: Trihedral,
+    /// The sphere it lies on. Whether the material is inside it is
+    /// [`Trihedral::outward`], the patch facing the way the blends it fills
+    /// between do.
+    sphere: Sphere,
+    /// The three picks that met there, in order — see [`Grown::Cornered`].
+    picks: [u32; 3],
+    /// Where the sphere touches each of [`Trihedral::faces`], in that order.
+    made: [DVec3; 3],
+}
+
 /// What one corner patch came to in the answer.
 #[derive(Debug, Clone, Copy)]
 struct Ringed {
-    /// The corner where the sphere touches each face, in [`Cornered::faces`]'s
-    /// own order.
+    /// The corner where the sphere touches each face, in
+    /// [`Trihedral::faces`]'s own order.
     made: [VertexId; 3],
     /// The arc each of the three blends closes against, in
-    /// [`Cornered::ends`]'s own order.
+    /// [`Trihedral::ends`]'s own order.
     arcs: [EdgeId; 3],
+}
+
+/// The star put in at a corner where three flat picked edges met.
+///
+/// **Three planes meet at a point, so there is nothing left to fill.** That is
+/// the whole of what tells this from [`Cornered`] beside it: three *cylinders*
+/// of one radius do not meet — their own triple point stands where the answer
+/// does not — so the round corner wants a patch and the flat one wants none.
+/// What goes in is that point, and one line to it from each of the three places
+/// a pair of the blends cross on the face they share.
+///
+/// **So a blend closing here bounds two edges and not one**, which is the one
+/// place the routine's four-sided loop grows. See `.notes/KERNEL.md` §7.5.
+#[derive(Debug, Clone, Copy)]
+struct Starred {
+    held: Trihedral,
+    /// Where the three planes cross, which every leg runs to.
+    at: DVec3,
+    /// Where the two blends a leg divides cross on the face they share, one per
+    /// leg: leg `which` divides the ends `which` and `which + 1`.
+    met: [DVec3; 3],
+    /// Which leg lies on each side of each end, in [`Trihedral::ends`]'s own
+    /// order.
+    on: [[usize; 2]; 3],
+}
+
+/// What one star came to in the answer.
+#[derive(Debug, Clone, Copy)]
+struct Pointed {
+    /// The corner each leg runs to the point from, and the leg itself, in
+    /// [`Starred::met`]'s own order.
+    ///
+    /// **The point itself is not here**, and nothing wants it: it is a corner
+    /// of no loop but the three blends' own, and each of those reaches it by
+    /// walking one of its legs.
+    met: [VertexId; 3],
+    legs: [EdgeId; 3],
+}
+
+/// Where two blends meeting at one corner cross on the face they share.
+///
+/// **The one corner of the answer that lies on no edge the body had.** Both
+/// blends reach out onto the face the two of them share, and their rulings on
+/// it cross at one place. That place is a corner of the junction two of them
+/// leave, and the far end of a leg of the star three leave.
+#[derive(Debug, Clone, Copy)]
+struct Met {
+    /// Which of each blend's two faces the other also reaches, in the order the
+    /// pair was asked about.
+    sides: [usize; 2],
+    /// The surface of the face they share.
+    shared: Surface,
+    at: DVec3,
+}
+
+impl Met {
+    /// Where the two blends `pair` cross, meeting at the body's `corner`, or
+    /// `None` where they share no face or their rulings do not cross on it.
+    fn of(topology: &Topology, pair: [Blend; 2], tips: [Spine; 2], corner: DVec3) -> Option<Self> {
+        let found = [0, 1].map(|which| {
+            let other = tips[1 - which].between;
+            (0..2).find(|&side| other.contains(&tips[which].between[side]))
+        });
+        let sides = [found[0]?, found[1]?];
+        let shared = topology.face(tips[0].between[sides[0]]).surface;
+        let rails = [pair[0].rails[sides[0]], pair[1].rails[sides[1]]];
+        Some(Self {
+            sides,
+            shared,
+            at: rails[0].at(crossed(
+                rails[0],
+                rails[1],
+                shared.normal(shared.uv(corner)),
+            )?),
+        })
+    }
 }
 
 /// What one junction came to in the answer.
@@ -429,16 +565,19 @@ struct Minted {
     /// blend from a *patch* and a run crosses several: an edge names two faces,
     /// so the ruling is cut wherever the face under it is.
     rails: [u32; 2],
-    /// The arc across each end of it.
-    arcs: [EdgeId; 2],
-    /// Whether each of those arcs runs from this blend's first side to its
-    /// second.
+    /// Where the coedges closing each end sit in [`Rounding::closing`]: the
+    /// `end`th of them runs `closes[end]..closes[end + 1]`.
     ///
-    /// **An arc a junction minted is walked by two blends**, and the two put
-    /// their faces on opposite sides of it — so one of them wants it the way it
-    /// was laid down and the other wants it turned. An arc the blend minted for
-    /// itself is always the way it was laid down.
-    arced: [bool; 2],
+    /// **A run of them rather than one edge apiece**, because a star gives a
+    /// blend two legs where every other ending gives it one arc — see
+    /// [`Ending::Starred`].
+    ///
+    /// **And already turned the way this blend walks them.** An arc a junction
+    /// or a patch minted is walked by two blends, and the two put their faces
+    /// on opposite sides of it — so one wants it the way it was laid down and
+    /// the other wants it turned. Written here as walked, that reading is made
+    /// once, where what was made is known.
+    closes: [u32; 3],
 }
 
 /// One edge a pick found, and which pick found it.
@@ -533,6 +672,12 @@ pub struct Rounding {
     bounding: Vec<Coedge>,
     /// What each junction came to, by junction.
     joined: Vec<Joined>,
+    /// The stars three flat picks left, and what each came to.
+    starred: Vec<Starred>,
+    pointed: Vec<Pointed>,
+    /// Every coedge closing an end of a blend, laid end to end — see
+    /// [`Minted::closes`].
+    closing: Vec<Coedge>,
     /// The face each corner patch raised, and everything else it came to.
     patched: Vec<FaceId>,
     ringed: Vec<Ringed>,
@@ -812,6 +957,7 @@ impl Rounding {
         }
         self.junctions.clear();
         self.cornered.clear();
+        self.starred.clear();
         self.filled.clear();
         self.filled.resize(topology.vertex_slots(), None);
         for at in 0..self.blends.len() {
@@ -849,13 +995,32 @@ impl Rounding {
             }
             [first, second, third] => {
                 let three = [first, second, third];
-                let Some(corner) = Self::cornering(topology, &self.blends, &self.runs, three, at)
-                else {
-                    return false;
+                // Which of the two fillings a corner wants is the *bevel*, one
+                // [`Round`] carrying one for every blend it raises: three
+                // cylinders leave a patch between them and three planes leave a
+                // point.
+                let filled = match self.blends[first.blend].laid {
+                    Laid::Round(_) => {
+                        let Some(corner) =
+                            Self::cornering(topology, &self.blends, &self.runs, three, at)
+                        else {
+                            return false;
+                        };
+                        self.cornered.push(corner);
+                        Filled::Corner(self.cornered.len() - 1)
+                    }
+                    Laid::Flat(_) => {
+                        let Some(star) =
+                            Self::starring(topology, &self.blends, &self.runs, three, at)
+                        else {
+                            return false;
+                        };
+                        self.starred.push(star);
+                        Filled::Star(self.starred.len() - 1)
+                    }
                 };
                 self.swallowed[at.slot()] = Some(first);
-                self.filled[at.slot()] = Some(Filled::Corner(self.cornered.len()));
-                self.cornered.push(corner);
+                self.filled[at.slot()] = Some(filled);
                 true
             }
             // Reached only for a corner nothing landed on, and nothing calls
@@ -884,6 +1049,7 @@ impl Rounding {
                         shared: self.junctions[junction].shared(at),
                     }),
                     Some(Filled::Corner(patch)) => Some(Ending::Cornered { corner: patch }),
+                    Some(Filled::Star(star)) => Some(Ending::Starred { star }),
                     None => Self::across(topology, &self.runs, &blend, end, corner),
                 };
             }
@@ -1138,16 +1304,6 @@ impl Rounding {
     ) -> Option<Junction> {
         let whole = ends.map(|end| blends[end.blend]);
         let pair = ends.map(|end| blends[end.blend].tip(runs, end.end));
-        let sides = [0, 1].map(|which| {
-            let other = pair[1 - which].between;
-            (0..2).find(|&side| other.contains(&pair[which].between[side]))
-        });
-        let [one, two] = [sides[0]?, sides[1]?];
-        // Two spines dividing the *same* two faces meet at a corner the pair
-        // cannot close: which face they run out onto together is two answers.
-        if pair[0].between[1 - one] == pair[1].between[1 - two] {
-            return None;
-        }
         // **A pair that do not agree about the corner cannot close against each
         // other.** Both cylinders stand a radius off the face they share, and
         // one cut into a convex edge stands off it on the other side from one
@@ -1156,14 +1312,17 @@ impl Rounding {
             return None;
         }
         let at = whole[0].at[ends[0].end];
-        let corner = topology.vertex(at).at;
-        // Where the two rails cross on the face they share, which is the one
-        // corner of the answer that lies on no edge the body had.
-        let plane = topology.face(pair[0].between[one]).surface;
-        let facing = plane.normal(plane.uv(corner));
-        let rails = [whole[0].rails[one], whole[1].rails[two]];
-        let met = rails[0].at(crossed(rails[0], rails[1], facing)?);
-        // And the edge neither of them replaces, cut back to where the first
+        let Met {
+            sides: [one, two],
+            shared: plane,
+            at: met,
+        } = Met::of(topology, whole, pair, topology.vertex(at).at)?;
+        // Two spines dividing the *same* two faces meet at a corner the pair
+        // cannot close: which face they run out onto together is two answers.
+        if pair[0].between[1 - one] == pair[1].between[1 - two] {
+            return None;
+        }
+        // The edge neither of them replaces, cut back to where the first
         // one's rail crosses it. The second one's crosses it at the same place,
         // both rails standing a radius off the face they share.
         let along = neighbour(topology, pair[0].between[1 - one], pair[0].edge, at)?;
@@ -1221,35 +1380,12 @@ impl Rounding {
         ends: [Swallow; 3],
         at: VertexId,
     ) -> Option<Cornered> {
-        let three = ends.map(|end| blends[end.blend]);
-        let tips = ends.map(|end| blends[end.blend].tip(runs, end.end));
-        // **Three faces between them, one apiece**, or the corner is not the
-        // trihedral one this fills. The first blend divides two of them and the
-        // second brings the third, every blend already dividing two that
-        // differ — see [`Rounding::blended`].
-        let held = tips[0].between;
-        let &across = tips[1].between.iter().find(|face| !held.contains(face))?;
-        let faces = [held[0], held[1], across];
-        if tips
-            .iter()
-            .any(|tip| !tip.between.iter().all(|face| faces.contains(face)))
-        {
-            return None;
-        }
-        // **A corner the three do not agree about is not a ball's answer.** A
-        // rolling ball is on one side of the material throughout, so a corner
-        // where one edge is convex and another concave wants a surface whose
-        // radius moves — which §9.5 names and this is not.
-        let outward = three[0].outward;
-        if three.iter().any(|blend| blend.outward != outward) {
-            return None;
-        }
-        // **A flat corner is a routine of its own**, and is refused: three
-        // chamfer planes meet at one point and leave no patch between them, so
-        // what fills the corner is three lines rather than a face — see
-        // `.notes/KERNEL.md` §9.5. Asked of the first alone, one [`Round`]
-        // carrying one [`Bevel`] for every blend it raises.
-        let Laid::Round(first) = three[0].laid else {
+        let held = Trihedral::of(blends, runs, ends)?;
+        let Trihedral { faces, outward, .. } = held;
+        // Asked of the first alone, one [`Round`] carrying one [`Bevel`] for
+        // every blend it raises — where a flat corner leaves a star instead,
+        // see [`Rounding::starring`].
+        let Laid::Round(first) = blends[ends[0].blend].laid else {
             return None;
         };
         let radius = first.radius;
@@ -1294,20 +1430,101 @@ impl Rounding {
             return None;
         }
         let (pole, reference) = middle.normalize().any_orthonormal_pair();
-        let mut picks = three.map(|blend| blend.pick);
+        let mut picks = ends.map(|end| blends[end.blend].pick);
         picks.sort_unstable();
         Some(Cornered {
-            ends,
+            held,
             sphere: Sphere {
                 axis: Axis::new(centre, pole, reference),
                 radius,
             },
-            // A sphere faces away from its centre, which is out of the material
-            // exactly where the cylinders it fills between are.
-            outward,
             picks,
-            faces,
             made,
+        })
+    }
+
+    /// The star three *flat* picked edges leave at the corner `at`, or `None`
+    /// where they leave none.
+    ///
+    /// **The arithmetic is three planes crossing.** A chamfer is a plane, so
+    /// the three cross at one point — one linear system, exact — and what fills
+    /// the corner is that point and a line to it from each of the three places
+    /// a pair of them cross. Each of those is where two rulings cross on the
+    /// face the pair shares, which is the corner [`Rounding::joining`] already
+    /// works out for a pair alone.
+    ///
+    /// **And no face**, which is the whole of what tells this from a round
+    /// corner. Three cylinders leave a gap a rolling ball sweeps; three planes
+    /// leave nothing.
+    fn starring(
+        topology: &Topology,
+        blends: &[Blend],
+        runs: &[Spine],
+        ends: [Swallow; 3],
+        at: VertexId,
+    ) -> Option<Starred> {
+        let held = Trihedral::of(blends, runs, ends)?;
+        let [Some(one), Some(two), Some(three)] = ends.map(|end| match blends[end.blend].laid {
+            Laid::Flat(plane) => Some(plane),
+            Laid::Round(_) => None,
+        }) else {
+            return None;
+        };
+        let planes = [one, two, three];
+        // Cramer over the three plane equations. The triple product is the
+        // volume the three normals span, so it comes to nought exactly where
+        // two of the planes are parallel and the point runs off to infinity.
+        let normals = planes.map(|plane| plane.normal());
+        let turns: [DVec3; 3] =
+            array::from_fn(|which| normals[(which + 1) % 3].cross(normals[(which + 2) % 3]));
+        let volume = normals[0].dot(turns[0]);
+        if predicate::touching(volume.abs(), ALIGNED) {
+            return None;
+        }
+        let point = (0..3).fold(DVec3::ZERO, |sum, which| {
+            sum + turns[which] * normals[which].dot(planes[which].origin)
+        }) / volume;
+        debug_assert!(
+            (0..3).all(|which| {
+                (point - planes[which].origin).dot(normals[which]).abs() <= PLACED
+            }),
+            "the point of a star lies on all three of the planes it stands between",
+        );
+
+        // Where each pair of them crosses on the face it shares, which is
+        // where that pair's leg runs to the point from.
+        let corner = topology.vertex(at).at;
+        let mut met = [DVec3::ZERO; 3];
+        let mut found = [[None; 2]; 3];
+        for (leg, at) in met.iter_mut().enumerate() {
+            let pair = [leg, (leg + 1) % 3];
+            let crossed = Met::of(
+                topology,
+                pair.map(|which| blends[ends[which].blend]),
+                pair.map(|which| held.tips[which]),
+                corner,
+            )?;
+            *at = crossed.at;
+            // A leg with no length is a corner the three do not reach the same
+            // way, and an edge of the answer with no direction to run in.
+            if predicate::touching(at.distance(point), PLACED) {
+                return None;
+            }
+            for which in 0..2 {
+                found[pair[which]][crossed.sides[which]] = Some(leg);
+            }
+        }
+        // **Each blend carries a leg on each of its sides**, or two of the
+        // three share both their faces and one leg would stand for two.
+        let mut on = [[0; 2]; 3];
+        for (which, sides) in on.iter_mut().enumerate() {
+            *sides = [found[which][0]?, found[which][1]?];
+        }
+        Some(Starred {
+            held,
+            at: point,
+            met,
+            on,
         })
     }
 
@@ -1350,7 +1567,7 @@ impl Rounding {
                 into,
                 name,
                 Surface::Natural(Natural::Sphere(corner.sphere)),
-                corner.outward,
+                corner.held.outward,
             );
             self.patched.push(raised);
         }
@@ -1385,6 +1602,11 @@ impl Rounding {
             let ringed = self.ring(at, into);
             self.ringed.push(ringed);
         }
+        self.pointed.clear();
+        for at in 0..self.starred.len() {
+            let pointed = self.point(at, into);
+            self.pointed.push(pointed);
+        }
         // The corners a run leaves where it crosses one of the body's own, on
         // which the pieces of its rulings end.
         self.made_at.clear();
@@ -1408,6 +1630,7 @@ impl Rounding {
         }
         self.minted.clear();
         self.railed.clear();
+        self.closing.clear();
         for at in 0..self.blends.len() {
             let blend = self.blends[at];
             let ends = self.ends[at];
@@ -1420,35 +1643,14 @@ impl Rounding {
             let rails = array::from_fn(|side| {
                 self.rail(blend, side, [corners[side], corners[2 + side]], face, into)
             });
-            let mut arced = [true; 2];
-            let arcs = array::from_fn(|end| match ends[end] {
-                // The patch's arc runs from the touch point on this blend's
-                // first face to the one on its second, which is the way this
-                // blend wants it.
-                Ending::Cornered { corner } => {
-                    self.ringed[corner].arcs[self.cornered[corner].which(at)]
-                }
-                Ending::Against { junction, shared } => {
-                    // The arc runs from the junction's own first corner, which
-                    // is this blend's first side only where the face they share
-                    // is.
-                    arced[end] = shared == 0;
-                    self.joined[junction].arc
-                }
-                Ending::Across {
-                    across,
-                    curve,
-                    bounds,
-                    ..
-                } => Self::arc(
-                    into,
-                    curve,
-                    bounds,
-                    [corners[end * 2], corners[end * 2 + 1]],
-                    [self.made[across.slot()].expect(RAISED), face],
-                ),
-            });
-            self.minted.push(Minted { rails, arcs, arced });
+            let mut closes = [self.closing.len() as u32; 3];
+            for end in 0..2 {
+                let held = [corners[end * 2], corners[end * 2 + 1]];
+                self.closed(at, end, ends[end], held, face, into);
+                closes[end + 1] = self.closing.len() as u32;
+            }
+
+            self.minted.push(Minted { rails, closes });
         }
     }
 
@@ -1501,7 +1703,7 @@ impl Rounding {
     ///
     /// A corner more than one blend lands on is minted with what fills it, and
     /// every blend meeting there reads the same one back — see
-    /// [`Rounding::join`] and [`Rounding::ring`].
+    /// [`Rounding::join`], [`Rounding::ring`] and [`Rounding::point`].
     fn ended(
         &mut self,
         topology: &Topology,
@@ -1518,7 +1720,11 @@ impl Rounding {
                 // spine *at this end* divides — see [`Blend::run`], which is
                 // why no blend carries a face pair of its own.
                 let face = self.blends[blend].tip(&self.runs, end).between[side];
-                return self.ringed[corner].made[self.cornered[corner].seat(face)];
+                return self.ringed[corner].made[self.cornered[corner].held.seat(face)];
+            }
+            Ending::Starred { star } => {
+                let starred = self.starred[star];
+                return self.pointed[star].met[starred.on[starred.held.which(blend)][side]];
             }
             Ending::Against { junction, shared } => {
                 return self.joined[junction].made[usize::from(side != shared)];
@@ -1548,7 +1754,114 @@ impl Rounding {
         self.blends[end.blend]
             .tip(&self.runs, end.end)
             .between
-            .map(|face| corner.seat(face))
+            .map(|face| corner.held.seat(face))
+    }
+
+    /// Mint what one star leaves: the point its three planes cross at, the
+    /// corner each pair of them crosses at, and the leg between the two.
+    ///
+    /// **Nothing between them**, which is what the whole record is for: three
+    /// planes meeting leave a point and not a face, so what a blend closes on
+    /// here is two of these legs — see [`Starred`].
+    fn point(&mut self, at: usize, into: &mut Body) -> Pointed {
+        let star = self.starred[at];
+        let faces = star.held.ends.map(|end| self.raised[end.blend]);
+        // Three planes crossing is exact, and so is a pair of rulings crossing
+        // on one — nothing meeting here carries a tube for a corner to hold.
+        let point = into.topology_mut().add_vertex(Vertex {
+            at: star.at,
+            tolerance: EXACT,
+        });
+        let met = star.met.map(|at| {
+            into.topology_mut().add_vertex(Vertex {
+                at,
+                tolerance: EXACT,
+            })
+        });
+        // Laid down from the met corner towards the point, so every blend
+        // reading one back walks it out and back rather than by a rule of its
+        // own — see [`Rounding::closed`].
+        let legs = array::from_fn(|leg| {
+            let out = star.at - star.met[leg];
+            Self::arc(
+                into,
+                Curve::Line(Line {
+                    origin: star.met[leg],
+                    direction: out.normalize(),
+                }),
+                [0.0, out.length()],
+                [met[leg], point],
+                [faces[leg], faces[(leg + 1) % 3]],
+            )
+        });
+        Pointed { met, legs }
+    }
+
+    /// Write the coedges one blend closes its `end` with into
+    /// [`Rounding::closing`], in the order its own loop walks them.
+    ///
+    /// **A blend walks its second end from its first side to its second**, and
+    /// its first end back the other way, which is the whole of what `end` says
+    /// here. `held` are this blend's two corners at that end, in its own side
+    /// order.
+    fn closed(
+        &mut self,
+        blend: usize,
+        end: usize,
+        ending: Ending,
+        held: [VertexId; 2],
+        face: FaceId,
+        into: &mut Body,
+    ) {
+        let onward = end == 1;
+        let (edge, forward) = match ending {
+            // Out along the leg on one side and back down the leg on the other,
+            // the point being a corner of this blend's own loop. Every leg was
+            // laid down running to the point, so the one walked first is walked
+            // the way it was laid and the second one is turned.
+            Ending::Starred { star } => {
+                let starred = self.starred[star];
+                let on = starred.on[starred.held.which(blend)];
+                let order = match onward {
+                    true => [0, 1],
+                    false => [1, 0],
+                };
+                for (nth, side) in order.into_iter().enumerate() {
+                    self.closing.push(Coedge {
+                        edge: self.pointed[star].legs[on[side]],
+                        forward: nth == 0,
+                    });
+                }
+                return;
+            }
+            // The patch's arc runs from the touch point on this blend's first
+            // face to the one on its second.
+            Ending::Cornered { corner } => (
+                self.ringed[corner].arcs[self.cornered[corner].held.which(blend)],
+                onward,
+            ),
+            // The junction's arc runs from its own first corner, which is this
+            // blend's first side only where the face the two share is.
+            Ending::Against { junction, shared } => {
+                (self.joined[junction].arc, onward == (shared == 0))
+            }
+            Ending::Across {
+                across,
+                curve,
+                bounds,
+                ..
+            } => (
+                Self::arc(
+                    into,
+                    curve,
+                    bounds,
+                    held,
+                    [self.made[across.slot()].expect(RAISED), face],
+                ),
+                onward,
+            ),
+        };
+        self.closing.push(Coedge { edge, forward });
     }
 
     /// Mint what one corner patch leaves: the corner it touches each face at,
@@ -1572,7 +1885,7 @@ impl Rounding {
         });
         let centre = corner.sphere.centre();
         let arcs = array::from_fn(|which| {
-            let end = corner.ends[which];
+            let end = corner.held.ends[which];
             let seats = self.seated(&corner, end);
             let Laid::Round(cylinder) = self.blends[end.blend].laid else {
                 unreachable!("a patch of a sphere is only ever put between round blends");
@@ -1744,14 +2057,15 @@ impl Rounding {
             let Some(swallow) = self.swallowed[topology.ends(coedge)[1].slot()] else {
                 continue;
             };
-            let minted = self.minted[swallow.blend];
+            let closes = self.minted[swallow.blend].closes[swallow.end] as usize;
             let Ending::Across { along, .. } = self.ends[swallow.blend][swallow.end] else {
                 unreachable!("a corner more than one blend lands on is spined either side");
             };
-            let arrived = along[0] == coedge.edge;
+            // One coedge, a corner nothing else lands on closing across one
+            // arc — where a star's two legs are walked by the blends alone.
             self.walk.push(Coedge {
-                edge: minted.arcs[swallow.end],
-                forward: arrived,
+                edge: self.closing[closes].edge,
+                forward: along[0] == coedge.edge,
             });
         }
         let wrote = &self.walk;
@@ -1768,27 +2082,22 @@ impl Rounding {
     /// edge does not, so fixing the first ruling against the walk of the face
     /// it runs out onto fixes the rest.
     fn wound(&mut self, at: usize) {
-        let Minted { rails, arcs, arced } = self.minted[at];
+        let Minted { rails, closes } = self.minted[at];
         let blend = self.blends[at];
         let pieces = blend.spines(&self.runs).len();
-        let (bounding, railed) = (&mut self.bounding, &self.railed);
+        let (bounding, railed, closing) = (&mut self.bounding, &self.railed, &self.closing);
+        let closed = |end: usize| &closing[closes[end] as usize..closes[end + 1] as usize];
         bounding.clear();
         bounding.extend((0..pieces).map(|which| Coedge {
             edge: railed[rails[0] as usize + which],
             forward: true,
         }));
-        bounding.push(Coedge {
-            edge: arcs[1],
-            forward: arced[1],
-        });
+        bounding.extend_from_slice(closed(1));
         bounding.extend((0..pieces).rev().map(|which| Coedge {
             edge: railed[rails[1] as usize + which],
             forward: false,
         }));
-        bounding.push(Coedge {
-            edge: arcs[0],
-            forward: !arced[0],
-        });
+        bounding.extend_from_slice(closed(0));
         if blend.walks {
             bounding.reverse();
             for coedge in bounding.iter_mut() {
@@ -1807,13 +2116,13 @@ impl Rounding {
         let corner = self.cornered[at];
         let ringed = self.ringed[at];
         let turned: [bool; 3] = array::from_fn(|which| {
-            let end = corner.ends[which];
+            let end = corner.held.ends[which];
             (end.end == 1) == self.blends[end.blend].walks
         });
         // Which corner each arc runs between as the patch walks it, so the
         // three can be chained into one loop.
         let ends: [[usize; 2]; 3] = array::from_fn(|which| {
-            let seats = self.seated(&corner, corner.ends[which]);
+            let seats = self.seated(&corner, corner.held.ends[which]);
             match turned[which] {
                 true => seats,
                 false => [seats[1], seats[0]],
@@ -1906,7 +2215,7 @@ impl Rounding {
                 for at in 0..self.cornered.len() {
                     if topology
                         .faces_of(shell)
-                        .contains(&self.cornered[at].faces[0])
+                        .contains(&self.cornered[at].held.faces[0])
                     {
                         into.topology_mut().add_shelled(self.patched[at]);
                     }

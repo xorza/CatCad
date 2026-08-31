@@ -338,7 +338,7 @@ fn rounding_three_picks_a_cut_split_allocates_nothing() {
 
 /// And a chamfer, which is the same walk over a plane rather than a cylinder.
 ///
-/// One row rather than three, because what a flat blend does differently is the
+/// Two rows rather than four, because what a flat blend does differently is the
 /// surface it lays down: the corners it swallows, the edges it cuts back and the
 /// tables it keeps are the round one's. The two edges meet, so the junction is
 /// walked too — see
@@ -347,4 +347,21 @@ fn rounding_three_picks_a_cut_split_allocates_nothing() {
 #[test]
 fn chamfering_two_edges_that_meet_allocates_nothing() {
     blend(&[[1, 2], [2, 3]], 1.0, Bevel::Flat, 64.0 - 4.0 + 1.0 / 3.0);
+}
+
+/// And three of them, which is the one corner a blend closes on two edges.
+///
+/// Its own row where the pair above stands for every other flat case: three
+/// chamfer planes meet at a point, so the star and its legs are two more tables
+/// and the loop they close is five-sided — see
+/// `three_flat_blends_meeting_at_a_corner_leave_a_star`, where `64 − 6 + 1 − ¼`
+/// is argued.
+#[test]
+fn chamfering_three_edges_that_meet_allocates_nothing() {
+    blend(
+        &[[1, 2], [2, 3], [1, 3]],
+        1.0,
+        Bevel::Flat,
+        64.0 - 6.0 + 1.0 - 0.25,
+    );
 }

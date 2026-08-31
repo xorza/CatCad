@@ -872,6 +872,19 @@ same junction where two of them meet. `Bevel` is the one field that tells them
 apart, and **the crease flag is read rather than stated** — `Face::smooth` at
 every edge the rounding mints, which is what the checking holds it against.
 
+**Where three flat picks meet, the corner is a star and holds no face.** A
+chamfer is a plane, so the three cross at one point — one linear system, exact,
+and refused only where two of them run parallel. Three *cylinders* of one radius
+do not cross that way, which is the whole of the difference: the round corner
+wants a patch of a sphere in the gap they leave and the flat one wants nothing
+at all. What goes in is that point and one line to it from each of the three
+places a pair of the chamfers cross on the face they share — the same corner a
+junction of two already works out. **So a blend closing there bounds two edges
+and not one**, out along the leg on one of its sides and back down the leg on
+the other, which is the one place the routine's four-sided loop grows. What both
+corners share — three faces between the three of them, one apiece, and one side
+of the material — is settled once, before either is measured.
+
 **Three flat picks at one corner are refused.** Three chamfer planes meet at one
 point and leave no patch between them, so what fills the corner is *three lines*
 running to that point rather than a face — and a blend then bounds five edges
@@ -1447,7 +1460,10 @@ one blend runs down them all. §7.5 is how it works and what it refuses.
 back, the junction where two meet, the step of the timeline, the file record and
 the field on the bar. What varies is the surface between the rulings and the two
 joins, and the crease flag is *read* off the faces rather than written by hand —
-so neither kind can claim the other's.
+so neither kind can claim the other's. **A corner three of them meet at is a
+star rather than a patch**, three planes crossing at a point where three
+cylinders leave a gap — the one place the two kinds part on more than a surface,
+and it is in.
 
 **And it lands in CatCad**, which is rule 1. `Feature::Round { along, reach, bevel }`
 is a step of the timeline like any other — replayed, cached, saved, reopened,
@@ -1490,10 +1506,6 @@ arcs is §7.5.
   slice stays exact — a cylinder tangent to two planes is one cylinder, where a
   blend running out onto a cylinder or a cone is a surface of the fitted tier
   with a radius that moves.
-- **A flat corner where three picks meet.** Three chamfer planes meet at one
-  point, so what goes there is three lines to that point rather than a face —
-  and a blend then bounds five edges where the routine gives it four. The pair
-  is done, the triple is not.
 - **STEP**, which is what the naming and the exactness were always for.
 
 ---

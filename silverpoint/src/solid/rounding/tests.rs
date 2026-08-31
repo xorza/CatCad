@@ -79,6 +79,84 @@ fn notch() -> Body {
     )
 }
 
+/// The four-cube with a two-by-two slot through it, and the *block's* names.
+///
+/// **Named off the block rather than off what the cut left**, which is what
+/// makes each pick below one run: a face of the answer answers to the name the
+/// step that grew it gave it, however many patches the cut left it in.
+///
+/// The slot's walls divide the two faces at the corner `(4, 4, 0)`, so two of
+/// the three edges running to it come back in three pieces and the third in
+/// one. Every row using this asserts that count through [`Slotted::pieces`],
+/// because a row that quietly got one piece would be asserting nothing about a
+/// run.
+fn slotted() -> Slotted {
+    let cube = cube();
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
+    let found = Arrangement::of(&sketch);
+    let slot = Extrusion::new(
+        &found,
+        &[0],
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            ..Plane::GROUND
+        },
+        6.0,
+        Step(3),
+    )
+    .body();
+    let mut cut = Body::default();
+    assert!(
+        Boolean::default().combine(&cube, &slot, Operation::Cut, &mut cut),
+        "a slot through a block was refused",
+    );
+    Slotted {
+        names: cube.names().collect(),
+        cut,
+    }
+}
+
+/// A block a boolean has cut, and the names its picks are made of.
+#[derive(Debug)]
+struct Slotted {
+    cut: Body,
+    names: Vec<Named>,
+}
+
+impl Slotted {
+    /// How many pieces the cut left of the edge each pick names.
+    fn pieces(&self, along: &[[Named; 2]]) -> Vec<usize> {
+        along
+            .iter()
+            .map(|&pick| {
+                self.cut
+                    .topology()
+                    .edges()
+                    .filter(|(_, edge)| {
+                        let here = edge.between.map(|face| self.cut.topology().face(face).name);
+                        here == pick || here == [pick[1], pick[0]]
+                    })
+                    .count()
+            })
+            .collect()
+    }
+}
+
+/// The three picks that meet at the corner `(4, 4, 0)` of a block.
+///
+/// **Named by index rather than by where they stand**, which the rows using
+/// this want and [`between`] below cannot give them: on a body a boolean has
+/// cut, the pick is the pair of names the *block* carried and no edge of the
+/// answer runs the whole way between the two corners.
+fn at_a_corner(names: &[Named]) -> [[Named; 2]; 3] {
+    [
+        [names[1], names[2]],
+        [names[1], names[3]],
+        [names[2], names[3]],
+    ]
+}
+
 /// The pair of names on the edge running between `here` and `there`.
 ///
 /// **Found by where it stands rather than by counting faces**, which is what
@@ -383,47 +461,20 @@ fn a_rounded_block_is_bored_like_any_other() {
 /// forty-eight the pocket left.
 #[test]
 fn a_pick_a_boolean_cut_into_pieces_is_one_blend() {
-    let cube = cube();
-    let mut sketch = Sketch::default();
-    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
-    let found = Arrangement::of(&sketch);
-    let pocket = Extrusion::new(
-        &found,
-        &[0],
-        Plane {
-            origin: DVec3::new(0.0, -1.0, 0.0),
-            ..Plane::GROUND
-        },
-        6.0,
-        Step(3),
-    )
-    .body();
-    let mut cut = Body::default();
-    assert!(
-        Boolean::default().combine(&cube, &pocket, Operation::Cut, &mut cut),
-        "a pocket through a block was refused",
+    let slotted = slotted();
+    let along = [[slotted.names[1], slotted.names[2]]];
+    assert_eq!(
+        slotted.pieces(&along),
+        [3],
+        "the cut left the picked edge in other than three pieces",
     );
-
-    // Named off the block rather than off what the cut left, which is the whole
-    // point: a face of the answer answers to the name the step that grew it
-    // gave it, however many patches the cut left it in.
-    let names: Vec<_> = cube.names().collect();
-    let along = [[names[1], names[2]]];
-    let pieces = cut
-        .topology()
-        .edges()
-        .filter(|(_, edge)| {
-            let here = edge.between.map(|face| cut.topology().face(face).name);
-            here == along[0] || here == [along[0][1], along[0][0]]
-        })
-        .count();
-    assert_eq!(pieces, 3, "the cut left the edge in {pieces} pieces");
+    let cut = &slotted.cut;
 
     let mut into = Body::default();
     assert!(
         Rounding::default().round(
             &Round::new(&along, 0.5, Bevel::Round, ROUND),
-            &cut,
+            cut,
             &mut into
         ),
         "a pick of three pieces of one edge was refused",
@@ -454,13 +505,12 @@ fn a_pick_a_boolean_cut_into_pieces_is_one_blend() {
 /// **What a rounding cannot make is refused rather than guessed at**, which is
 /// the standing every unanswerable case in this kernel takes.
 ///
-/// Six, and each is a different thing being asked for: a reach that is no blend
-/// at all; one so large the blend runs off the end of the edges it has to meet,
-/// which wants those edges rounded too; a pair of names with no edge between
-/// them; an edge on a face that is not flat, which wants a variable-radius
-/// blend; two picks meeting at a corner from opposite sides, which is a corner
-/// no rolling ball reaches from one side; and three *flat* picks meeting at a
-/// corner, which wants three lines where three round ones want a patch.
+/// Five, and each is a different thing being asked for: a reach that is no
+/// blend at all; one so large the blend runs off the end of the edges it has to
+/// meet, which wants those edges rounded too; a pair of names with no edge
+/// between them; an edge on a face that is not flat, which wants a
+/// variable-radius blend; and two picks meeting at a corner from opposite
+/// sides, which is a corner no rolling ball reaches from one side.
 #[test]
 fn what_a_rounding_cannot_make_is_refused() {
     let cube = cube();
@@ -494,25 +544,6 @@ fn what_a_rounding_cannot_make_is_refused() {
         );
         assert!(into.is_empty(), "{what}: a refusal left half a body behind");
     }
-
-    // Three chamfers at one corner. Their planes meet at a point and leave no
-    // patch between them, so what fills the corner is three lines rather than a
-    // face — which is a routine of its own, where three fillets leave a patch
-    // of a sphere.
-    let corner = [
-        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
-        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
-        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 0.0, 0.0)),
-    ];
-    assert!(
-        !rounding.round(
-            &Round::new(&corner, 1.0, Bevel::Flat, ROUND),
-            &cube,
-            &mut into
-        ),
-        "three chamfers meeting at a corner were answered",
-    );
-    assert!(into.is_empty(), "a refusal left half a body behind");
 
     // A corner where a reflex edge meets a convex one. Both cylinders stand a
     // radius off the face they share and the two stand off it on opposite
@@ -837,6 +868,105 @@ fn two_flat_blends_meeting_at_a_corner_close_against_each_other() {
     assert!(into.exact(), "two planes crossing in a line stay exact");
 }
 
+/// **Three chamfers meeting at a corner leave a star and no face**, which is
+/// what tells a flat corner from a round one.
+///
+/// A chamfer is a plane, so the three cross at one point. Three *cylinders* of
+/// one radius do not — see
+/// `three_blends_meeting_at_a_corner_leave_a_patch_of_a_sphere`, where a patch
+/// fills the gap they leave — so a flat corner wants nothing between them. What
+/// goes in is that point, and a line to it from each of the three places a pair
+/// of the chamfers cross on the face they share.
+///
+/// **So each blend closes on two edges at that end and one at the other**, and
+/// bounds five where every other blend in this file bounds four.
+///
+/// **The arithmetic is the three wedges less what they share.** Each chamfer
+/// alone takes a right triangle of `s²/2` down its whole four-long edge. Each
+/// pair of them overlaps in `s³/3` and all three in `s³/4`, so a unit chamfer
+/// down the three edges of one corner of a four-cube takes
+/// `3·½·s²·l − 3·s³/3 + s³/4`, which is `6 − 1 + ¼`.
+#[test]
+fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
+    let cube = cube();
+    let along = [
+        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 0.0, 0.0)),
+    ];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Flat, ROUND),
+            &cube,
+            &mut into
+        ),
+        "three chamfers meeting at a corner were refused",
+    );
+
+    let want = 64.0 - (6.0 - 1.0 + 0.25);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the thrice-chamfered block shuts in {} where {want} is the three \
+         wedges less what they share",
+        volume(&into),
+    );
+
+    // Nine faces, twenty-one edges and fourteen corners, which Euler holds to a
+    // ball: the block's twelve edges less the three replaced, six rulings, one
+    // arc across each chamfer's far end, and the star's own three legs. No face
+    // is raised at the corner, which is the whole of the difference from a
+    // round one.
+    let reckoning = into.reckoning();
+    assert_eq!(
+        reckoning.genus, 0,
+        "a thrice-chamfered block is still a ball"
+    );
+    let topology = into.topology();
+    assert_eq!(
+        topology.faces().count(),
+        9,
+        "six faces and three chamfers, and nothing between them",
+    );
+    assert_eq!(topology.edges().count(), 21);
+    assert_eq!(topology.vertices().count(), 14);
+    assert_eq!(smooth(&into), 0, "no join of a chamfer is smooth");
+
+    // The point the three planes cross at. Each stands a setback back from two
+    // of the faces meeting at `(4, 4, 0)`, so the three cross half a setback
+    // inside all three of them.
+    let point = DVec3::new(3.5, 3.5, -0.5);
+    let legs = topology
+        .edges()
+        .filter(|(_, edge)| {
+            [edge.from, edge.to]
+                .iter()
+                .any(|&end| topology.vertex(end).at.abs_diff_eq(point, PLACED))
+        })
+        .count();
+    assert_eq!(
+        legs, 3,
+        "three planes crossing leave one corner on three legs"
+    );
+
+    // And each pair of them crosses where their two rulings do on the face they
+    // share, a setback back along both.
+    for met in [
+        DVec3::new(3.0, 3.0, 0.0),
+        DVec3::new(3.0, 4.0, -1.0),
+        DVec3::new(4.0, 3.0, -1.0),
+    ] {
+        assert!(
+            topology
+                .vertices()
+                .any(|(_, vertex)| vertex.at.abs_diff_eq(met, PLACED)),
+            "no corner of the answer stands at {met}, where a pair of the \
+             chamfers cross on the face they share",
+        );
+    }
+    assert!(into.exact(), "three planes crossing in a point stay exact");
+}
+
 /// **A blend whose ends lean cuts ellipses rather than arcs of a circle**,
 /// which is the second thing a face across the end of one can be.
 ///
@@ -909,62 +1039,33 @@ fn a_blend_whose_ends_lean_is_closed_by_two_ellipses() {
 /// against the face it touches there, so reading the run's first spine at its
 /// far end seats it against a patch that is not even there.
 ///
+/// **Both fillings over the one fixture**, because both read the corner the
+/// same way and the reading is what is under test: three fillets leave a patch
+/// of a sphere and three chamfers leave a point, and a run that ends at either
+/// stands on the patches its own tip divides.
+///
 /// **The arithmetic is the corner arithmetic off what the slot left.** The
 /// blends stand half a unit off faces the slot comes no nearer than one, so
-/// each takes the same `(1 − π/4)·r²·(l − r)` outside the corner cube it would
-/// take off a whole block, and the cube gives up `r³(1 − π/6)` — off the
-/// forty-eight a two-by-two slot through a four-cube leaves.
+/// each takes off the forty-eight a two-by-two slot leaves exactly what it
+/// would take off a whole block: `(1 − π/4)·r²·(l − r)` outside the corner cube
+/// and `r³(1 − π/6)` of the cube for a fillet, and `3·½·s²·l − ¾·s³` for the
+/// three chamfers.
 #[test]
-fn three_picks_meeting_on_a_body_a_boolean_cut_leave_the_same_patch() {
-    let cube = cube();
-    let mut sketch = Sketch::default();
-    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
-    let found = Arrangement::of(&sketch);
-    let slot = Extrusion::new(
-        &found,
-        &[0],
-        Plane {
-            origin: DVec3::new(0.0, -1.0, 0.0),
-            ..Plane::GROUND
-        },
-        6.0,
-        Step(3),
-    )
-    .body();
-    let mut cut = Body::default();
-    assert!(
-        Boolean::default().combine(&cube, &slot, Operation::Cut, &mut cut),
-        "a slot through a block was refused",
-    );
-
-    // Named off the block, which is what makes each pick one run: the patches
-    // the slot left all answer to the name of the face they were cut from.
-    let names: Vec<_> = cube.names().collect();
-    let along = [
-        [names[1], names[2]],
-        [names[1], names[3]],
-        [names[2], names[3]],
-    ];
-    let pieces = along.map(|pick| {
-        cut.topology()
-            .edges()
-            .filter(|(_, edge)| {
-                let here = edge.between.map(|face| cut.topology().face(face).name);
-                here == pick || here == [pick[1], pick[0]]
-            })
-            .count()
-    });
+fn three_picks_meeting_on_a_body_a_boolean_cut_fill_the_corner_either_way() {
+    let slotted = slotted();
+    let along = at_a_corner(&slotted.names);
     assert_eq!(
-        pieces,
+        slotted.pieces(&along),
         [3, 3, 1],
         "the slot left the three picked edges in other than three, three and one",
     );
+    let cut = &slotted.cut;
 
     let mut into = Body::default();
     assert!(
         Rounding::default().round(
             &Round::new(&along, 0.5, Bevel::Round, ROUND),
-            &cut,
+            cut,
             &mut into
         ),
         "three picks meeting at a corner of a cut body were refused",
@@ -1010,4 +1111,39 @@ fn three_picks_meeting_on_a_body_a_boolean_cut_leave_the_same_patch() {
         into.exact(),
         "a cylinder and a sphere are of the exact tier"
     );
+
+    // And the same three picks as chamfers, which is the other filling a corner
+    // takes: three planes meeting at a point rather than a patch of a sphere.
+    // The same reading of the tips settles it, and the same runs feed it.
+    assert!(
+        Rounding::default().round(&Round::new(&along, 0.5, Bevel::Flat, ROUND), cut, &mut into),
+        "three chamfers meeting at a corner of a cut body were refused",
+    );
+    let want = 48.0 - (3.0 * 0.5 * 0.25 * 4.0 - 0.75 * 0.125);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the chamfered slot shuts in {} where {want} is the three wedges less \
+         what they share",
+        volume(&into),
+    );
+    let point = DVec3::new(3.75, 3.75, -0.25);
+    let legs = into
+        .topology()
+        .edges()
+        .filter(|(_, edge)| {
+            [edge.from, edge.to]
+                .iter()
+                .any(|&end| into.topology().vertex(end).at.abs_diff_eq(point, PLACED))
+        })
+        .count();
+    assert_eq!(
+        legs, 3,
+        "three planes crossing leave one corner on three legs"
+    );
+    assert_eq!(
+        into.reckoning().genus,
+        1,
+        "a slot right through is a hole, chamfered or not",
+    );
+    assert!(into.exact(), "three planes crossing in a point stay exact");
 }
