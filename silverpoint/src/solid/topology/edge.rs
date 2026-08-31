@@ -34,18 +34,22 @@ pub(crate) struct Edge {
     /// innermost question, and deriving it means rebuilding an index at the top
     /// of every algorithm that asks. See `.notes/KERNEL.md` §4.5.
     pub(crate) between: [FaceId; 2],
-    /// Whether there is no real crease here — the two faces lie on one surface
-    /// and meet smoothly.
+    /// Whether there is no real crease here — the two faces run out into each
+    /// other rather than folding.
     ///
-    /// What splitting a face off a surface's wrap leaves behind, and what two
-    /// arcs of one circle leave where the drawing was cut between them. Flagged
-    /// so that display, export and any later merge of neighbouring faces can
-    /// pass over it; nothing about the topology treats it differently. See
-    /// `.notes/KERNEL.md` §4.4.
+    /// What splitting a face off a surface's wrap leaves behind, what two arcs
+    /// of one circle leave where the drawing was cut between them, and what a
+    /// blend leaves along the rulings it lies tangent along. Flagged so that
+    /// display, export and any later merge of neighbouring faces can pass over
+    /// it; nothing about the topology treats it differently. See
+    /// `.notes/KERNEL.md` §4.4 and §7.5.
     ///
     /// The corner edge of a box is *not* this. Nobody drew it either, but it is
     /// a crease a fillet would round and an export has to keep — which is why
-    /// the flag is about the surfaces rather than about which pass raised it.
+    /// the flag is about which way the material faces rather than about which
+    /// pass raised it.
+    /// [`Face::smooth`](crate::solid::topology::face::Face::smooth) is that
+    /// reading, and what the checking re-derives this from.
     pub(crate) artificial: bool,
     /// The radius of the tube this edge stands for.
     ///

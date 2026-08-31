@@ -11,9 +11,10 @@ use crate::solid::buckets::Key;
 ///
 /// [`Named`]: crate::solid::named::Named
 ///
-/// The whole of an extrusion's topology, and it is three words because an
-/// extrusion has no more to it: the region it started as, the region carried to
-/// the far end, and one wall per curve that bounded it.
+/// The whole of an extrusion's topology, in three words because an extrusion
+/// has no more to it: the region it started as, the region carried to the far
+/// end, and one wall per curve that bounded it. A fourth for the one step that
+/// sweeps nothing — a rounding, which puts a face where an edge was.
 ///
 /// **The same vocabulary the region was named in.** A wall carries the [`Bound`]
 /// it was swept from, which is what a caller's own durable name for a region is
@@ -37,6 +38,17 @@ pub enum Grown {
     Far,
     /// The wall swept from one of the curves bounding the region.
     Side(Bound),
+    /// The blend put in where an edge of the body standing before this step
+    /// used to be.
+    ///
+    /// **Numbered by the pick rather than by the edge**, which is the one thing
+    /// a rounding can name durably. An edge is not a thing the kernel keeps
+    /// identity for across a rebuild — §4.9 — so what a face of a rounding
+    /// answers to is *which of the caller's picks* it came of, and the pick
+    /// itself is a durable name the caller already holds. One pick may find
+    /// several edges, exactly as one [`Grown::Side`] may cover several patches,
+    /// and every blend it raises carries the one number.
+    Rounded(u32),
 }
 
 impl Grown {
@@ -50,6 +62,7 @@ impl Grown {
             Self::Base => Key::default().word(0).done(),
             Self::Far => Key::default().word(1).done(),
             Self::Side(bound) => Key::default().word(2).word(bound.key()).done(),
+            Self::Rounded(at) => Key::default().word(3).word(u64::from(at)).done(),
         }
     }
 }

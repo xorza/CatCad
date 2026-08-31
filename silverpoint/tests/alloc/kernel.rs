@@ -1,9 +1,9 @@
-//! What putting two solids together costs the heap, a combine at a time.
+//! What an edit to a solid costs the heap, one operation at a time.
 //!
-//! Every gate here runs through one [`Boolean`] or one [`Merging`] held across
-//! its window, which is the shape a drag has: a document is rebuilt on every
-//! frame of one, and every buffer the stages want comes out the same size each
-//! time.
+//! Every gate here runs through one [`Boolean`], one [`Merging`] or one
+//! [`Rounding`] held across its window, which is the shape a drag has: a
+//! document is rebuilt on every frame of one, and every buffer the stages want
+//! comes out the same size each time.
 //!
 //! The four combines are chosen for the paths they are the only ones to reach.
 //! The swallowed cut is the one that hangs a cavity on a lump; the bored cut is
@@ -22,7 +22,8 @@
 use common::AllocTester;
 use glam::DVec2;
 use silverpoint::{
-    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Operation, Plane, Sketch, Step,
+    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Operation, Plane, Round, Rounding,
+    Sketch, Step,
 };
 use std::f64::consts::PI;
 use std::hint::black_box;
@@ -201,4 +202,42 @@ fn merging_a_bore_allocates_nothing() {
         Operation::Cut,
         7,
     );
+}
+
+/// Round one edge of `cube()` to `radius`, hold the answer to `want`, and gate
+/// every further rounding of the same body at a strict zero.
+///
+/// **The one operation here that is neither a boolean nor a merge**, and it
+/// runs on the same clock as both: a rounding is a step of a history, so a drag
+/// through anything before it replays one on every frame.
+///
+/// The edge is picked as the far cap against the first wall, which is the pair
+/// of names a block always has an edge between — see [`Body::names`], where
+/// that order is promised.
+fn blend(radius: f64, want: f64) {
+    let cube = cube();
+    let names: Vec<_> = cube.names().collect();
+    let along = [[names[1], names[2]]];
+    let round = Round::new(&along, radius, TOOL);
+    let mut rounding = Rounding::default();
+    let mut into = Body::default();
+    assert!(
+        rounding.round(&round, &cube, &mut into),
+        "the rounding was refused, so this gate would measure a refusal"
+    );
+    let shut_in = Mesher::default().volume(&into, SAGITTA);
+    assert!(
+        (shut_in - want).abs() < ROUNDED,
+        "the rounding shut in {shut_in} rather than {want}, so this gate measures the wrong answer"
+    );
+    AllocTester::new().run(|| {
+        rounding.round(&round, &cube, &mut into);
+        black_box(&into);
+    });
+}
+
+/// A unit blend down one four-long edge: `64 − (1 − π/4)·4`.
+#[test]
+fn rounding_an_edge_of_a_block_allocates_nothing() {
+    blend(1.0, 64.0 - (1.0 - PI / 4.0) * 4.0);
 }

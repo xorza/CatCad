@@ -4,7 +4,6 @@ use crate::math::chorded::Chorded;
 use crate::math::intersect::{self, Span};
 use crate::number::predicate::{self, ApproxEq, slack};
 use crate::number::tolerance::CHORDED;
-use crate::solid::meeting::Meeting;
 use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
@@ -397,8 +396,8 @@ impl Checking {
         }
     }
 
-    /// An edge is flagged as no crease exactly when its two faces lie on one
-    /// surface.
+    /// An edge is flagged as no crease exactly when its two faces run out into
+    /// each other along it.
     ///
     /// A flag re-derived rather than trusted, which is what a validity check is
     /// for. What sets it today could hardly get it wrong; what sets it after a
@@ -407,15 +406,17 @@ impl Checking {
     /// quietly drop.
     fn creases_are_flagged(&self, topology: &Topology) {
         for (id, edge) in topology.edges() {
-            let [one, two] = edge.between.map(|face| topology.face(face).surface);
+            let [one, two] = edge.between.map(|face| topology.face(face));
             assert!(
-                edge.artificial == (Meeting::of(&one, &two) == Meeting::Same),
-                "edge {id:?} calls itself {} between {one:?} and {two:?}",
+                edge.artificial == one.smooth(two, &edge.curve, edge.bounds, topology.carried()),
+                "edge {id:?} calls itself {} between {:?} and {:?}",
                 if edge.artificial {
                     "smooth"
                 } else {
                     "a crease"
                 },
+                one.surface,
+                two.surface,
             );
         }
     }

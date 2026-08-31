@@ -18,7 +18,6 @@ use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
-use crate::solid::meeting::Meeting;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -627,21 +626,17 @@ impl Revolving {
                 // seams — one face parts at its two ends alone — and the
                 // vertices and angles a seam is built from are the turn's.
                 Some(walls) => Some(each_seam(walls.parts, spinning.closed, |part| {
-                    let divided = Self::divided(spinning.closed, self.caps, walls, part);
+                    let between = Self::divided(self.caps, walls, part);
                     let seam = part * spinning.parts / walls.parts;
-                    self.seam(spinning, strips, strip, seam, divided, into)
+                    self.seam(spinning, strips, strip, seam, between, into)
                 })),
                 // A strip on the line sweeps no wall, and where the turn is cut
                 // it is still a side of both caps — one edge, the line itself,
                 // held in every slot so a cap reads it the way it reads any
                 // other.
-                None => self.caps.map(|caps| {
-                    let divided = Divided {
-                        between: caps,
-                        artificial: false,
-                    };
-                    [self.seam(spinning, strips, strip, 0, divided, into); MOST + 1]
-                }),
+                None => self
+                    .caps
+                    .map(|caps| [self.seam(spinning, strips, strip, 0, caps, into); MOST + 1]),
             };
             self.seams.push(seams);
         }
@@ -710,7 +705,7 @@ impl Revolving {
     ///
     /// Round a closed turn those are neighbours. At the two ends of a partial
     /// one there is no neighbour, and what stands across the seam is the cap.
-    fn divided(closed: bool, caps: Option<[FaceId; 2]>, walls: Walls, part: usize) -> Divided {
+    fn divided(caps: Option<[FaceId; 2]>, walls: Walls, part: usize) -> [FaceId; 2] {
         let Walls { parts, faces } = walls;
         let begins = match caps {
             Some(caps) if part == parts => caps[1],
@@ -720,15 +715,7 @@ impl Revolving {
             Some(caps) if part == 0 => caps[0],
             _ => faces[(part + parts - 1) % parts],
         };
-        Divided {
-            between: [begins, ends],
-            // The parts of one wall lie on one surface, so a seam between two
-            // of them is what splitting the turn left behind rather than a
-            // crease. The two at the ends of a partial turn divide a wall from
-            // a cap, which is a crease like any other — see
-            // `.notes/KERNEL.md` §4.4.
-            artificial: closed || (0 < part && part < parts),
-        }
+        [begins, ends]
     }
 
     /// One copy of a strip's own curve, at the spin the walls part at `part`.
@@ -738,20 +725,28 @@ impl Revolving {
         strips: &Strips,
         strip: Strip,
         part: usize,
-        divided: Divided,
+        between: [FaceId; 2],
         into: &mut Body,
     ) -> EdgeId {
         let [from, to] = [strip.from, strip.to]
             .map(|corner| self.corners[corner].expect("every corner of a strip is raised")[part]);
         let Running { curve, bounds } =
             Self::running(spinning, strips, strip, spinning.seamed(part));
+        // The parts of one wall lie on one surface, so a seam between two of
+        // them is what splitting the turn left behind rather than a crease. The
+        // two at the ends of a partial turn divide a wall from a cap, which is
+        // a crease unless the two run out into each other there — see
+        // `.notes/KERNEL.md` §4.4.
+        let topology = into.topology();
+        let [one, two] = between.map(|face| topology.face(face));
+        let smooth = one.smooth(two, &curve, bounds, topology.carried());
         into.topology_mut().add_edge(Edge {
             curve,
             bounds,
             from,
             to,
-            between: divided.between,
-            artificial: divided.artificial,
+            between,
+            artificial: smooth,
             tolerance: EXACT,
         })
     }
@@ -803,18 +798,20 @@ impl Revolving {
         );
         let at = spinning.profile(strips.corners()[corner]);
         let axis = spinning.about(at.x);
-        // No crease where the two walls lie on one surface, which two arcs of
-        // one circle the drawing was cut between and two segments drawn
-        // straight through a corner both are.
-        let topology = into.topology();
-        let [one, two] = between.map(|wall| topology.face(wall.faces[0]).surface);
-        let smooth = Meeting::of(&one, &two) == Meeting::Same;
         let raised = self.corners[corner].expect("every corner of a strip is raised");
         let parts = each_part(spinning.parts, |part| {
             let faces = between.map(|wall| wall.faces[part]);
+            // No crease where the two walls run out into each other, which two
+            // arcs of one circle the drawing was cut between and two segments
+            // drawn straight through a corner both do.
+            let curve = Curve::Circle(Circle { axis, radius: at.y });
+            let bounds = [spinning.seamed(part), spinning.seamed(part + 1)];
+            let topology = into.topology();
+            let [one, two] = faces.map(|face| topology.face(face));
+            let smooth = one.smooth(two, &curve, bounds, topology.carried());
             into.topology_mut().add_edge(Edge {
-                curve: Curve::Circle(Circle { axis, radius: at.y }),
-                bounds: [spinning.seamed(part), spinning.seamed(part + 1)],
+                curve,
+                bounds,
                 from: raised[part],
                 to: raised[part + 1],
                 between: faces,
@@ -1072,13 +1069,6 @@ impl Revolving {
 struct Walls {
     parts: usize,
     faces: [FaceId; MOST],
-}
-
-/// What a seam divides, and whether that is a crease.
-#[derive(Debug, Clone, Copy)]
-struct Divided {
-    between: [FaceId; 2],
-    artificial: bool,
 }
 
 /// Where a strip stands part way along it, and the way it runs there.

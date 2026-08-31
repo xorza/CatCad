@@ -304,6 +304,15 @@ can tell. *Cost:* artificial edges the boolean must carry. They are flagged
 artificial on the edge, so display and export can ignore them and adjacent faces
 on the same surface can be merged for output.
 
+**And the flag is about *direction*, not about the surfaces.** It says the
+material faces one way at every place of the edge, which two faces of one
+surface satisfy and so does a blend running out onto the plane it lies tangent
+to — §7.5's whole join. Written the other way round, as "the two faces lie on
+one surface", it would call a fillet's own edges creases and the export would
+put a hard line down each of them. Both the flag and the check that re-derives
+it read `Face::smooth`, which samples the edge and holds the two faces' outward
+directions against each other.
+
 ### 4.5 Topology is arenas and `Copy` handles, with explicit adjacency
 
 ```rust
@@ -418,6 +427,14 @@ so a name does not move when something new is drawn across the drawing.
 `Part::Solid { of: FeatureId, face: Grown }` is therefore a durable name for a
 face of a solid, and what the renderer's tag reports.
 
+**A fourth word for the one step that sweeps nothing.** A rounding puts a face
+where an *edge* was, and an edge is not a thing the kernel keeps identity for
+across a rebuild (§4.9) — so `Rounded(u32)` names the blend by *which of the
+caller's picks* raised it, and a pick is a pair of face names the caller already
+holds durably. One pick may find several edges and raise several blends, exactly
+as one `Side(Bound)` may cover several patches, and every one of them carries
+the one number. See §7.5.
+
 **A face of a body is the set of faces sharing a name.** Three rules follow.
 
 **A face may come in several disjoint patches.** A pocket cut across the top of
@@ -462,23 +479,31 @@ silverpoint/src/
   solid/
     mod.rs  grown.rs  named.rs
     geometry/      surface, curve, plane (in math/), cylinder, cone, sphere,
-                   line, circle, ellipse, axis, tests
-                   — to come: quartic, torus, nurbs
+                   torus, line, circle, ellipse, hyperbola, parabola, saddle,
+                   axis, carried, fitted, natural, marchings, pencil, quadric,
+                   quartic, roots, ruled, tests
+                   — to come: nurbs
     topology/      mod (Topology, Walked), body, lump, shell, face, edge,
                    vertex, coedge, spreading, validity, tests
-    build/         mod, builder (Builder, Extrusion), strip, tests
-    meeting/       mod (Meeting, Curves), tests
-                   — to come: the algebraic route, beside it
+    build/         mod, builder (Builder, Extrusion), revolving, strip, tests
+    meeting/       mod (Meeting, Curves), chord, marching, profile, seeding/,
+                   tests
     mesh/          mod (Mesher, Patch), lattice, refining/, tests
+    merging/       mod (Merging), tests
+    rounding/      mod (Rounding, Round), tests
     boolean/       mod (Boolean), combining, operation, imprints,
                    sounding/, tests/
-      splitting/   mod (Splitting), cut, corner, cells, oval, ripple, tests
+      splitting/   mod (Splitting), cut, corner, cells, oval, ripple, bow,
+                   bough, flare, traced, reading, tests
       sewing/      mod (Sewing), join, stepped, pinned, tests
 ```
 
-The published surface is `Body`, `Grown`, `Extrusion`, `Builder`, `Mesher`,
-`Patch` and the boolean's `Operation` — what `catcad` actually calls, and
-nothing else. Everything under `topology/` and `geometry/` is `pub(crate)`.
+The published surface is `Body`, `Named`, `Step`, `Grown`, `Builder`,
+`Extrusion`, `Revolution`, `Sector`, `Boolean`, `Operation`, `Merging`,
+`Rounding`, `Round`, `Mesher` and `Patch`, and nothing else. Everything under
+`topology/` and `geometry/` is `pub(crate)`. `Merging`, `Rounding` and `Round`
+have no caller in `catcad` yet — §9.5 says what the rounding is still waiting
+on.
 
 Three notes on the shapes. `Body` keeps no `lumps` list, the arena already
 enumerating them. `Face`'s loops and `Shell`'s faces are ranges into flat
@@ -784,7 +809,51 @@ last bit the two ends can be told apart by. Converged, not tolerated.
 Refused rather than guessed at: an edge claimed by other than exactly two
 faces, and a cavity with more than one lump to hang it on.
 
-### 7.5 Validity — the primary debugging tool
+### 7.5 Round — a blend where an edge was
+
+**A local operation on the topology, and never a boolean between bodies.** The
+tempting route is to build a fillet out of what already works: for a straight
+edge between two planes the material to take away is the corner wedge less a
+cylinder, and this kernel raises both of those today. Every arrangement of that
+recipe is refused, and for the one reason a fillet cannot avoid — the cylinder
+lies *tangent* to both faces, which is what a fillet is. §9.5 measures it. So a
+blend is put in by hand, and nothing is cut against anything.
+
+**The arithmetic is the tangency itself.** A cylinder of radius `r` tangent to
+two planes has its axis where both distances come to `r`, which is one line
+parallel to the edge: `(n₀ + n₁)·r / (1 + n₀·n₁)` off it, on the side the
+material is. Convex or concave is *which* side, and it is read off the walk — a
+loop is wound counterclockwise about its own face's outward normal, so the face
+lies to the left of the walk seen from outside, and stepping that way off a
+convex edge takes you under the other plane. The same cylinder serves both; what
+turns over is which side of it holds material.
+
+**Four edges, and every one falls out of that axis.** The two rulings the blend
+runs out along are the axis brought back onto each plane. The corners are where
+those rulings cross the edges the two faces already had, which is two lines of
+one plane crossing. The arc across each end is the section the face over there
+cuts out of the cylinder — a circle where that face stands square to the edge,
+an ellipse where it leans, and `Meeting::of` answers both. Which of the two
+sweeps between the corners is the blend's own is the one whose middle stands
+inside the turn the blend covers.
+
+**The blend is wound off the face it was cut from.** A blend uses each of its
+four edges the way the face across that edge does not, so fixing the first
+ruling against the walk of the face it runs out onto fixes the other three — and
+`Checking` holds the whole of it afterwards.
+
+**Refused rather than guessed at**, and each is a different thing being asked
+for: a pick that finds no edge; an edge that is not straight, or does not divide
+two planes; a corner where other than three edges meet, and two picked edges
+sharing a corner — both of which want a *vertex* blend, which is a patch between
+three cylinders that no one of them holds; and a radius so large the blend runs
+off the end of an edge it has to meet, which wants that edge rounded too.
+
+**What comes out is a body like any other**, which is the point of doing it in
+the kernel rather than above one: it is bored by the boolean afterwards, it
+merges, it meshes, and it costs the heap nothing on the second call.
+
+### 7.6 Validity — the primary debugging tool
 
 `Checking::run` checks, from scratch:
 
@@ -894,12 +963,21 @@ comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
 
 **§9.1 through §9.4 are done**, and the plane row of §7.3's table now has no
-gap in it. What is left below is M7, which is another project. Three refusals
-stand outside it and are in `.notes/ISSUES.md`: a bitangent plane on a torus,
-whose two circles cross at both places it touches; a cylinder against a ball its
-axis misses, for which the pencil finds no ruled member; and a cone against a
-cylinder on crossing axes, whose curve the pencil writes down and which is
-turned away after that.
+gap in it. What is left below is M7, whose first slice — the blend itself — is
+in the tree and whose consumer is not.
+
+**Two refusals stand outside all of it, and they are one shape.** A bitangent
+plane on a torus cuts Villarceau's two circles, which cross at both places it
+touches the tube; a cylinder tangent to a ball meets it in one loop crossing
+itself, `h = ±2√(dr)·sin(θ/2)` in the cylinder's own angle. Both are a meeting
+with a *node* on it — a place the two surfaces lie tangent and cross — and the
+four sectors round a node alternate, so what the boolean would have to hand back
+is two lobes of material meeting at a point. That is not a body §4.4 holds.
+Measured for the tangent pair: inside the rod is `x ≥ −2 + z²/4` and outside the
+ball is `x ≤ −2 + (z² + y²)/6`, which is empty unless `y² ≥ z²/2` — two lobes
+and the point between them. So both are refusals because the answer does not
+exist, rather than because a routine is missing, and neither is in
+`.notes/ISSUES.md`.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -1241,37 +1319,60 @@ moved.
 names as a case of its own. A cylinder tangent to a sphere is the one a document
 reaches: the centre standing `R − r` off the axis puts a node on the curve,
 which comes to `h = ±2√(dr)·sin(θ/2)` in the cylinder's own angle — one loop
-crossing itself. Writing that down is the smaller half. The larger is that a
-meeting whose pieces cross is already refused for Villarceau's pair, a walked
-cut having no order for two pieces sharing a place.
+crossing itself. Writing that down would be the smaller half, and it would buy
+nothing. A node is a place the two surfaces lie tangent and *cross*, and the
+material either side of one is two lobes meeting at a point — which §9's own
+opening works out for this very pair. So this is the refusal Villarceau's
+circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP
+### 9.5 M7 — fillet, chamfer, STEP — **the blend is done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
 perpendicular fillet is a torus; general blends and vertex blends are NURBS, and
 mark the body fitted.
 
-Another project entirely, listed so the destination is visible rather than
-because it is scheduled.
+**The first slice is in the tree**: a constant-radius blend down a straight edge
+between two planes, exact, convex or concave, several edges at a time, and a
+body like any other afterwards. §7.5 is how it works and what it refuses.
 
-**And it cannot be a boolean, which is measured rather than assumed.** The
-tempting route is to build the fillet from what already works: for a straight
-edge between two planes, the material to remove is the corner wedge less a
-cylinder, and this kernel raises both of those today. Every arrangement of
-that recipe is refused, and for the one reason a fillet cannot avoid — the
-cylinder is *tangent* to both faces, which is what a fillet is. Taken as
-`wedge − rod` the pair is turned away; taken as `(body − wedge) ∪ (rod ∩ wedge)`
-the join at the end is. Grow the radius past tangency and it builds: refused at
-nought, at `1e-9` and at `1e-6`, answered at `1e-3` — an error a drawing can
-see.
+**It cannot be a boolean, which is measured rather than assumed.** The tempting
+route is to build the fillet from what already works: for a straight edge
+between two planes, the material to remove is the corner wedge less a cylinder,
+and this kernel raises both of those today. Every arrangement of that recipe is
+refused, and for the one reason a fillet cannot avoid — the cylinder is
+*tangent* to both faces, which is what a fillet is. Taken as `wedge − rod` the
+pair is turned away; taken as `(body − wedge) ∪ (rod ∩ wedge)` the join at the
+end is. Grow the radius past tangency and it builds: refused at nought, at
+`1e-9` and at `1e-6`, answered at `1e-3` — an error a drawing can see.
 
-**So a fillet is a local operation on the topology and never an operation
-between bodies.** The two faces are trimmed back to their tangent lines, a
-cylindrical face is put between them carrying those lines as its edges, and
-§4.4's smooth-edge flag says the two joins are not creases. Nothing is cut
-against anything, so there is no tangency for a boolean to turn away — which is
-what this section's first sentence means by edges as first-class entities.
+**So the blend is put in by hand.** The two faces are cut back to the rulings
+the cylinder lies tangent along, a cylindrical face is put between them carrying
+those rulings as two of its edges, and §4.4's flag says the two joins are not
+creases. Nothing is cut against anything, so there is no tangency for a boolean
+to turn away — which is what this section's first sentence means by edges as
+first-class entities. The arithmetic that gets the axis, the corners and the two
+arcs is §7.5.
+
+**What is not done, in the order §10's first rule puts it:**
+
+- **A consumer**, and rule 1 says a milestone has one. The application's
+  timeline is a list of *sweeps* — each a profile, a plane and an operation —
+  and a rounding is none of those: it wants a step kind that changes the model
+  without sweeping anything, a digest over the picks and the radius rather than
+  over an arrangement, a record in the file, and a way to pick an *edge* in the
+  viewport, which today picks faces. So this is half a milestone, and the other
+  half is the next chunk rather than a later one.
+- **A vertex blend.** Three rounded edges meeting at a corner leave a patch
+  between their three cylinders that no one of them holds. It is why two picks
+  sharing a corner are refused.
+- **A blend onto anything but a plane.** The rulings are the whole of why this
+  slice stays exact — a cylinder tangent to two planes is one cylinder, where a
+  blend running out onto a cylinder or a cone is a surface of the fitted tier
+  with a radius that moves.
+- **A chamfer**, which is this topology with a plane between the two rulings
+  instead of a cylinder and both joins creases instead of smooth.
+- **STEP**, which is what the naming and the exactness were always for.
 
 ---
 

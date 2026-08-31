@@ -14,7 +14,6 @@ use crate::solid::geometry::line::Line;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
-use crate::solid::meeting::Meeting;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -400,23 +399,25 @@ impl Builder {
         );
         let [from, to] = self.corners[corner].expect("every corner of a strip is raised");
         let origin = self.base_at(raising, corner);
-        // No crease where the two walls lie on one surface: either side of a
-        // split cylinder, two arcs of one circle the drawing was cut between,
+        // No crease where the two walls run out into each other: either side of
+        // a split cylinder, two arcs of one circle the drawing was cut between,
         // or two segments drawn straight through a corner. A box's upright
         // corner is not that, and is not flagged.
         //
-        // Asked of the *surfaces* rather than of their descriptions, because the
-        // last of those three is two planes that are one plane and not the same
-        // `Plane` — different origins, one surface.
+        // Asked of the two *faces* rather than of their descriptions, because
+        // the last of those three is two planes that are one plane and not the
+        // same `Plane` — different origins, one surface.
+        let curve = Curve::Line(Line {
+            origin,
+            direction: raising.normal,
+        });
+        let bounds = [0.0, raising.distance];
         let topology = into.topology();
-        let [one, two] = between.map(|face| topology.face(face).surface);
-        let smooth = Meeting::of(&one, &two) == Meeting::Same;
+        let [one, two] = between.map(|face| topology.face(face));
+        let smooth = one.smooth(two, &curve, bounds, topology.carried());
         let climbing = into.topology_mut().add_edge(Edge {
-            curve: Curve::Line(Line {
-                origin,
-                direction: raising.normal,
-            }),
-            bounds: [0.0, raising.distance],
+            curve,
+            bounds,
             from,
             to,
             between,

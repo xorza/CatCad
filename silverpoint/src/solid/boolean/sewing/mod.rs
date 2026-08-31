@@ -27,7 +27,6 @@ use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::surface::Surface;
-use crate::solid::meeting::Meeting;
 use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -865,11 +864,6 @@ impl Sewing {
                 let topology = into.topology();
                 (topology.vertex(from).at, topology.vertex(to).at)
             };
-            let smooth = {
-                let topology = into.topology();
-                let [one, two] = between.map(|face| topology.face(face).surface);
-                Meeting::of(&one, &two) == Meeting::Same
-            };
             // **The curve the imprint was, where the stretch ran along one.**
             // A run of corners along an arc was collapsed to its two ends by
             // [`Sewing::raise`], so what is left here is the arc's endpoints
@@ -887,6 +881,8 @@ impl Sewing {
                     [0.0, here.distance(there)],
                 ),
             };
+            let [one, two] = between.map(|face| into.topology().face(face));
+            let smooth = one.smooth(two, &curve, bounds, carried);
             // **A marched edge is as wide as its own walk**, which is the
             // fitted tier's bargain read out loud: the curve is a run of chords
             // and a place read off one stands a sagitta from the true curve,

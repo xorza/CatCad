@@ -67,4 +67,5 @@ pub use solid::grown::Grown;
 pub use solid::merging::Merging;
 pub use solid::mesh::{Mesher, Patch};
 pub use solid::named::{Named, Step};
+pub use solid::rounding::{Round, Rounding};
 pub use solid::topology::body::Body;

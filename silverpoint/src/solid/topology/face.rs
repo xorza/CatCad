@@ -1,6 +1,10 @@
 //! A bounded piece of surface.
 
 use crate::arena::Id;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::ALIGNED;
+use crate::solid::geometry::carried::Carried;
+use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::named::Named;
 use glam::{DVec2, DVec3};
@@ -165,6 +169,41 @@ impl Face {
                 into.push(mark);
             }
         }
+    }
+
+    /// Whether this face runs out into `other` along the stretch of `curve`
+    /// that `bounds` names, rather than creasing against it.
+    ///
+    /// **Which is a question about direction and not about the surfaces.** The
+    /// case the kernel began with is two faces of one surface, split where §4.4
+    /// forbids a wrap; the case a rounding adds is two faces of *different*
+    /// surfaces lying tangent all the way along — a blend and the plane it runs
+    /// out onto. Neither is a special case of the other, and what both come to
+    /// is that the material faces one way at every place of the edge.
+    ///
+    /// **Sampled, on the standing the rest of the checking takes.** Two natural
+    /// quadrics lie tangent along a whole curve or they cross, so a handful of
+    /// places decides it — and the places are read off the faces rather than
+    /// the surfaces, so which side each holds its material on is part of the
+    /// answer.
+    ///
+    /// The ends are left out. A cone's apex and a sphere's poles are places a
+    /// surface has no direction at, and an edge may run to one.
+    pub(crate) fn smooth(
+        &self,
+        other: &Self,
+        curve: &Curve,
+        bounds: [f64; 2],
+        carried: &Carried,
+    ) -> bool {
+        const SAMPLES: usize = 5;
+        let [from, to] = bounds;
+        (0..SAMPLES).all(|sample| {
+            let along = (sample as f64 + 0.5) / SAMPLES as f64;
+            let at = curve.at(from + (to - from) * along, carried);
+            let [here, there] = [self, other].map(|face| face.normal(face.surface.uv(at)));
+            here.approx_eq(there, ALIGNED)
+        })
     }
 
     /// Which way the body faces at the parameters `uv` — out of the material,
