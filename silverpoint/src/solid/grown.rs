@@ -13,8 +13,9 @@ use crate::solid::buckets::Key;
 ///
 /// The whole of an extrusion's topology, in three words because an extrusion
 /// has no more to it: the region it started as, the region carried to the far
-/// end, and one wall per curve that bounded it. A fourth for the one step that
-/// sweeps nothing — a rounding, which puts a face where an edge was.
+/// end, and one wall per curve that bounded it. Two more for the one step that
+/// sweeps nothing — a rounding, which puts a face where an edge was and another
+/// where three of those met.
 ///
 /// **The same vocabulary the region was named in.** A wall carries the [`Bound`]
 /// it was swept from, which is what a caller's own durable name for a region is
@@ -49,6 +50,15 @@ pub enum Grown {
     /// several edges, exactly as one [`Grown::Side`] may cover several patches,
     /// and every blend it raises carries the one number.
     Rounded(u32),
+    /// The patch put in at a corner where three picked edges met.
+    ///
+    /// **Numbered by the three picks that met there**, in order, which is the
+    /// same argument [`Grown::Rounded`] makes one step further: a corner is
+    /// less of a thing the kernel keeps identity for than an edge is, and what
+    /// the caller holds durably is the picks. Two corners where the same three
+    /// picks meet share this name and are one face of the body, which is §5's
+    /// own rule and not a case of its own.
+    Cornered([u32; 3]),
 }
 
 impl Grown {
@@ -63,6 +73,12 @@ impl Grown {
             Self::Far => Key::default().word(1).done(),
             Self::Side(bound) => Key::default().word(2).word(bound.key()).done(),
             Self::Rounded(at) => Key::default().word(3).word(u64::from(at)).done(),
+            Self::Cornered(picks) => picks
+                .iter()
+                .fold(Key::default().word(4), |key, &pick| {
+                    key.word(u64::from(pick))
+                })
+                .done(),
         }
     }
 }

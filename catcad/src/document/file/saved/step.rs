@@ -124,8 +124,8 @@ impl Facing {
 ///
 /// The mirror of [`Grown`], on the terms [`Operated`] states — and the one
 /// mirror here whose arms are not all alike: a wall carries the curve it was
-/// swept from, which is written in its own drawing's numbering, and the other
-/// three carry a number or nothing at all.
+/// swept from, which is written in its own drawing's numbering, and the rest
+/// carry numbers or nothing at all.
 #[derive(Debug, Serialize, Deserialize)]
 enum Grew {
     /// The region itself, in the plane it was drawn on.
@@ -136,6 +136,9 @@ enum Grew {
     Side(Bounded),
     /// The blend one of a rounding's own picks raised.
     Blend(u32),
+    /// The patch a rounding put where three of its picks met, named by those
+    /// three.
+    Corner([u32; 3]),
 }
 
 impl Grew {
@@ -154,6 +157,7 @@ impl Grew {
                 handles.expect("a wall is grown by a step that swept a drawing"),
             )),
             Grown::Rounded(pick) => Grew::Blend(pick),
+            Grown::Cornered(picks) => Grew::Corner(picks),
         }
     }
 
@@ -171,6 +175,7 @@ impl Grew {
                 Grown::Side(bounded.bound(at, numbering)?)
             }
             Grew::Blend(pick) => Grown::Rounded(*pick),
+            Grew::Corner(picks) => Grown::Cornered(*picks),
         })
     }
 }

@@ -61,6 +61,24 @@ fn cube() -> Body {
     )
 }
 
+/// The same block with a two-by-two notch out of one corner, which is what a
+/// reflex edge is made from — the one place here a blend is filled in rather
+/// than cut out.
+fn notch() -> Body {
+    block(
+        Plane::GROUND,
+        &[
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (2.0, 4.0),
+            (2.0, 2.0),
+            (0.0, 2.0),
+        ],
+        4.0,
+    )
+}
+
 /// The pair of names on the edge running between `here` and `there`.
 ///
 /// **Found by where it stands rather than by counting faces**, which is what
@@ -210,18 +228,7 @@ fn a_blend_lies_on_the_cylinder_tangent_to_both_faces() {
 /// and a unit blend fills the corner the cylinder leaves.
 #[test]
 fn a_notch_rounded_on_the_inside_gains_the_corner_the_arithmetic_says() {
-    let notched = block(
-        Plane::GROUND,
-        &[
-            (0.0, 0.0),
-            (4.0, 0.0),
-            (4.0, 4.0),
-            (2.0, 4.0),
-            (2.0, 2.0),
-            (0.0, 2.0),
-        ],
-        4.0,
-    );
+    let notched = notch();
     assert!(
         (volume(&notched) - 48.0).abs() < CLOSES,
         "the notched block shuts in {} where twelve by four is forty-eight",
@@ -345,14 +352,14 @@ fn a_rounded_block_is_bored_like_any_other() {
 ///
 /// Five, and each is a different thing being asked for: a radius that is no
 /// blend at all; one so large the blend runs off the end of the edges it has to
-/// meet, which wants those edges rounded too; two picks meeting at a corner,
-/// which wants a vertex blend; a pair of names with no edge between them; and
-/// an edge on a face that is not flat, which wants a variable-radius blend.
+/// meet, which wants those edges rounded too; a pair of names with no edge
+/// between them; an edge on a face that is not flat, which wants a
+/// variable-radius blend; and two picks meeting at a corner from opposite
+/// sides, which is a corner no rolling ball reaches from one side.
 #[test]
 fn what_a_rounding_cannot_make_is_refused() {
     let cube = cube();
     let top = between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0));
-    let beside = between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0));
     let ends = [
         cube.names().next().expect("a block has a base"),
         cube.names().nth(1).expect("a block has a far end"),
@@ -360,7 +367,7 @@ fn what_a_rounding_cannot_make_is_refused() {
 
     let mut rounding = Rounding::default();
     let mut into = Body::default();
-    let rows: [(&str, Vec<[Named; 2]>, f64); 4] = [
+    let rows: [(&str, Vec<[Named; 2]>, f64); 3] = [
         ("a radius of nothing", vec![top], 0.0),
         (
             // The edges it would run out onto are four long, so a corner four
@@ -369,7 +376,6 @@ fn what_a_rounding_cannot_make_is_refused() {
             vec![top],
             4.0,
         ),
-        ("two picks meeting at a corner", vec![top, beside], 1.0),
         ("two faces with no edge between them", vec![ends], 1.0),
     ];
     for (what, along, radius) in rows {
@@ -379,6 +385,28 @@ fn what_a_rounding_cannot_make_is_refused() {
         );
         assert!(into.is_empty(), "{what}: a refusal left half a body behind");
     }
+
+    // A corner where a reflex edge meets a convex one. Both cylinders stand a
+    // radius off the face they share and the two stand off it on opposite
+    // sides, so the pair never cross there — see [`Junction`].
+    let notched = notch();
+    let leaning = [
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(2.0, 4.0, -2.0),
+        ),
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(2.0, 0.0, -4.0),
+        ),
+    ];
+    assert!(
+        !rounding.round(&Round::new(&leaning, 0.5, ROUND), &notched, &mut into),
+        "a corner a blend reaches from either side was answered",
+    );
+    assert!(into.is_empty(), "a refusal left half a body behind");
 
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
@@ -394,6 +422,155 @@ fn what_a_rounding_cannot_make_is_refused() {
         "the rim of a rod was answered, and a blend there is not a cylinder",
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
+}
+
+/// **Two picked edges meeting at a corner close against each other**, and what
+/// they leave is one arc and no face at all.
+///
+/// Both cylinders are tangent to the one face the two edges share, so both axes
+/// stand a radius off it and the pair cross in an ellipse — which `Meeting::of`
+/// writes down exactly. Nothing is left over for a patch to fill, which is what
+/// tells this from the corner a *third* picked edge runs to.
+///
+/// **The arithmetic is the two corners less what they share.** Each blend takes
+/// `(1 − π/4)·r²·l` off its own four-long edge; near the corner the two take
+/// the same material, and what is counted twice is the corner over the two of
+/// them: `∫₀ʳ (r − √(2rw − w²))² dw`, which comes to `r³·(5/3 − π/2)`.
+#[test]
+fn two_blends_meeting_at_a_corner_close_against_each_other() {
+    let cube = cube();
+    let along = [
+        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
+    ];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into),
+        "two picks meeting at a corner were refused",
+    );
+
+    let want = 64.0 - 8.0 * (1.0 - PI / 4.0) + 5.0 / 3.0 - PI / 2.0;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the twice-rounded block shuts in {} where {want} is the two corners \
+         less the one they share",
+        volume(&into),
+    );
+
+    // Eight faces, seventeen edges and eleven corners, which Euler holds to a
+    // ball: the block's twelve edges less the two replaced, four rulings, one
+    // arc across each blend's far end, and the one arc the two share.
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "a twice-rounded block is still a ball");
+    let topology = into.topology();
+    assert_eq!(topology.faces().count(), 8, "six faces and two blends");
+    assert_eq!(topology.edges().count(), 17);
+    assert_eq!(
+        smooth(&into),
+        4,
+        "two rulings apiece, and the arc the two blends share is a crease",
+    );
+    // The one edge of the answer that divides two blends, which is what says
+    // the pair closed against each other rather than against a face.
+    let raised: Vec<_> = (0..2)
+        .map(|pick| ROUND.grew(Grown::Rounded(pick)))
+        .collect();
+    let met = topology
+        .edges()
+        .filter(|(_, edge)| {
+            edge.between
+                .iter()
+                .all(|&face| raised.contains(&topology.face(face).name))
+        })
+        .count();
+    assert_eq!(met, 1, "the two blends do not close against each other");
+    assert!(
+        into.exact(),
+        "an ellipse on a cylinder is of the exact tier"
+    );
+}
+
+/// **Three picked edges meeting at a corner leave a patch of a sphere between
+/// their cylinders**, which is what a rolling ball leaves when it pivots there.
+///
+/// The sphere has the blends' own radius and stands a radius off all three
+/// faces, which is the one point every cylinder's axis runs through — so it is
+/// inscribed in each of them and touches each along a whole circle. The patch is
+/// the triangle those three circles cut out, and every one of its edges is a
+/// smooth join.
+///
+/// **The arithmetic is the corner cube and the three edges either side of it.**
+/// Outside the unit cube at the corner the three blends do not meet, so each
+/// takes `(1 − π/4)·r²·(l − r)`. Inside it what is *kept* is the ball octant,
+/// `πr³/6`, so the cube gives up `r³(1 − π/6)`. A unit blend down all three
+/// four-long edges of a four-cube therefore shuts in `54 + 9π/4 + π/6`.
+#[test]
+fn three_blends_meeting_at_a_corner_leave_a_patch_of_a_sphere() {
+    let cube = cube();
+    let along = [
+        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 0.0, 0.0)),
+    ];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into),
+        "three picks meeting at a corner were refused",
+    );
+
+    let want = 54.0 + 9.0 * PI / 4.0 + PI / 6.0;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the thrice-rounded block shuts in {} where {want} is the three corners \
+         and the ball octant between them",
+        volume(&into),
+    );
+
+    // Ten faces, twenty-one edges and thirteen corners, which Euler holds to a
+    // ball: the block's twelve edges less the three replaced, six rulings, one
+    // arc across each blend's far end, and the patch's own three.
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "a thrice-rounded block is still a ball");
+    let topology = into.topology();
+    assert_eq!(
+        topology.faces().count(),
+        10,
+        "six faces, three blends and the patch",
+    );
+    assert_eq!(topology.edges().count(), 21);
+    assert_eq!(
+        smooth(&into),
+        9,
+        "two rulings apiece, and the patch runs out into all three blends",
+    );
+
+    // Named by the three picks that met, which is the one thing a corner has to
+    // name itself with — see [`Grown::Cornered`].
+    let patch = ROUND.grew(Grown::Cornered([0, 1, 2]));
+    let (_, face) = into
+        .patches(patch)
+        .next()
+        .expect("the patch is a face of the answer");
+    let Surface::Natural(Natural::Sphere(sphere)) = face.surface else {
+        panic!("a patch between three cylinders lies on a sphere, not {face:?}");
+    };
+    assert!(
+        (sphere.radius - 1.0).abs() < PLACED,
+        "the patch has radius {}",
+        sphere.radius,
+    );
+    // A unit inside all three faces of the corner at `(4, 4, 0)`, whose walls
+    // are `y = 4`, `x = 4` and `z = 0`.
+    assert!(
+        sphere.centre().distance(DVec3::new(3.0, 3.0, -1.0)) < PLACED,
+        "the patch stands at {} rather than a unit inside all three faces",
+        sphere.centre(),
+    );
+    assert!(
+        face.outward,
+        "material lies inside a patch cut into a corner"
+    );
+    assert!(into.exact(), "a sphere is of the exact tier");
 }
 
 /// **A blend whose ends lean cuts ellipses rather than arcs of a circle**,

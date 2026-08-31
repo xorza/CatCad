@@ -22,8 +22,8 @@
 use common::AllocTester;
 use glam::DVec2;
 use silverpoint::{
-    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Operation, Plane, Round, Rounding,
-    Sketch, Step,
+    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Named, Operation, Plane, Round,
+    Rounding, Sketch, Step,
 };
 use std::f64::consts::PI;
 use std::hint::black_box;
@@ -204,20 +204,19 @@ fn merging_a_bore_allocates_nothing() {
     );
 }
 
-/// Round one edge of `cube()` to `radius`, hold the answer to `want`, and gate
-/// every further rounding of the same body at a strict zero.
+/// Round the edges `picks` names on `cube()` to `radius`, hold the answer to
+/// `want`, and gate every further rounding of the same body at a strict zero.
 ///
 /// **The one operation here that is neither a boolean nor a merge**, and it
 /// runs on the same clock as both: a rounding is a step of a history, so a drag
 /// through anything before it replays one on every frame.
 ///
-/// The edge is picked as the far cap against the first wall, which is the pair
-/// of names a block always has an edge between — see [`Body::names`], where
-/// that order is promised.
-fn blend(radius: f64, want: f64) {
+/// An edge is picked as a pair of the block's own face names, which is the only
+/// durable name one has — see [`Body::names`], where their order is promised.
+fn blend(picks: &[[usize; 2]], radius: f64, want: f64) {
     let cube = cube();
     let names: Vec<_> = cube.names().collect();
-    let along = [[names[1], names[2]]];
+    let along: Vec<[Named; 2]> = picks.iter().map(|at| at.map(|at| names[at])).collect();
     let round = Round::new(&along, radius, TOOL);
     let mut rounding = Rounding::default();
     let mut into = Body::default();
@@ -236,8 +235,46 @@ fn blend(radius: f64, want: f64) {
     });
 }
 
-/// A unit blend down one four-long edge: `64 − (1 − π/4)·4`.
+/// A unit blend down one four-long edge, the far cap against the first wall:
+/// `64 − (1 − π/4)·4`.
 #[test]
 fn rounding_an_edge_of_a_block_allocates_nothing() {
-    blend(1.0, 64.0 - (1.0 - PI / 4.0) * 4.0);
+    blend(&[[1, 2]], 1.0, 64.0 - (1.0 - PI / 4.0) * 4.0);
+}
+
+/// Two blends closing against each other, which is the path a corner shared by
+/// two picks takes — the first wall against the far cap and against the second,
+/// two edges meeting where all three faces do.
+///
+/// **The one gate here whose second call does more than refill**, and the
+/// reason it is worth its own row: a junction is a curve worked out between two
+/// cylinders and a table of what they leave, and both are asked for on every
+/// frame of a drag.
+///
+/// Each corner is `(1 − π/4)·4` and what the two share is `5/3 − π/2` — see
+/// `two_blends_meeting_at_a_corner_close_against_each_other`, where the
+/// arithmetic is argued.
+#[test]
+fn rounding_two_edges_that_meet_allocates_nothing() {
+    blend(
+        &[[1, 2], [2, 3]],
+        1.0,
+        64.0 - 8.0 * (1.0 - PI / 4.0) + 5.0 / 3.0 - PI / 2.0,
+    );
+}
+
+/// And three of them, which puts a patch of a sphere between the cylinders
+/// rather than closing them against each other.
+///
+/// The row above and this one are the two corners a rounding can raise, and
+/// each keeps a table of its own — see
+/// `three_blends_meeting_at_a_corner_leave_a_patch_of_a_sphere`, where
+/// `54 + 9π/4 + π/6` is argued.
+#[test]
+fn rounding_three_edges_that_meet_allocates_nothing() {
+    blend(
+        &[[1, 2], [2, 3], [1, 3]],
+        1.0,
+        54.0 + 9.0 * PI / 4.0 + PI / 6.0,
+    );
 }

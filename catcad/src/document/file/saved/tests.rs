@@ -234,13 +234,24 @@ fn a_document_is_written_exactly_like_this() {
     // grew it, and what of that step it is — a wall carrying the very curve
     // the extrude above was swept from, in that same sketch's numbering.
     timeline.add(Feature::Round {
-        along: vec![[
-            grown.step().grew(Grown::Far),
-            grown.step().grew(Grown::Side(Bound {
-                of: Entity::Segment(edge),
-                along: true,
-            })),
-        ]],
+        along: vec![
+            [
+                grown.step().grew(Grown::Far),
+                grown.step().grew(Grown::Side(Bound {
+                    of: Entity::Segment(edge),
+                    along: true,
+                })),
+            ],
+            // A second pick, for the one kind of face name the first cannot
+            // say: the patch a rounding leaves where three of its own picks
+            // met. Which face it names is nothing this test asks about — see
+            // the region above, on why a name a drawing does not answer for is
+            // the right fixture here.
+            [
+                grown.step().grew(Grown::Base),
+                grown.step().grew(Grown::Cornered([0, 1, 2])),
+            ],
+        ],
         radius: 0.25,
     });
 
@@ -257,7 +268,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 6,
+    version: 7,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -326,6 +337,13 @@ fn a_document_is_written_exactly_like_this() {
                 ), (
                     by: 5,
                     grew: Side(Segment(at: 0, along: true)),
+                )),
+                ((
+                    by: 5,
+                    grew: Base,
+                ), (
+                    by: 5,
+                    grew: Corner((0, 1, 2)),
                 )),
             ],
             radius: 0.25,

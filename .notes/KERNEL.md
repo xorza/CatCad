@@ -842,12 +842,53 @@ four edges the way the face across that edge does not, so fixing the first
 ruling against the walk of the face it runs out onto fixes the other three — and
 `Checking` holds the whole of it afterwards.
 
+**Two picked edges meeting at a corner close against each other, and leave no
+face between them.** Both cylinders are tangent to the one face those two edges
+share, so both axes stand a radius off it and the pair cross in an *ellipse* —
+which `Meeting::of` already writes down. What that leaves is one arc between two
+corners: where the two rails cross on the shared face, and where the one edge
+neither of them replaces is cut back to, which both rails cross at the same
+place. `Junction` holds the pair, because both blends walk that one arc and an
+arc worked out twice could come out two ways round.
+
+**Which arc of the ellipse is read off the shared face.** Both cylinders touch
+it, so the ellipse runs from the corner they touch it at out to twice the radius
+and back — and the one wanted is the arc that never stands further off that face
+than the corner on the edge already does.
+
+**A third picked edge at one corner puts a patch of a sphere between all
+three.** Every cylinder's axis is the line standing a radius off the two faces
+its blend divides, so the point standing a radius off all three is on all three
+axes — and the sphere of that radius about it is tangent to every face and
+*inscribed* in every cylinder, touching each along a whole circle. The patch is
+the triangle those three circles cut out, and every one of its three edges is a
+smooth join.
+
+**And not where the three cylinders themselves cross**, which is the trap. They
+do cross pairwise, and the three curves even meet at one point — but that point
+stands `r√(3/2)` off the centre where the answer stands `r`, so trimming the
+three against each other would keep material a rolling ball had taken. The
+ball's own answer is the morphological opening, whose boundary at a trihedral
+corner is exactly that sphere.
+
+**A corner the picks meeting there do not agree about is refused.** A rolling
+ball is on one side of the material throughout, so a corner where one edge is
+convex and another concave wants a surface whose radius moves. It is refused at
+a pair as readily as at a triple: two cylinders that disagree stand off the face
+they share on opposite sides, and never cross there at all.
+
+**The patch is named by the three picks that met**, in order — `Grown::Cornered`
+— which is `Grown::Rounded`'s own argument one step further. A corner is less of
+a thing the kernel keeps identity for than an edge is (§4.9), and what the
+caller holds durably is the picks. Two corners where the same three picks meet
+share the name and are one face of the body, which is §5's rule rather than a
+case of its own.
+
 **Refused rather than guessed at**, and each is a different thing being asked
 for: a pick that finds no edge; an edge that is not straight, or does not divide
-two planes; a corner where other than three edges meet, and two picked edges
-sharing a corner — both of which want a *vertex* blend, which is a patch between
-three cylinders that no one of them holds; and a radius so large the blend runs
-off the end of an edge it has to meet, which wants that edge rounded too.
+two planes; a corner where other than three edges meet; a corner the picks
+meeting there do not agree about; and a radius so large the blend runs off the
+end of an edge it has to meet, which wants that edge rounded too.
 
 **What comes out is a body like any other**, which is the point of doing it in
 the kernel rather than above one: it is bored by the boolean afterwards, it
@@ -1344,16 +1385,18 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **the blend and its consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **the blend, its corners and its consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
-A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
-perpendicular fillet is a torus; general blends and vertex blends are NURBS, and
-mark the body fitted.
+A plane/plane fillet is a cylinder and stays exact, and the vertex blend where
+three of them meet is a sphere and stays exact too; a plane/cylinder-
+perpendicular fillet is a torus; general blends are NURBS, and mark the body
+fitted.
 
 **The first slice is in the tree**: a constant-radius blend down a straight edge
-between two planes, exact, convex or concave, several edges at a time, and a
-body like any other afterwards. §7.5 is how it works and what it refuses.
+between two planes, exact, convex or concave, several edges at a time — meeting
+at a corner or not, and with a patch of a sphere where three of them meet — and
+a body like any other afterwards. §7.5 is how it works and what it refuses.
 
 **And it lands in CatCad**, which is rule 1. `Feature::Round { along, radius }`
 is a step of the timeline like any other — replayed, cached, saved, reopened,
@@ -1385,16 +1428,15 @@ arcs is §7.5.
 
 **What is not done, in the order §10's first rule puts it:**
 
-- **A vertex blend.** Three rounded edges meeting at a corner leave a patch
-  between their three cylinders that no one of them holds. It is why two picks
-  sharing a corner are refused — and it is what a document reaches first, a
-  block whose two top edges are both wanted round being the ordinary ask.
+- **A corner the picks do not agree about**, one edge cut into and another
+  filled in. A rolling ball is on one side of the material throughout, so what
+  goes there is a surface with a radius that moves — which is the row below by
+  another road.
 - **A blend down an edge a boolean split.** A cut whose wall reaches the picked
-  edge leaves it as two edges meeting at a corner, and both are picked by the
-  one pair of names — which is the case above by another road, and refused by
-  the same rule. What the document hands the kernel is the *pieces*, because
-  §9.3 measures that the splits are the answer's contract for the next boolean;
-  merging first would trade this refusal for that one.
+  edge splits both faces there as well, so *four* edges meet at the place it was
+  cut — which the corner rule refuses. What the document hands the kernel is the
+  *pieces*, because §9.3 measures that the splits are the answer's contract for
+  the next boolean; merging first would trade this refusal for a worse one.
 - **A blend onto anything but a plane.** The rulings are the whole of why this
   slice stays exact — a cylinder tangent to two planes is one cylinder, where a
   blend running out onto a cylinder or a cone is a surface of the fitted tier
