@@ -90,7 +90,17 @@ impl Leaning {
     /// degree the discriminant comes to in `v` can lose a pair of roots to
     /// conditioning and swallow a piece of the curve without saying so, where a
     /// count that moves cannot be argued with.
-    pub(super) fn ends(&self, torus: &Torus) -> Inline<f64, ENDS> {
+    ///
+    /// **`None` where it moves more often than [`ENDS`] allows**, which is the
+    /// algebra saying the arithmetic has stopped agreeing with it. A drill of
+    /// the tube's own radius running along the tube — its axis tangent to the
+    /// ring's centre circle — lies against the ring rather than crossing it, so
+    /// the equation holds four roots that are pairwise within a rounding of
+    /// each other over most of a turn. The count then flickers cell by cell,
+    /// and every flicker is an end that is not there. What comes of a refusal
+    /// is the boolean's own, and it is the answer a curve nothing can chart
+    /// deserves — see [`seeded`](super::seeded).
+    pub(super) fn ends(&self, torus: &Torus) -> Option<Inline<f64, ENDS>> {
         let mut ends = Inline::none();
         let counted = |v: f64| self.held(torus, v).count();
         let cell = |step: usize| TAU * step as f64 / CELLS as f64;
@@ -104,12 +114,15 @@ impl Leaning {
                     false => -1.0,
                 };
                 if let Some(end) = bisect::crossed(lo, hi, side) {
+                    if ends.all().len() == ENDS {
+                        return None;
+                    }
                     ends.push(end);
                 }
             }
             last = next;
         }
-        ends
+        Some(ends)
     }
 
     /// The equation the drill comes to at one angle round the tube.
@@ -399,8 +412,10 @@ mod tests {
         ] {
             let torus = ring();
             let leaning = Leaning::of(&drill(off, way, radius), &torus);
-            let ends = leaning.ends(&torus);
-            let ends = ends.all();
+            let laid = leaning
+                .ends(&torus)
+                .unwrap_or_else(|| panic!("{what}: the ends outran the algebra"));
+            let ends = laid.all();
             assert!(!ends.is_empty(), "{what}: no end anywhere");
             for step in 0..ends.len() {
                 let (from, to) = (ends[step], ends[(step + 1) % ends.len()]);

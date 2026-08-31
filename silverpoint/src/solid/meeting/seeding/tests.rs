@@ -252,7 +252,9 @@ fn a_rod_through_the_tube_ends_where_the_arithmetic_says() {
         TAU - (-0.3f64).acos(),
     ];
     want.sort_by(f64::total_cmp);
-    let ends = reading.ends();
+    let ends = reading
+        .ends()
+        .expect("a rod beside the ring has countable ends");
     assert_eq!(ends.all().len(), 4, "{:?}", ends.all());
     for (got, want) in ends.all().iter().zip(want) {
         assert!((got - want).abs() < 1e-12, "{:?} misses {want}", ends.all());

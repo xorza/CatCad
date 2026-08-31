@@ -14,21 +14,18 @@ use std::f64::consts::FRAC_PI_2;
 /// A square: four free points and the edges between them, which shuts one
 /// region in and leaves eight degrees of freedom.
 fn square() -> Sketch {
+    square_at(0.0, 0.0)
+}
+
+/// A square of side two with its near corner at `(x, y)`.
+fn square_at(x: f64, y: f64) -> Sketch {
     let mut sketch = Sketch::default();
     let corners: Vec<_> = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
-        .map(|(x, y)| sketch.add_point(DVec2::new(x, y)))
+        .map(|(u, v)| sketch.add_point(DVec2::new(x + u, y + v)))
         .into();
     for at in 0..corners.len() {
         sketch.add_segment(corners[at], corners[(at + 1) % corners.len()]);
     }
-    sketch
-}
-
-/// One circle of `radius` about `(x, 0)`.
-fn ring(x: f64, radius: f64) -> Sketch {
-    let mut sketch = Sketch::default();
-    let center = sketch.add_point(DVec2::new(x, 0.0));
-    sketch.add_circle(center, radius);
     sketch
 }
 
@@ -126,18 +123,6 @@ fn world(x: f64, y: f64) -> Vec3 {
     Plane::GROUND.point(DVec2::new(x, y)).as_vec3()
 }
 
-/// A square of side two with its near corner at `(x, y)`.
-fn square_at(x: f64, y: f64) -> Sketch {
-    let mut sketch = Sketch::default();
-    let corners: Vec<_> = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
-        .map(|(u, v)| sketch.add_point(DVec2::new(x + u, y + v)))
-        .into();
-    for at in 0..corners.len() {
-        sketch.add_segment(corners[at], corners[(at + 1) % corners.len()]);
-    }
-    sketch
-}
-
 /// **A second extrude joins the solid the first left standing**, which is what
 /// makes a timeline a recipe rather than a pile of prisms.
 ///
@@ -213,35 +198,38 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 /// **A step the kernel will not merge stands beside the model rather than
 /// vanishing**, which is the whole of what a refusal costs.
 ///
-/// Two rods driven through each other at a right angle, one drawn on the ground
-/// and one on the plane square to it. Their walls are two cylinders *across*
-/// each other, which meet in a quartic nothing yet parameterizes — so joining
-/// the second onto the first is refused, and what the document shows is both
-/// solids side by side: exactly the picture it showed before there were
-/// booleans at all. The tree says which step could not be merged, because
-/// [`Models::unmerged`] counts a refusal apart from a lost profile.
+/// Two blocks on the ground, each two square and two deep, the second's near
+/// upright edge lying exactly along the first's far one. They share that edge
+/// and nothing else — no volume, no face — so their union is not a solid at
+/// all: the edge is left with one face or three where a boundary wants two, and
+/// the kernel refuses it rather than sewing something that reads as a solid and
+/// is not.
 ///
-/// Across, and of *unequal* radius, which is the whole of the fixture. Two
-/// cylinders whose axes run parallel meet in ruling lines; two of one radius on
-/// crossing axes meet in two ellipses; and the kernel writes both of those down
-/// and carries them. What is left is the quartic, and this is it.
+/// What the document then shows is both solids side by side: exactly the
+/// picture it showed before there were booleans at all. The tree says which
+/// step could not be merged, because [`Models::unmerged`] counts a refusal
+/// apart from a lost profile.
+///
+/// **A refusal about the *answer* rather than about a crossing**, which is what
+/// keeps this fixture standing as the kernel learns to carry more of them: two
+/// solids meeting along nothing but an edge do not make a solid, and no amount
+/// of parameterization changes that.
 #[test]
 fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
-    let upright = timeline.add(Feature::Plane(Datum::World(World::Front)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
-        sketch: ring(0.0, 1.0),
+        sketch: square(),
     });
-    let round = timeline.add(Feature::Sketch {
-        on: upright,
-        sketch: ring(0.0, 1.5),
+    let beside = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: square_at(2.0, 2.0),
     });
 
     let mut build = Build::default();
     timeline.edit(drawn).opened(&mut build);
-    timeline.edit(round).opened(&mut build);
+    timeline.edit(beside).opened(&mut build);
     let open = |timeline: &Timeline, build: &Build, at| {
         Models::new(timeline, build, Some(at))
             .open()
@@ -249,7 +237,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
             .profile(&[0])
     };
     let one = open(&timeline, &build, drawn);
-    let two = open(&timeline, &build, round);
+    let two = open(&timeline, &build, beside);
     let first = timeline.add(Feature::Extrude {
         profile: one,
         distance: 2.0,
@@ -267,7 +255,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     assert_eq!(
         build.bodied(second).built(),
         Built::Refused,
-        "a quartic crossing was carried through",
+        "two blocks sharing nothing but an edge were sewn into one",
     );
 
     // Both on screen, each still its own solid, and each still knowing which

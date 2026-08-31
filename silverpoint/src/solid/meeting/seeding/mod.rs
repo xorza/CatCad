@@ -49,7 +49,8 @@ mod leaning;
 /// where the two genuinely do not meet.** Those are two answers and not one:
 /// what asks is a boolean that has already been told the pair meets somewhere
 /// unwritable, so a pair nobody can seed has to refuse it where a pair that
-/// misses divides nothing and is no trouble at all.
+/// misses divides nothing and is no trouble at all. A pair whose ends cannot be
+/// counted is refused on the first of those terms — see [`Leaning::ends`].
 ///
 /// A coaxial pair is not here: it reduces to circles outright and never wants
 /// walking — see [`Meeting::coaxial`](crate::solid::meeting::Meeting).
@@ -58,8 +59,10 @@ pub(crate) fn seeded(surface: &Surface, torus: &Torus, found: &mut Vec<DVec3>) -
     let Some(reading) = Reading::of(surface, torus) else {
         return false;
     };
-    let ends = reading.ends();
-    let ends = ends.all();
+    let Some(laid) = reading.ends() else {
+        return false;
+    };
+    let ends = laid.all();
     // **The two turns at one `v` are the two halves of one stretch**, and they
     // fall together where it ends — so the first of them stands for the piece
     // and the other is the same loop walked the other way round. With no end
@@ -232,7 +235,7 @@ impl Reading {
     /// tube either reaches or does not, and one angle either way round where it
     /// does. A leaning drill's are the zeros of its own discriminant — see
     /// [`Leaning::ends`].
-    fn ends(&self) -> Inline<f64, ENDS> {
+    fn ends(&self) -> Option<Inline<f64, ENDS>> {
         let mut ends = Inline::none();
         let torus = self.torus;
         match self.against {
@@ -262,7 +265,7 @@ impl Reading {
         }
         let sorted = ends.all_mut();
         sorted.sort_by(f64::total_cmp);
-        ends
+        Some(ends)
     }
 }
 
