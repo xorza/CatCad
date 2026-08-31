@@ -1,6 +1,7 @@
 use super::*;
 use crate::math::winding::swept;
 use crate::solid::boolean::imprints::Imprints;
+use crate::solid::boolean::splitting::bow::Bow;
 use crate::solid::boolean::splitting::corner::{Came, passing, turned};
 use crate::solid::boolean::splitting::cut::ROUNDED;
 use crate::solid::boolean::splitting::oval::Oval;
@@ -787,4 +788,65 @@ fn a_round_cut_reaches_the_box_its_own_box_meets() {
     // what turning it does to the box.
     assert!(leaning.reaches(boxed((0.0, 1.4), (0.1, 1.5))));
     assert!(!flat.reaches(boxed((0.0, 1.4), (0.1, 1.5))));
+}
+
+/// **A cut that is a graph over the angle reaches a band and not a box**, which
+/// is what a wave and a bow have in common and what neither shares with a line.
+///
+/// Both run the whole width of the angle they are graphs over, so what bounds
+/// either is the height alone. A wave about `3` swinging `2` covers `1` to `5`,
+/// and so does a bow about `3` whose other cylinder has a radius of `2` — the
+/// two numbers a bow is a circle in summing in squares to that radius the whole
+/// way round.
+///
+/// Held against boxes above the band, below it, across it, and resting exactly
+/// on each end of it — a touch being a reach, since a corner on the cut is a
+/// corner the walk has to place.
+///
+/// **And the angle decides nothing**, which the box far off to the side is what
+/// shows: it stands in the band, so it is reached however far round it is.
+#[test]
+fn a_wave_and_a_bow_reach_the_band_they_swing_through() {
+    let boxed = |low: (f64, f64), high: (f64, f64)| Bounds {
+        low: DVec2::new(low.0, low.1),
+        high: DVec2::new(high.0, high.1),
+    };
+    let wave = |swing: f64| {
+        Cut::Wave(Ripple {
+            level: 3.0,
+            swing,
+            phase: 0.4,
+            above: true,
+            run: 0,
+        })
+    };
+    let bow = Cut::Bow(Bow {
+        across: 2.0,
+        reach: 1.0,
+        phase: 0.4,
+        off: 0.0,
+        level: 3.0,
+        upper: true,
+        inward: true,
+        run: 0,
+    });
+
+    for cut in [wave(2.0), wave(-2.0), bow] {
+        assert!(
+            !cut.reaches(boxed((0.0, 5.5), (1.0, 9.0))),
+            "above the band"
+        );
+        assert!(!cut.reaches(boxed((0.0, -1.0), (1.0, 0.5))), "below it");
+        assert!(cut.reaches(boxed((0.0, 2.0), (1.0, 4.0))), "across it");
+        assert!(
+            cut.reaches(boxed((0.0, 5.0), (1.0, 9.0))),
+            "on its high end"
+        );
+        assert!(
+            cut.reaches(boxed((0.0, -1.0), (1.0, 1.0))),
+            "on its low end"
+        );
+        // A hundred turns round, and still in the band.
+        assert!(cut.reaches(boxed((628.0, 2.0), (629.0, 4.0))), "far round");
+    }
 }

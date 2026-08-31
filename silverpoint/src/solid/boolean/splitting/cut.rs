@@ -241,10 +241,11 @@ impl<'a> Cut<'a> {
     /// what it shuts in, and which side the region is on is then the same for
     /// every corner of it.
     ///
-    /// **A bound for the two shapes that have one cheaply**, and `true` for the
-    /// rest: a wave runs the whole width of the angle it is a graph over, and a
-    /// bow and a marched run would each want their own reading. Coarse, and not
-    /// wrong — an arm with no bound is a cut taken exactly as it was before.
+    /// **Every arm answers off its own shape.** A line and an ellipse have a
+    /// box; a wave and a bow have a band in the height alone, being graphs over
+    /// an angle that wraps; a marched run has the boxes of its pieces. Coarse
+    /// where a band is all there is, and not wrong: what a cull owes is to drop
+    /// work and never an answer.
     pub(super) fn reaches(self, fills: Bounds<DVec2>) -> bool {
         match self {
             // A line meets the box where the box's own corners straddle it, and
@@ -270,7 +271,15 @@ impl<'a> Cut<'a> {
                 }
                 .meets(fills, 0.0)
             }
-            Self::Wave(_) | Self::Bow(_) | Self::Traced(_) => true,
+            // Both of these are a graph over the angle where they are answered
+            // at all, so they run the whole width of a face and what bounds
+            // them is `v` alone. A wave swings its own `swing` either side of
+            // its level; a bow's two numbers are the other cylinder's radius
+            // and how far off its axis a place stands, and the sum of their
+            // squares is that radius the whole way round — see [`Bow::turn`].
+            Self::Wave(ripple) => banded(ripple.level, ripple.swing, fills),
+            Self::Bow(bow) => banded(bow.level, bow.across, fills),
+            Self::Traced(traced) => traced.reaches(fills),
         }
     }
 
@@ -511,6 +520,18 @@ impl<'a> Cut<'a> {
         }
         met
     }
+}
+
+/// Whether a cut running the whole width of the angle, and reaching `swing`
+/// either side of `level`, gets into the box `fills`.
+///
+/// **A band rather than a box**, which is what a graph over a parameter that
+/// wraps comes to: it is somewhere at every angle, so the angle bounds nothing
+/// and only the height does. That is still most of what a cull wants — a face
+/// cut at a constant height has its regions stacked in exactly that direction.
+fn banded(level: f64, swing: f64, fills: Bounds<DVec2>) -> bool {
+    let reach = swing.abs();
+    fills.low.y <= level + reach && level - reach <= fills.high.y
 }
 
 /// The two ends of one stretch in one order, whichever way round the walk

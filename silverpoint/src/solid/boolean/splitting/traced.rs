@@ -421,6 +421,19 @@ impl<'a> Traced<'a> {
         from.lerp(to, along)
     }
 
+    /// Whether any piece of the run gets into the box `fills`.
+    ///
+    /// **A marched meeting comes in pieces**, each a stretch of curve with a
+    /// box of its own — see [`Piece::fills`], which the walk holds for exactly
+    /// this kind of question. A run whose pieces all lie clear of a region is a
+    /// cut that divides nothing there, and the pieces are where a marched cut
+    /// is *local* in a way its two surfaces are not.
+    pub(super) fn reaches(self, fills: Bounds<DVec2>) -> bool {
+        self.pieces
+            .iter()
+            .any(|piece| piece.fills.meets(fills, 0.0))
+    }
+
     /// Where the straight run from `from` to `to` crosses it *twice*, both ends
     /// standing on the same side.
     ///

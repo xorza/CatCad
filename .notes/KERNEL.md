@@ -1061,10 +1061,29 @@ this changes which regions are *looked at*, and §9.1 changed which edges the
 answer *has*. The first is one face's own business and the second is a contract
 with the next boolean.
 
-**And what a cut cannot reach is still asked of the whole surface.** A straight
-cut and a round one carry a box; a wave, a bow and a marched run answer that
-they reach everything, so a face they divide is walked as it always was. Those
-are the arms to bound next, and each wants a reading of its own.
+Every arm of a cut now answers off its own shape: a line and an ellipse have a
+box, a wave and a bow a band in the height alone — being graphs over an angle
+that wraps — and a marched run the boxes of its pieces. The last three are
+bounded for the rule's sake rather than for a measurement: on the fixture that
+would have shown them working they buy nothing, because that fixture's cost is
+not there at all.
+
+**Which is the finding to carry forward.** A rod of radius two bored across by
+rods of radius a half, each cut taking the answer of the last, costs 3.5 ms for
+one bore, 8.9 ms for two and 61 ms for three — a ten-faced body, against a frame
+of 8.3 ms, growing far faster than the pair count does. A fifth of that is
+`bisect::crossed` walking a bow down to the last bit an `f64` holds, and two
+fifths again is the `sin`, `asin` and `atan2` under it. So the curved path is a
+harder problem than the straight-walled one this section has measured all along,
+and it is *bought* rather than wasted: §7.4 converges a bow rather than
+tolerating it, and precision over performance is the order §1 sets. What is not
+yet known is whether the fences can be fewer, or the bisection warm-started from
+the answer the cut before it gave.
+
+**Neither is the growth explained.** Each bore adds two faces and one surface,
+so the face-against-surface pairs grow as the square — and the times grow by
+2.5 and then by 6.9. Something else is scaling, and finding what is the next
+measurement rather than the next change.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the
