@@ -15,7 +15,7 @@ use crate::inline::Inline;
 use crate::number::exact::decides::Decides;
 use crate::number::exact::expansion::Expansion;
 use crate::number::exact::field::Field;
-use crate::number::exact::filtered::Filtered;
+use crate::number::exact::filtered::{Filtered, HALF_ULP};
 use crate::number::exact::rational::Rational;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, NO_DIRECTION, PLACED, ROUNDING};
@@ -125,28 +125,59 @@ fn past(t: f64) -> f64 {
 /// of two of those is two floats, and their difference is sixteen at worst.
 ///
 /// **The filter first and the expansion where it declines**, which is
-/// `.notes/KERNEL.md` §4.2's ladder: a pair nowhere near an end costs two
-/// comparisons, and only a crossing sitting *on* one is paid for exactly. That
-/// case is the one worth paying for — a corner drawn on a line has to come back
-/// as being on it rather than a rounding past it.
+/// `.notes/KERNEL.md` §4.2's ladder: a pair nowhere near an end costs the
+/// determinant and a comparison, and only a crossing sitting *on* one is paid
+/// for exactly. That case is the one worth paying for — a corner drawn on a
+/// line has to come back as being on it rather than a rounding past it.
 fn swept(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Ordering {
-    if let Some(sign) = turned(Filtered::of, a, b, c, d).decided() {
-        return sign;
-    }
-    // Sixteen is what the sum reaches: two terms a difference, eight a product
-    // of two differences, sixteen the difference of two products.
+    filtered(a, b, c, d).unwrap_or_else(|| exactly(a, b, c, d))
+}
+
+/// The same sign off the machine's own arithmetic, or `None` where the
+/// rounding on the way to it reaches across nought.
+///
+/// **Static, where a bound carried through every step is dynamic.** Each half
+/// is two differences and a product, and one more difference joins them — four
+/// roundings on a fixed expression, so what the answer can be out by is a
+/// constant times the size of the halves and is worked out once at the end.
+/// Which is the fast path `.notes/KERNEL.md` §4.2 asks for, and it earns the
+/// argument: every containment in the crate is counted out of this.
+fn filtered(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<Ordering> {
+    let Halves { left, right } = halves(|at| at, a, b, c, d);
+    Filtered::within(left - right, TURNING * (left.abs() + right.abs())).sign()
+}
+
+/// The same sign, in the arithmetic that cannot be wrong about it.
+///
+/// Sixteen is what the sum reaches: two terms a difference, eight a product of
+/// two differences, sixteen the difference of two products.
+fn exactly(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Ordering {
     turned(Expansion::<16>::of, a, b, c, d)
         .decided()
         .expect("the exact tier decides")
 }
 
+/// How far a machine reading of [`turned`] can stand from the truth, as a
+/// share of the size of the two halves it is the difference of.
+///
+/// **Shewchuk's `ccwerrboundA`, and the expression is his**: two products of
+/// two differences, subtracted, with every input an exact float — see §12. The
+/// bound is a proved one rather than a measured one, and what the tests hold is
+/// the transcription of it: a sweep licenses no bound, but a decision the exact
+/// tier contradicts refutes one.
+///
+/// **No underflow is allowed for**, which the analysis behind the constant also
+/// assumes: a product of two coordinate differences reaches the subnormals only
+/// where a drawing is `10⁻¹⁵⁰` across, and one that large has already lost
+/// every other guarantee in this crate.
+const TURNING: f64 = (3.0 + 16.0 * HALF_ULP) * HALF_ULP;
+
 /// `(a − b) ⟂ (c − d)`, in whatever arithmetic `of` reads a coordinate into.
 ///
-/// **Written once so the two tiers cannot be two different polynomials.** The
-/// filter and the expansion are asked the same question in the same order, and
-/// a formula spelled twice is how they would come to disagree about which
-/// question it was — the same reason the tests hold every tier here to one
-/// determinant.
+/// **Written once so the tiers cannot be different polynomials.** Each is asked
+/// the same question in the same order, and a formula spelled twice is how they
+/// would come to disagree about which question it was — the same reason the
+/// tests hold every tier here to one determinant.
 fn turned<T: Sub<Output = T> + Mul<Output = T>>(
     of: impl Fn(f64) -> T + Copy,
     a: DVec2,
@@ -154,7 +185,33 @@ fn turned<T: Sub<Output = T> + Mul<Output = T>>(
     c: DVec2,
     d: DVec2,
 ) -> T {
-    (of(a.x) - of(b.x)) * (of(c.y) - of(d.y)) - (of(a.y) - of(b.y)) * (of(c.x) - of(d.x))
+    let Halves { left, right } = halves(of, a, b, c, d);
+    left - right
+}
+
+/// The two products [`turned`] is the difference of.
+///
+/// A satellite of [`halves`], and what a static filter wants that a difference
+/// does not give it: the bound is a share of how large the two were before they
+/// cancelled, so a caller measuring its own rounding needs them apart.
+#[derive(Debug)]
+struct Halves<T> {
+    left: T,
+    right: T,
+}
+
+/// The two halves of [`turned`], which is where the polynomial is written.
+fn halves<T: Sub<Output = T> + Mul<Output = T>>(
+    of: impl Fn(f64) -> T + Copy,
+    a: DVec2,
+    b: DVec2,
+    c: DVec2,
+    d: DVec2,
+) -> Halves<T> {
+    Halves {
+        left: (of(a.x) - of(b.x)) * (of(c.y) - of(d.y)),
+        right: (of(a.y) - of(b.y)) * (of(c.x) - of(d.x)),
+    }
 }
 
 /// The quadratic `span` makes against `ring`, in whatever arithmetic `of` reads

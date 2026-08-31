@@ -994,8 +994,8 @@ nobody has made yet.
 
 **What is measured is the boolean, and it grows faster than the body does.**
 Cutting one straight-walled tool out of a six-faced block, release, on a
-13980HX: 0.07 ms for a four-sided tool, 0.6 ms for sixteen, 2.9 ms for
-thirty-two, 18 ms for sixty-four, 130 ms for a hundred and twenty-eight. Each
+13980HX: 0.07 ms for a four-sided tool, 0.45 ms for sixteen, 1.9 ms for
+thirty-two, 11 ms for sixty-four, 77 ms for a hundred and twenty-eight. Each
 doubling of the tool's faces costs between three and seven times the last, so
 the growth is between quadratic and cubic. Raising the same tools costs 0.4 µs
 to 13 µs and is linear throughout; meshing the answer at the paint sagitta costs
@@ -1025,27 +1025,32 @@ splits one boolean makes are what the next one's uniform cut leans on. So the
 count stands, and where the time goes is a question about the work done per
 face rather than about how many there are.
 
-**It goes into one predicate.** Profiled over the hundred-and-twenty-eight-sided
-cut, a third of the boolean is `math::intersect::swept` — the exact orientation
-test — and a fifth is `math::winding::within`, which is the ray cast that calls
-it. Every containment the kernel asks is counted out of that pair, once per
-corner of every loop of every region of every cut.
+**It went into one predicate, and that is now paid off.** Profiled over the
+hundred-and-twenty-eight-sided cut, a third of the boolean was
+`math::intersect::swept` — the exact orientation test — and a fifth was
+`math::winding::within`, the ray cast that calls it. Every containment the
+kernel asks is counted out of that pair, once per corner of every loop of every
+region of every cut. Two changes halved the whole boolean:
 
-Most of that was bookkeeping rather than arithmetic. `Filtered` widened its
-bound by *stepping* it up an ulp at a time, seven steps to a product and three
-to a sum, so one orientation test carried twenty-nine — and the floats above
-nought run in the order their bits spell, so the steps are an addition. Counting
-in the bits instead took the hundred-and-twenty-eight-sided cut from 154 ms to
-130 and the sixty-four-sided one from 28 ms to 18.
+- **`Filtered` widened its bound by stepping.** One ulp at a time, seven steps
+  to a product and three to a sum, so one orientation test carried twenty-nine.
+  The floats above nought run in the order their bits spell, so the steps are an
+  addition. 154 ms to 130.
+- **`swept` carried a bound through six operations to answer one question.** The
+  expression is written once and its roundings are three deep, so what the
+  answer can be out by is a constant times the size of the two halves — a static
+  filter, Shewchuk's `ccwerrboundA`, worked out at the end rather than tracked.
+  130 ms to 77. The constant is a proved one and the sweep beside it guards the
+  transcription: over quadruples laid collinear and nudged apart by ulps, across
+  three magnitudes, the filter decides most of them and contradicts the
+  expansion on none.
 
-What is left in `swept` is the filter itself, which builds the determinant in
-`Filtered` and carries a bound through four differences and two products before
-it compares. A *static* filter — the raw `f64` determinant against a constant
-times the size of its two halves, Shewchuk's `orient2d` — decides the same
-question in a handful of operations and declines to the same expansion. That is
-the next thing to measure, and the constant is the part to get right rather than
-guess: the exact tier is its own oracle, so a sweep holding every decision the
-filter claims against what the expansion says is what would license it.
+**What is left is flat**, which is the finding: no arm of the profile is above
+an eighth, and the largest are the ray cast, the sounding, and the two region
+walks. There is no hotspot left to take, so the next thing worth doing to the
+figures above is the one §7.4 argues for and §9.1 could not deliver — cutting
+less — and that is a change to the shape of the answer rather than to the
+arithmetic under it.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the

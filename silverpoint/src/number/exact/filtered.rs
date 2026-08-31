@@ -14,7 +14,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 /// [`ROUNDING`](crate::number::tolerance::ROUNDING) next door is a different
 /// thing entirely: a nanometre of *geometric* slack, in world units, against
 /// which two places count as one. This is a proportion and has no units at all.
-const HALF_ULP: f64 = f64::EPSILON / 2.0;
+pub(crate) const HALF_ULP: f64 = f64::EPSILON / 2.0;
 
 /// A number computed in `f64`, carried with a bound on how far from the truth
 /// it can be.
@@ -69,6 +69,20 @@ impl Filtered {
             // One product, the absolute value rounding nothing.
             bound: upward(HALF_ULP * at.abs(), 1),
         }
+    }
+
+    /// A reading the caller worked the bound out for itself.
+    ///
+    /// **Where a *static* filter hands its answer over.** Carrying a bound
+    /// through every operation costs more arithmetic than the value does, and
+    /// for an expression written once the bound can be worked out once as well
+    /// — a constant times the size of the terms it is made of. What comes in
+    /// here is that pair, and the caller owes the bound: it must cover every
+    /// rounding on the way to `at`, or [`Filtered::sign`] will claim a side the
+    /// arithmetic does not support.
+    pub(crate) fn within(at: f64, bound: f64) -> Self {
+        debug_assert!(bound >= 0.0, "{bound} is no bound to read {at} against");
+        Self { at, bound }
     }
 
     /// What the machine made of it, without the bound.
