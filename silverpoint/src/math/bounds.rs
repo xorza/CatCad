@@ -15,6 +15,7 @@ use std::ops::{Add, Div, Sub};
 pub(crate) trait Axial:
     Copy
     + Add<Self, Output = Self>
+    + Sub<Self, Output = Self>
     + Add<f64, Output = Self>
     + Sub<f64, Output = Self>
     + Div<f64, Output = Self>
@@ -133,6 +134,16 @@ impl<At: Axial> Bounds<At> {
     /// The place half way between its two ends.
     pub(crate) fn middle(self) -> At {
         (self.low + self.high) / 2.0
+    }
+
+    /// How far it reaches from that middle on each axis.
+    ///
+    /// What a question about the *whole* box is answered off, where its two
+    /// ends answer a question about where it stands: how far a surface or a
+    /// line gets into it is a reach from the middle and nothing to do with
+    /// where the middle is.
+    pub(crate) fn half(self) -> At {
+        (self.high - self.low) / 2.0
     }
 
     /// The same box moved by `shift`.

@@ -151,9 +151,9 @@ impl Surface {
     /// face beside it too. Nothing is divided on one side of an edge and left
     /// whole on the other — see `.notes/KERNEL.md` §7.4.
     pub(crate) fn reaches(&self, fills: Bounds<DVec3>, slack: f64) -> bool {
-        let across = fills.high - fills.low;
-        debug_assert!(across.is_finite(), "an empty box holds no ball to reach");
-        self.off(fills.middle()) <= across.length() / 2.0 + slack
+        let half = fills.half();
+        debug_assert!(half.is_finite(), "an empty box holds no ball to reach");
+        self.off(fills.middle()) <= half.length() + slack
     }
 
     /// Whether the parameterization says nothing at `at` — one place that

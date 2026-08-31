@@ -704,3 +704,87 @@ fn a_cut_crossing_a_flattened_arc_is_met_on_the_arc() {
         );
     }
 }
+
+/// **A cut reaches the box it runs through and no other**, which is what says a
+/// region is not worth walking.
+///
+/// Hand-computed. A line's reach into a box is the box's half-widths measured
+/// against the line's own normal, so a box two across and two up gives a line
+/// running square to an axis a reach of one, and one running at forty-five
+/// degrees a reach of `√2` — the diagonal being the way a tilted line gets
+/// furthest into it.
+///
+/// The line along the world's `x` through the origin, held against a box from
+/// `(2, 1)` to `(4, 3)`: its middle stands `2` above the line and the box
+/// reaches `1`, so it misses. Dropped to `(2, −1)` the middle stands `1` up and
+/// the box reaches `2`, so it does not.
+///
+/// The line at forty-five degrees through the origin, against the box from
+/// `(0, 0)` to `(2, 2)`: the middle is *on* the line, so it reaches whatever
+/// the box is. Moved to `(3, 0)`, the middle stands `3/√2 ≈ 2.12` off and the
+/// box reaches `√2 ≈ 1.41`, so it misses.
+#[test]
+fn a_straight_cut_reaches_the_box_it_crosses_and_no_other() {
+    let cut = |along: DVec2| Cut::Straight {
+        at: DVec2::ZERO,
+        along,
+        run: None,
+    };
+    let boxed = |low: (f64, f64), high: (f64, f64)| Bounds {
+        low: DVec2::new(low.0, low.1),
+        high: DVec2::new(high.0, high.1),
+    };
+
+    let flat = cut(DVec2::X);
+    assert!(!flat.reaches(boxed((2.0, 1.0), (4.0, 3.0))));
+    assert!(flat.reaches(boxed((2.0, -1.0), (4.0, 3.0))));
+    // Touching exactly is reaching, a corner on the cut being a corner the walk
+    // has to place.
+    assert!(flat.reaches(boxed((2.0, 0.0), (4.0, 3.0))));
+
+    let leaning = cut(DVec2::ONE.normalize());
+    assert!(leaning.reaches(boxed((0.0, 0.0), (2.0, 2.0))));
+    assert!(!leaning.reaches(boxed((3.0, 0.0), (5.0, 2.0))));
+    // Which way round the cut runs decides which side is kept and nothing about
+    // where it goes, so a turned cut reaches the same boxes.
+    assert!(!leaning.turned().reaches(boxed((3.0, 0.0), (5.0, 2.0))));
+}
+
+/// **An ellipse reaches the box its own box meets**, which for a tilted one is
+/// not the box of its two halves.
+///
+/// An ellipse of halves `2` and `1` about the origin, lying along the world's
+/// `x`, fills `(−2, −1)` to `(2, 1)`. Turned forty-five degrees it fills
+/// `√(a²/2 + b²/2) = √2.5 ≈ 1.5811` each way, which is wider across and
+/// narrower along than the halves themselves are.
+#[test]
+fn a_round_cut_reaches_the_box_its_own_box_meets() {
+    let cut = |along: DVec2| {
+        Cut::Round(Oval {
+            middle: DVec2::ZERO,
+            along,
+            half: DVec2::new(2.0, 1.0),
+            inward: true,
+            run: 0,
+        })
+    };
+    let boxed = |low: (f64, f64), high: (f64, f64)| Bounds {
+        low: DVec2::new(low.0, low.1),
+        high: DVec2::new(high.0, high.1),
+    };
+
+    let flat = cut(DVec2::X);
+    assert!(flat.reaches(boxed((1.0, 0.0), (3.0, 1.0))));
+    assert!(!flat.reaches(boxed((2.5, 0.0), (3.0, 1.0))));
+    // Above the ellipse's own reach of one, and inside its reach of two.
+    assert!(!flat.reaches(boxed((0.0, 1.5), (1.0, 2.0))));
+
+    let leaning = cut(DVec2::ONE.normalize());
+    let corner = 2.5f64.sqrt();
+    assert!(leaning.reaches(boxed((0.0, corner - 0.1), (1.0, 3.0))));
+    assert!(!leaning.reaches(boxed((0.0, corner + 0.1), (1.0, 3.0))));
+    // Wider across than the ellipse's own shorter half, which is the whole of
+    // what turning it does to the box.
+    assert!(leaning.reaches(boxed((0.0, 1.4), (0.1, 1.5))));
+    assert!(!flat.reaches(boxed((0.0, 1.4), (0.1, 1.5))));
+}

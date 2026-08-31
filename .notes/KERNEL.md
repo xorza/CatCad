@@ -994,8 +994,8 @@ nobody has made yet.
 
 **What is measured is the boolean, and it grows faster than the body does.**
 Cutting one straight-walled tool out of a six-faced block, release, on a
-13980HX: 0.07 ms for a four-sided tool, 0.45 ms for sixteen, 1.9 ms for
-thirty-two, 11 ms for sixty-four, 77 ms for a hundred and twenty-eight. Each
+13980HX: 0.06 ms for a four-sided tool, 0.5 ms for sixteen, 1.6 ms for
+thirty-two, 8.7 ms for sixty-four, 56 ms for a hundred and twenty-eight. Each
 doubling of the tool's faces costs between three and seven times the last, so
 the growth is between quadratic and cubic. Raising the same tools costs 0.4 µs
 to 13 µs and is linear throughout; meshing the answer at the paint sagitta costs
@@ -1045,12 +1045,26 @@ region of every cut. Two changes halved the whole boolean:
   three magnitudes, the filter decides most of them and contradicts the
   expansion on none.
 
-**What is left is flat**, which is the finding: no arm of the profile is above
-an eighth, and the largest are the ray cast, the sounding, and the two region
-walks. There is no hotspot left to take, so the next thing worth doing to the
-figures above is the one §7.4 argues for and §9.1 could not deliver — cutting
-less — and that is a change to the shape of the answer rather than to the
-arithmetic under it.
+**What was left was flat**, no arm of the profile above an eighth, and the
+largest of them the two region walks. So the next thing taken was cutting less,
+which §7.4 bounds from outside and which has room *inside* one face:
+
+- **A cut walked every region of the face it divided, and reaches almost none of
+  them.** A hundred and twenty-eight walls leave a block's face in a hundred and
+  twenty-eight slices, and the next wall crosses two. Every region now carries
+  the box its outline fills, and a cut that misses that box leaves the region
+  whole on one side of itself and absent from the other — four comparisons where
+  a walk of its corners stood before. 77 ms to 56, and not one face count moved.
+
+That is sound where §9.1's merge is not, and the difference is worth stating:
+this changes which regions are *looked at*, and §9.1 changed which edges the
+answer *has*. The first is one face's own business and the second is a contract
+with the next boolean.
+
+**And what a cut cannot reach is still asked of the whole surface.** A straight
+cut and a round one carry a box; a wave, a bow and a marched run answer that
+they reach everything, so a face they divide is walked as it always was. Those
+are the arms to bound next, and each wants a reading of its own.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the

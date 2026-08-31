@@ -3,6 +3,7 @@
 use crate::loops::Loops;
 use crate::math::arc;
 use crate::math::bisect;
+use crate::math::bounds::Bounds;
 use crate::math::quadratic;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::bow::{Bow, Bowed};
@@ -220,6 +221,56 @@ impl<'a> Cut<'a> {
             // How far round the run it was walked as, measured from a place
             // the face does not hold — see [`Traced::down`].
             Self::Traced(traced) => traced.down(point),
+        }
+    }
+
+    /// Whether any of it runs through the box `fills`.
+    ///
+    /// **What says a region is not worth walking.** A face cut by *n* surfaces
+    /// is walked again by each cut after the first, and most of those cuts come
+    /// nowhere near most of those regions — a hundred and twenty-eight walls
+    /// against a block's face leave a hundred and twenty-eight slices, and the
+    /// next wall crosses two of them. A region no cut of it reaches is whole on
+    /// one side and absent from the other, which four comparisons settle where
+    /// a walk of its corners settled it before.
+    ///
+    /// **Sound because the boxes decide containment as well as crossing.** A
+    /// closed cut lying wholly inside a region, or a region swallowed whole by
+    /// the disc one bounds, both put one box inside the other — so boxes that
+    /// do not meet leave the cut clear of the region *and* the region clear of
+    /// what it shuts in, and which side the region is on is then the same for
+    /// every corner of it.
+    ///
+    /// **A bound for the two shapes that have one cheaply**, and `true` for the
+    /// rest: a wave runs the whole width of the angle it is a graph over, and a
+    /// bow and a marched run would each want their own reading. Coarse, and not
+    /// wrong — an arm with no bound is a cut taken exactly as it was before.
+    pub(super) fn reaches(self, fills: Bounds<DVec2>) -> bool {
+        match self {
+            // A line meets the box where the box's own corners straddle it, and
+            // how far they reach either way is the box's half-widths against
+            // the line's normal — one comparison rather than four corners.
+            Self::Straight { at, along, .. } => {
+                let normal = along.perp();
+                let half = fills.half();
+                let reach = normal.x.abs() * half.x + normal.y.abs() * half.y;
+                normal.dot(fills.middle() - at).abs() <= reach
+            }
+            // The box an ellipse fills, which is its middle plus how far each
+            // of its two halves reaches along each axis.
+            Self::Round(oval) => {
+                let across = oval.along.perp();
+                let reach = DVec2::new(
+                    (oval.half.x * oval.along.x).hypot(oval.half.y * across.x),
+                    (oval.half.x * oval.along.y).hypot(oval.half.y * across.y),
+                );
+                Bounds {
+                    low: oval.middle - reach,
+                    high: oval.middle + reach,
+                }
+                .meets(fills, 0.0)
+            }
+            Self::Wave(_) | Self::Bow(_) | Self::Traced(_) => true,
         }
     }
 

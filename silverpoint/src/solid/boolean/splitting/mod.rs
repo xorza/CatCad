@@ -67,6 +67,40 @@ impl Side {
     }
 }
 
+/// Which side of `cut` a region wholly clear of it falls, read off any corner
+/// of its `outline`.
+///
+/// **Any corner does, which is what both callers have shown**: one by the cut
+/// meeting no boundary of the region, the other by the cut coming nowhere near
+/// the box the region fills. So there is no corner for [`PLACED`] to have an
+/// opinion about, and this reads the side without one where [`Side::of`] reads
+/// it with.
+fn beside(outline: &[Corner], cut: Cut<'_>) -> bool {
+    cut.side(outline[0].at) > 0.0
+}
+
+/// What a cut that reaches no part of `region` leaves of it.
+///
+/// The region unchanged where it stands on the side being kept, and nothing at
+/// all where it does not — which is the whole of what dividing a region comes
+/// to when the cut is nowhere near it. See [`Cut::reaches`], which is what says
+/// so, and why it says so for a closed cut as well as a straight one.
+fn aside<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>, into: &mut Cells) {
+    let mut walks = region;
+    let Some(outline) = walks.next() else {
+        return;
+    };
+    if !beside(outline, cut) {
+        return;
+    }
+    into.add(|write| {
+        write.push(outline);
+        for walk in walks {
+            write.push(walk);
+        }
+    });
+}
+
 /// Whether a region the cut runs along the boundary of is on the side kept.
 ///
 /// **Which side it is on, where its boundary cannot say.** A corner on the cut
@@ -241,7 +275,11 @@ impl Splitting {
     ) -> bool {
         let mut written = true;
         for at in 0..from.len() {
-            written &= self.region(from.cell(at), cut, reading, into);
+            if cut.reaches(from.fills(at)) {
+                written &= self.region(from.cell(at), cut, reading, into);
+            } else {
+                aside(from.cell(at), cut, into);
+            }
         }
         written
     }
@@ -342,9 +380,7 @@ impl Splitting {
             return;
         };
         let holes = loops;
-        // Which side the region is on, off any corner of it — the cut met no
-        // boundary, so they are all on the one side.
-        let kept = cut.side(outline[0].at) > 0.0;
+        let kept = beside(outline, cut);
         // Within the region, which is within its outline and within none of
         // its holes. Asked of one point of each loop because no loop meets the
         // boundary: every point of one stands where that one does.

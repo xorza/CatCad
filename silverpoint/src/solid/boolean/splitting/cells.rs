@@ -1,7 +1,9 @@
 //! The regions one plane is cut into.
 
 use crate::loops::Loops;
+use crate::math::bounds::Bounds;
 use crate::solid::boolean::splitting::corner::Corner;
+use glam::DVec2;
 use std::ops::Range;
 
 /// Regions of one plane, each an outline and the loops punched out of it.
@@ -15,12 +17,22 @@ pub(crate) struct Cells {
     loops: Loops<Corner>,
     /// Which runs each region owns: the outline first, then its holes.
     owned: Vec<Range<usize>>,
+    /// The box each region's outline fills, which is the region's own — a hole
+    /// stands inside the outline that holds it.
+    ///
+    /// Held rather than measured, for the reason
+    /// [`Bounds`](crate::math::bounds::Bounds) gives: the corners are walked to
+    /// be written anyway, and folding four floats out of that walk costs
+    /// nothing beside it. What reads them is the cut that comes next, which
+    /// asks of every region whether it is worth walking at all.
+    fills: Vec<Bounds<DVec2>>,
 }
 
 impl Cells {
     pub(crate) fn clear(&mut self) {
         self.loops.clear();
         self.owned.clear();
+        self.fills.clear();
     }
 
     /// How many regions there are.
@@ -42,8 +54,18 @@ impl Cells {
         let from = self.loops.len();
         write(&mut self.loops);
         if self.loops.len() > from {
+            let mut fills = Bounds::default();
+            for corner in self.loops.get(from) {
+                fills.hold(corner.at);
+            }
             self.owned.push(from..self.loops.len());
+            self.fills.push(fills);
         }
+    }
+
+    /// The box the region at `at` fills.
+    pub(crate) fn fills(&self, at: usize) -> Bounds<DVec2> {
+        self.fills[at]
     }
 }
 
