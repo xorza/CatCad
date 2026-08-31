@@ -1095,6 +1095,18 @@ carried every one. §11 is the measurement that asked for this.
 it again — which is where §4.4 put it, and this section spent a milestone
 finding out why that was right.
 
+**Measured over forty-nine pairs, and it is not close.** Cutting one pocket
+into a block, merging the answer, and cutting a second pocket beside it: thirty
+of the forty-nine pairs of side counts from four to sixteen are refused or come
+to the wrong volume. The split path answers all forty-nine — see §7.4, and
+`a_pocket_cut_beside_another_is_divided_by_the_first_ones_walls`.
+
+**And cutting a body by its own surfaces does not rescue it.** The obvious
+repair is the closure: apply to each body not only the other's surfaces but its
+own that reach the other, so that the two sides of every edge are divided alike.
+Tried, it takes thirty to twenty-seven. Whatever else the hazard is, it is not
+only that a body goes uncut by its own surfaces.
+
 **Not before the sewing, which was measured.** On `(A ∪ B) ∪ C`: during
 `A ∪ B`, `B`'s wall is cut by `A`'s wall and comes back as two faces meeting
 along that line; merged, it is one face spanning it, and the line is no longer
@@ -1242,6 +1254,24 @@ mark the body fitted.
 
 Another project entirely, listed so the destination is visible rather than
 because it is scheduled.
+
+**And it cannot be a boolean, which is measured rather than assumed.** The
+tempting route is to build the fillet from what already works: for a straight
+edge between two planes, the material to remove is the corner wedge less a
+cylinder, and this kernel raises both of those today. Every arrangement of
+that recipe is refused, and for the one reason a fillet cannot avoid — the
+cylinder is *tangent* to both faces, which is what a fillet is. Taken as
+`wedge − rod` the pair is turned away; taken as `(body − wedge) ∪ (rod ∩ wedge)`
+the join at the end is. Grow the radius past tangency and it builds: refused at
+nought, at `1e-9` and at `1e-6`, answered at `1e-3` — an error a drawing can
+see.
+
+**So a fillet is a local operation on the topology and never an operation
+between bodies.** The two faces are trimmed back to their tangent lines, a
+cylindrical face is put between them carrying those lines as its edges, and
+§4.4's smooth-edge flag says the two joins are not creases. Nothing is cut
+against anything, so there is no tangency for a boolean to turn away — which is
+what this section's first sentence means by edges as first-class entities.
 
 ---
 

@@ -2848,3 +2848,68 @@ fn chained<const ROWS: usize>(cases: [Chained; ROWS]) {
         );
     }
 }
+
+/// **A cylinder tangent to the planes it meets is refused**, and how far from
+/// tangent it has to stand before it is not.
+///
+/// **The measurement M7 turns on.** A fillet's whole property is that its
+/// cylinder lies tangent to both faces it joins, so the tempting way to build
+/// one — take the corner wedge away and put the rounded part back, both of them
+/// bodies this kernel raises today — asks the boolean for exactly the pair it
+/// cannot answer. See `.notes/KERNEL.md` §9.5, where what is left is a local operation
+/// on the topology rather than one between bodies.
+///
+/// **The wedge is the corner and the rod is the fillet.** A right-angled corner
+/// rounded at `0.5` puts the axis `0.5` inside each face, so the circle meets
+/// each of the wedge's two legs at one place and crosses neither. Grown past
+/// that the two cross properly and the cut is answered — which is the whole of
+/// the claim: what is refused is the tangency and not the shape.
+#[test]
+fn a_cylinder_tangent_to_the_planes_it_meets_is_refused() {
+    let radius = 0.5;
+    let wedge = block(
+        raised(-1.0),
+        &[(0.0, 0.0), (radius, 0.0), (0.0, radius)],
+        6.0,
+        TOOL,
+    );
+    let mut boolean = Boolean::default();
+    for (over, want) in [(0.0, false), (1e-9, false), (1e-6, false), (1e-3, true)] {
+        let round = rod(
+            raised(-1.0),
+            DVec2::new(radius, radius),
+            radius + over,
+            6.0,
+            TOOL,
+        )
+        .body;
+        let mut into = Body::default();
+        let stands = boolean.combine(&wedge, &round, Operation::Cut, &mut into);
+        assert_eq!(
+            stands,
+            want,
+            "a rod {over:e} over the tangent radius was {}",
+            if stands { "answered" } else { "refused" },
+        );
+        if !want {
+            assert!(
+                into.is_empty(),
+                "{over:e}: a refusal left half a body behind"
+            );
+            continue;
+        }
+        // The sliver between the corner and the round, which is a ball with a
+        // hollow in one side rather than a ring or a pair.
+        let reckoning = into.reckoning();
+        assert_eq!(reckoning.genus, 0, "{over:e}: {reckoning:?}");
+        assert_eq!(
+            into.topology().lumps().count(),
+            1,
+            "{over:e}: not one solid"
+        );
+        assert!(
+            into.exact(),
+            "{over:e}: a plane and a cylinder are both exact"
+        );
+    }
+}
