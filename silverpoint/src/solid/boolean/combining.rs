@@ -960,13 +960,13 @@ fn imprinted(
         // the axis it is the line `v = that`, which the arm above writes down
         // exactly where this one would chord it.
         (Surface::Natural(Natural::Cone(cone)), Curve::Ellipse(of)) => {
-            Some(flared(cone, of.axis, laid, run))
+            Some(flared(cone, of.axis, of.at(0.0), laid, run))
         }
         (Surface::Natural(Natural::Cone(cone)), Curve::Parabola(of)) => {
-            Some(flared(cone, of.axis, laid, run))
+            Some(flared(cone, of.axis, of.at(0.0), laid, run))
         }
         (Surface::Natural(Natural::Cone(cone)), Curve::Hyperbola(of)) => {
-            Some(flared(cone, of.axis, laid, run))
+            Some(flared(cone, of.axis, of.at(0.0), laid, run))
         }
         // **An open conic on a plane is a graph about its own vertex** — see
         // [`boughed`], which is where the pair of them come to one shape. A
@@ -1163,10 +1163,22 @@ fn imprinted(
 /// by half a turn together, so the reading turns over — and so does which side
 /// of the cut the apex is on, which turns it back.
 ///
-/// **The face says which nappe and how far**, both off `laid`: a face lies on
-/// one nappe, so the end of its own `v` that stands furthest from the apex says
-/// which sign it has and how large the cut is against.
-fn flared(cone: Cone, on: Axis, laid: Bounds<DVec2>, run: Option<u32>) -> Cut<'static> {
+/// **`at` says which nappe, and it has to be a place of the section.** A plane
+/// past a cone's rulings cuts *two* arcs, one on each nappe, and the two carry
+/// the identical reading — the same plane, read the same way. What tells them
+/// apart is the nappe, which is what [`Flare::reaches`] culls the far one by: a
+/// face lies on one, so the arc on the other divides it nowhere and the cut is
+/// put aside whole.
+///
+/// **Read off the arc and not off the face**, which is what the two sides of
+/// one edge have to agree on: a face cut by the one arc that reaches it carries
+/// that arc's own run, and the face across the edge breaks it along the same
+/// one. Read off the face, both arcs cut it under two runs and the second
+/// wrote the marks.
+///
+/// **And `laid` says how far**, which is the size the chording is held
+/// against: the end of the face's own `v` that stands furthest from the apex.
+fn flared(cone: Cone, on: Axis, at: DVec3, laid: Bounds<DVec2>, run: Option<u32>) -> Cut<'static> {
     let normal = on.direction;
     let out = normal - cone.axis.direction * normal.dot(cone.axis.direction);
     Cut::Flare(Flare {
@@ -1174,7 +1186,7 @@ fn flared(cone: Cone, on: Axis, laid: Bounds<DVec2>, run: Option<u32>) -> Cut<'s
         swing: cone.half_angle.tan() * out.length(),
         phase: cone.axis.bearing(out),
         apart: (on.origin - cone.axis.origin).dot(normal),
-        upward: laid.high.y.abs() >= laid.low.y.abs(),
+        upward: cone.axis.along(at) > 0.0,
         under: true,
         reach: laid.low.y.abs().max(laid.high.y.abs()),
         run: run.expect("a section of a cone is numbered"),
@@ -1241,7 +1253,7 @@ mod tests {
     use super::*;
     use crate::solid::geometry::circle::Circle;
     use crate::solid::geometry::sphere::Sphere;
-    use std::f64::consts::FRAC_PI_6;
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_6};
 
     /// **A circle on a sphere square to its axis is the line `v = that`**,
     /// where a circle on a cylinder is the line at a height.
@@ -1329,5 +1341,62 @@ mod tests {
                 "a circle leaning across a sphere is no straight cut",
             );
         }
+    }
+
+    /// **The two branches of one hyperbola are two cuts, and a face holds one
+    /// of them.**
+    ///
+    /// A plane past a cone's rulings cuts an arc on each nappe, and the two
+    /// carry the identical reading — the same plane, read the same way, so
+    /// [`Flare`] cannot tell them apart by its own numbers. What tells them
+    /// apart is the nappe, and a face lies on one: the branch on the other
+    /// divides it nowhere, so the cut is culled and the region is put aside
+    /// whole.
+    ///
+    /// **Numbered by the branch it is and not by the face it divides**, which
+    /// is what the two sides of one arc have to agree on. Read the other way a
+    /// face is cut twice by one shape under two numbers, and the face across
+    /// that arc then breaks its edge along a run the first has never heard of.
+    ///
+    /// Hand-computed. The cone is one across for every two along, apex at
+    /// `(0, 4, 0)` and opening down, so the wall runs `v` from nought at the
+    /// apex to four at the base. The plane `x = 1` runs parallel to the axis,
+    /// so it cuts a hyperbola whose vertices stand at `(1, 2, 0)` on the near
+    /// nappe and `(1, 6, 0)` on the far.
+    #[test]
+    fn the_two_branches_of_one_hyperbola_cut_the_nappe_each_stands_on() {
+        let cone = Cone {
+            axis: Axis::new(DVec3::new(0.0, 4.0, 0.0), DVec3::NEG_Y, DVec3::X),
+            half_angle: 0.5_f64.atan(),
+        };
+        let on = Surface::Natural(Natural::Cone(cone));
+        let alongside = Surface::Natural(Natural::Plane(Axis::about(DVec3::X, DVec3::X).plane()));
+        let Meeting::Along(along) = Meeting::of(&on, &alongside) else {
+            panic!("a plane parallel to the axis cuts a hyperbola");
+        };
+        assert_eq!(
+            along.all().len(),
+            2,
+            "{:?} is not two branches",
+            along.all()
+        );
+
+        // The lateral wall, which stands on the nappe `v` reads positive on.
+        let laid = Bounds {
+            low: DVec2::new(-FRAC_PI_2, 0.0),
+            high: DVec2::new(FRAC_PI_2, 4.0),
+        };
+        let mut nappes = [false; 2];
+        for (at, curve) in along.all().iter().enumerate() {
+            let Some(Cut::Flare(flare)) = imprinted(on, *curve, Some(0), laid) else {
+                panic!("{curve:?} on a cone is no flare");
+            };
+            assert_eq!(flare.reaches(laid), flare.upward, "{flare:?}");
+            nappes[at] = flare.upward;
+        }
+        assert_ne!(
+            nappes[0], nappes[1],
+            "the two branches were read onto one nappe",
+        );
     }
 }

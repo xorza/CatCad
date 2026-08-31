@@ -52,7 +52,9 @@ pub(crate) struct Flare {
     pub(crate) phase: f64,
     /// How far the plane stands off the apex along its own normal.
     pub(crate) apart: f64,
-    /// Whether the face this divides stands on the nappe `v` reads positive on.
+    /// Whether this arc of the section stands on the nappe `v` reads positive
+    /// on. A plane past the rulings cuts one arc on each, and this is what
+    /// tells the two apart — see [`Flare::reaches`].
     pub(crate) upward: bool,
     /// Whether the side kept is below the cut in `v`.
     pub(crate) under: bool,

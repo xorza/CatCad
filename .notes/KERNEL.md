@@ -1008,13 +1008,28 @@ breaks its edge there and the face across the cut does not. Measured on the
 flat: six edges claimed once, three of them the chord the wall leaves in the
 base disc and three the hyperbola arc across the lune seam.
 
-**Half of that is `Sewing::pin` reaching further.** A place one face puts on a
-crossing is put on it by every face that shares it, which is what a *run*
-buys — and a plane cutting a plane leaves a line that carries none. Numbering
-those closes the chord half of the gap, measured, and costs a run per plane
-pair: the reservation `Imprints::reserve` makes is over curved edges alone, and
-the allocation test caught the growth on the frame it happens in. So what it
-wants is a bound on the crossings as well, and that is the next thing to write.
+**The lune half is closed, and it was a cull.** A plane past the rulings cuts
+an arc on each nappe, and the two carry the identical reading — the same plane,
+read the same way — so `Flare` cannot tell them apart by its own numbers. Read
+off the *face* rather than off the arc, both arcs reached it: one face was cut
+twice by one shape under two runs, the second wrote the marks, and the face
+across that arc then broke its edge along a run the first had never heard of.
+`flared` reads the nappe off a place of the arc itself, and `Flare::reaches`
+culls the arc the face does not stand on. Three edges claimed once, down from
+six.
+
+**The chord half is a seam a revolve need not have made.** A straight imprint
+carries no run, so nothing shares the place where the wall's chord crosses a
+sector seam of the base disc. Numbering straight imprints was tried and is
+wrong: which corners survive then turns on `passing` over a run rather than on
+the boundary, the face count comes to depend on the geometry, and the painter's
+batch grows on every frame the depth moves — sixteen blocks against a budget of
+two, measured. What the case actually wants is for the seam not to be there: a
+revolve splits every wall into at most a third of a turn because a *curved* one
+must be, and the disc it sweeps from a run square across the axis is a
+**plane**, whose parameters do not wrap. One face and no seam, as an
+extrusion's cap already is. That is a build-side change and the next thing to
+write.
 
 ### 9.3 M6b — merging what one cut split
 
