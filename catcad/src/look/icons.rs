@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use palantir::{IconAtlas, IconId, IconSet, IconShape, Ui};
+use palantir::{IconId, IconSet, IconShape, IconTable, Ui};
 
 /// One icon of the set, named for what it stands for rather than for what it
 /// draws.
@@ -103,7 +103,7 @@ impl Icons {
     /// parks it: the record pass writes a shape naming the set, and the paint
     /// that reads it runs at submit, after recording has returned.
     ///
-    /// Built through [`IconAtlas::from_svgs`] rather than baked into the
+    /// Built through [`IconTable::from_svgs`] rather than baked into the
     /// binary. What baking saves is one parse per icon — about three
     /// milliseconds across the set, paid once on the frame the overlay first
     /// draws — and what it costs is a generator and a table nobody may edit by
@@ -116,7 +116,7 @@ impl Icons {
     /// whole of it.
     pub(crate) fn load(ui: &Ui) -> Self {
         thread_local! {
-            static BUILT: Rc<IconAtlas> = Rc::new(IconAtlas::from_svgs(
+            static BUILT: Rc<IconTable> = Rc::new(IconTable::from_svgs(
                 SOURCES.map(|(_, name, svg)| (name, svg)),
             ));
         }

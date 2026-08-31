@@ -29,13 +29,15 @@ use std::f64::consts::PI;
 use std::hint::black_box;
 use std::ops::Range;
 
-/// The step the block every tool is taken against was grown by, and the one
-/// every tool was.
+/// The step the block every tool is taken against was grown by, the one every
+/// tool was, and the one a blend below is.
 ///
-/// Two, because a name tells one feature's faces from another's and every pair
-/// below is one feature against one other.
+/// Three, because a name tells one feature's faces from another's: every pair
+/// below is one feature against one other, and a rounding then names its own
+/// faces against both.
 const CUBE: Step = Step(1);
 const TOOL: Step = Step(2);
+const BLEND: Step = Step(3);
 
 /// How finely a body is meshed to read its volume back.
 ///
@@ -305,7 +307,7 @@ fn split(picks: &[[usize; 2]], want: f64) {
     );
     let names: Vec<_> = cube.names().collect();
     let along: Vec<[Named; 2]> = picks.iter().map(|at| at.map(|at| names[at])).collect();
-    let round = Round::new(&along, 0.5, Bevel::Round, Step(3));
+    let round = Round::new(&along, 0.5, Bevel::Round, BLEND);
     let mut rounding = Rounding::default();
     let mut rounded = Body::default();
     assert!(
@@ -320,6 +322,44 @@ fn split(picks: &[[usize; 2]], want: f64) {
     AllocTester::new().run(|| {
         rounding.round(&round, &cut, &mut rounded);
         black_box(&rounded);
+    });
+}
+
+/// And a blend that runs out onto a cylinder rather than a plane.
+///
+/// Its own row because a cylinder's offset makes the axis one of *two* lines
+/// rather than the one a pair of planes leaves, so the meeting comes back
+/// carrying more than a blend takes — and a meeting is the one arm of a blend
+/// that could reach for room. A rod of two with a flat milled through its own
+/// axis leaves two straight edges — see
+/// `a_blend_onto_a_cylinder_is_a_cylinder_and_stays_exact`, where the corner
+/// arithmetic is argued.
+#[test]
+fn rounding_an_edge_of_a_milled_rod_allocates_nothing() {
+    let rod = rod(DVec2::ZERO, 2.0, 0.0, 3.0, CUBE);
+    let flat = block(0.0..4.0, -4.0..4.0, -1.0, 4.0, TOOL);
+    let mut milled = Body::default();
+    assert!(
+        Boolean::default().combine(&rod, &flat, Operation::Cut, &mut milled),
+        "milling a flat down a rod was refused, so this gate would measure a refusal"
+    );
+    // The rod's wall and the tool's fourth side, which is the one standing at
+    // `u = 0`: a body names its base, its far end, then one face per curve
+    // bounding the region, in the order the outline gives them.
+    let along = [[
+        rod.names().nth(2).expect("a rod has a wall"),
+        flat.names().nth(5).expect("a block has four sides"),
+    ]];
+    let round = Round::new(&along, 0.5, Bevel::Round, BLEND);
+    let mut rounding = Rounding::default();
+    let mut into = Body::default();
+    assert!(
+        rounding.round(&round, &milled, &mut into),
+        "the rounding was refused, so this gate would measure a refusal"
+    );
+    AllocTester::new().run(|| {
+        rounding.round(&round, &milled, &mut into);
+        black_box(&into);
     });
 }
 

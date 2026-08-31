@@ -206,6 +206,20 @@ impl Face {
         })
     }
 
+    /// The surface everywhere `by` off this face, measured the way the *body*
+    /// faces rather than the way the surface does.
+    ///
+    /// Which is what a caller measuring into or out of the material wants: a
+    /// bore and a boss stand on the same cylinder and their material lies on
+    /// opposite sides of it, so the same `by` has to mean the same thing about
+    /// both. See [`Surface::offset`].
+    pub(crate) fn offset(&self, by: f64) -> Option<Surface> {
+        self.surface.offset(match self.outward {
+            true => by,
+            false => -by,
+        })
+    }
+
     /// Which way the body faces at the parameters `uv` — out of the material,
     /// which is the surface's own normal or its negation.
     pub(crate) fn normal(&self, uv: DVec2) -> DVec3 {

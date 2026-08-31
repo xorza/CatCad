@@ -19,10 +19,9 @@ glam.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
-# For `headless_test_gpu`, which the pipeline tests lease a device from. Not
-# `HeadlessGpu`, which is published and would do: the lease holds palantir's
-# interprocess lock, so this crate's GPU section and catcad's cannot run at
-# once under `cargo test --workspace`.
+# For `headless_test_gpu`, which every test here leases its device from: the
+# lease holds palantir's interprocess lock, so this crate's GPU section and
+# catcad's cannot run at once under `cargo test --workspace`.
 palantir = { workspace = true, features = ["internals"] }
 # The allocation-test harness the `alloc` target below drives.
 common = { workspace = true, features = ["internals"] }

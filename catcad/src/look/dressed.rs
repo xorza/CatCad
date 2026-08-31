@@ -64,7 +64,7 @@ fn field(roles: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
         ..TextStyle::default()
     };
     let mut theme = TextEditTheme::from_palette(roles);
-    theme.anim = Some(lift);
+    theme.defaults.anim = Some(lift);
     // Destructured rather than swept, so a fifth state added to a look is a
     // compile error here rather than one state quietly left in the wrong face.
     let StatefulLook {

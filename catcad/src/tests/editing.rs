@@ -218,12 +218,13 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
 /// which is asserted here because an offer that appeared for any selection
 /// would be one whose answer was a guess.
 ///
-/// The demo's solid is a disc carried off the ground, so the edge picked here
-/// divides a plane from a cylinder and the kernel will not blend it — see
-/// `.notes/KERNEL.md` §9.5, where a blend onto anything but a plane is what is
-/// not done yet. That is the honest thing to assert of this document: the step
-/// lands, the model goes on standing, and the recipe says which step could not
-/// go in. What a blend that *does* go in comes to is asked over a block in
+/// The demo's solid is a disc carried off the ground, so the edge picked here is
+/// its *rim* — a plane meeting a cylinder square to its axis, where the blend is
+/// a torus and of the fitted tier. See `.notes/KERNEL.md` §9.5, where that is
+/// what is not done yet; a flat milled *down* a rod blends and stays exact.
+/// That is the honest thing to assert of this document: the step lands, the
+/// model goes on standing, and the recipe says which step could not go in. What
+/// a blend that *does* go in comes to is asked over a block in
 /// [`build::tests`](crate::build).
 #[test]
 fn two_faces_picked_out_offer_a_blend_and_one_face_does_not() {

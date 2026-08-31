@@ -819,14 +819,37 @@ recipe is refused, and for the one reason a fillet cannot avoid — the cylinder
 lies *tangent* to both faces, which is what a fillet is. §9.5 measures it. So a
 blend is put in by hand, and nothing is cut against anything.
 
-**The arithmetic is the tangency itself.** A cylinder of radius `r` tangent to
-two planes has its axis where both distances come to `r`, which is one line
-parallel to the edge: `(n₀ + n₁)·r / (1 + n₀·n₁)` off it, on the side the
-material is. Convex or concave is *which* side, and it is read off the walk — a
-loop is wound counterclockwise about its own face's outward normal, so the face
-lies to the left of the walk seen from outside, and stepping that way off a
-convex edge takes you under the other plane. The same cylinder serves both; what
-turns over is which side of it holds material.
+**The arithmetic is the tangency itself, and it is one statement for every
+pair.** A ball of radius `r` touching two faces has its centre a reach inside
+each of them, so the locus of centres is where the two faces' *offset* surfaces
+meet — `Face::offset`, and `Meeting::of` between the two answers. Convex or
+concave is which side to offset toward, and it is read off the walk: a loop is
+wound counterclockwise about its own face's outward normal, so the face lies to
+the left of the walk seen from outside, and stepping that way off a convex edge
+takes you under the other face. The same surface serves both, and what turns
+over is which side of it holds material.
+
+**Which is why a blend onto a *cylinder* is a cylinder.** An offset plane is a
+plane and an offset cylinder is a cylinder, and a plane parallel to a cylinder's
+axis meets it in a pair of straight lines — so a flat milled down a rod, the
+thing §9.2 made buildable, has its corners broken by a blend that stays in the
+exact tier. The rulings follow: a round blend's is the place of each face
+nearest the axis, and both are straight where the axis is. Two planes give back
+the same line the closed form `(n₀ + n₁)·r / (1 + n₀·n₁)` gave, and every
+rounding in the tree is unmoved by the change.
+
+**A flat blend's setback is measured *along* each face.** Across a plane that is
+a straight step and across a rod it is an arc of `reach/R` — `Surface::walked`,
+which is the one reading of "the reach back from the edge" that does not depend
+on how the face curves. The plane through the two rulings then holds the edge's
+own direction, so it meets a rod in exactly the ruling it was drawn through and
+the chamfer is exact as well.
+
+**What is still refused is a rim.** A plane square to a cylinder's axis offsets
+to a plane square to it still, and the two offsets meet in a *circle* — so the
+blend is a torus and of the fitted tier, which §4.1 keeps apart from this slice.
+The refusal is now a shape rather than a rule about which surfaces may be
+picked.
 
 **Four edges, and every one falls out of that axis.** The two rulings the blend
 runs out along are the axis brought back onto each plane. The corners are where
@@ -1452,8 +1475,10 @@ NURBS, and mark the body fitted.
 between two planes, exact, convex or concave, round or flat, several edges at a
 time — meeting at a corner or not, and with a patch of a sphere where three
 round ones meet — and a body like any other afterwards. **On a body a boolean
-has already cut, too**: a pick finds every piece the cut left of its edge and
-one blend runs down them all. §7.5 is how it works and what it refuses.
+has already cut, too**, and **onto a cylinder the edge runs along**: a pick
+finds every piece the cut left of its edge, and where a blend's axis runs is
+where the two faces' offsets meet rather than a formula for a pair of planes.
+§7.5 is how it works and what it refuses.
 
 **A chamfer is the same routine and not a second one**, which is what
 `Bevel::Flat` buys: the two share the corners they swallow, the edges they cut
@@ -1502,10 +1527,15 @@ arcs is §7.5.
   filled in. A rolling ball is on one side of the material throughout, so what
   goes there is a surface with a radius that moves — which is the row below by
   another road.
-- **A blend onto anything but a plane.** The rulings are the whole of why this
-  slice stays exact — a cylinder tangent to two planes is one cylinder, where a
-  blend running out onto a cylinder or a cone is a surface of the fitted tier
-  with a radius that moves.
+- **A blend down a rim**, where a plane meets a cylinder square to its axis.
+  The two offsets meet in a circle rather than a line, so the blend is a
+  *torus*: constant radius, exact in shape, and of the fitted tier all the same
+  — §4.1. What it wants beyond the surface is a closed run, rulings that are
+  circles, and a blend face split where the wrap is. **A blend onto a cylinder
+  the edge runs *along* is done** and stays exact, which is the flat milled down
+  a rod.
+- **A blend onto a cone.** An offset cone is a cone, so the same route reaches
+  it, and nothing has asked yet.
 - **STEP**, which is what the naming and the exactness were always for.
 
 ---

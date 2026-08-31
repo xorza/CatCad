@@ -141,6 +141,27 @@ impl Surface {
         }
     }
 
+    /// The surface everywhere `by` off this one, along its own normal — see
+    /// [`Natural::offset`].
+    ///
+    /// Nothing of the fitted tier answers: a torus offsets to a torus, and no
+    /// caller asks yet.
+    pub(crate) fn offset(&self, by: f64) -> Option<Self> {
+        match self {
+            Self::Natural(of) => of.offset(by).map(Self::Natural),
+            Self::Fitted(_) => None,
+        }
+    }
+
+    /// The place `by` along this surface from `at`, setting out along the unit
+    /// tangent `way` — see [`Natural::walked`].
+    pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
+        match self {
+            Self::Natural(of) => of.walked(at, way, by),
+            Self::Fitted(_) => None,
+        }
+    }
+
     /// How far `at` stands from the surface, never signed.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {

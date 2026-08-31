@@ -188,12 +188,12 @@ impl Theme {
         theme.window_clear = drawing::tint(self.drawing.ground);
         // Tighter than the stock recipe, which is sized for a dialog: a control
         // standing on a pill takes its breathing room from the pill.
-        theme.button.padding = Spacing::new(gap, 4.0, gap, 4.0);
-        theme.button.margin = Spacing::ZERO;
+        theme.button.defaults.padding = Spacing::new(gap, 4.0, gap, 4.0);
+        theme.button.defaults.margin = Spacing::ZERO;
         // Palantir's own recipe leaves motion off, because animation is opt-in
         // there. Every control this crate draws lifts rather than snaps, and a
         // widget it does *not* draw has no business being the one that jumps.
-        theme.button.anim = Some(self.motion.lift);
+        theme.button.defaults.anim = Some(self.motion.lift);
         theme
     }
 
@@ -226,8 +226,8 @@ impl Theme {
             text_disabled: ink_dim,
             terminal_bg: drawing::tint(self.drawing.ground),
             elem: chip,
-            elem_hover: chip_lit,
-            elem_active: chip_active,
+            elem_mid: chip_lit,
+            elem_strong: chip_active,
             border_focused: focus,
             accent: chip_held,
         }
@@ -272,8 +272,8 @@ mod tests {
         // The surface ladder is the chip's own three states, in that order: what
         // palantir calls a clickable surface is what this crate calls a chip.
         assert_eq!(roles.elem, chrome.chip);
-        assert_eq!(roles.elem_hover, chrome.chip_lit);
-        assert_eq!(roles.elem_active, chrome.chip_active);
+        assert_eq!(roles.elem_mid, chrome.chip_lit);
+        assert_eq!(roles.elem_strong, chrome.chip_active);
         // Chrome says "this one" by inverting rather than by colouring, so
         // neither of palantir's emphasis roles carries a hue.
         assert_eq!(roles.accent, chrome.chip_held);
@@ -292,13 +292,16 @@ mod tests {
         assert_eq!(palantir.text.color, theme.chrome.ink_lit);
         assert_eq!(palantir.text.font_size_px, theme.chrome.readout_text);
         assert_eq!(
-            palantir.button.padding,
+            palantir.button.defaults.padding,
             Spacing::new(theme.chrome.gap, 4.0, theme.chrome.gap, 4.0)
         );
         // Every control the theme dresses lifts rather than snaps, the form's
         // field included — which is built from the palette rather than from the
         // theme beside it, and so inherits nothing unless told.
-        for anim in [palantir.button.anim, theme.dressed().field.anim] {
+        for anim in [
+            palantir.button.defaults.anim,
+            theme.dressed().field.defaults.anim,
+        ] {
             assert_eq!(anim, Some(theme.motion.lift));
         }
         assert!(

@@ -26,6 +26,9 @@ use std::f64::consts::PI;
 const SOLID: Step = Step(1);
 const ROUND: Step = Step(2);
 
+/// The step a tool cuts by, where a row builds one before it blends.
+const TOOL: Step = Step(3);
+
 /// How finely a body here is meshed to read its volume back.
 const SAGITTA: f64 = 1e-4;
 
@@ -45,11 +48,11 @@ const SAGITTA: f64 = 1e-4;
 const CLOSES: f64 = 2e-3;
 
 /// A block from `corners`, carried `deep` off `plane`.
-fn block(plane: Plane, corners: &[(f64, f64)], deep: f64) -> Body {
+fn block(plane: Plane, corners: &[(f64, f64)], deep: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, &[0], plane, deep, SOLID).body()
+    Extrusion::new(&found, &[0], plane, deep, by).body()
 }
 
 /// The four-by-four-by-four block most rows here are taken off.
@@ -58,6 +61,7 @@ fn cube() -> Body {
         Plane::GROUND,
         &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
         4.0,
+        SOLID,
     )
 }
 
@@ -76,6 +80,7 @@ fn notch() -> Body {
             (0.0, 2.0),
         ],
         4.0,
+        SOLID,
     )
 }
 
@@ -92,20 +97,15 @@ fn notch() -> Body {
 /// run.
 fn slotted() -> Slotted {
     let cube = cube();
-    let mut sketch = Sketch::default();
-    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
-    let found = Arrangement::of(&sketch);
-    let slot = Extrusion::new(
-        &found,
-        &[0],
+    let slot = block(
         Plane {
             origin: DVec3::new(0.0, -1.0, 0.0),
             ..Plane::GROUND
         },
+        &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
         6.0,
-        Step(3),
-    )
-    .body();
+        TOOL,
+    );
     let mut cut = Body::default();
     assert!(
         Boolean::default().combine(&cube, &slot, Operation::Cut, &mut cut),
@@ -508,9 +508,9 @@ fn a_pick_a_boolean_cut_into_pieces_is_one_blend() {
 /// Five, and each is a different thing being asked for: a reach that is no
 /// blend at all; one so large the blend runs off the end of the edges it has to
 /// meet, which wants those edges rounded too; a pair of names with no edge
-/// between them; an edge on a face that is not flat, which wants a
-/// variable-radius blend; and two picks meeting at a corner from opposite
-/// sides, which is a corner no rolling ball reaches from one side.
+/// between them; two picks meeting at a corner from opposite sides, which is a
+/// corner no rolling ball reaches from one side; and the rim of a rod, where
+/// the two offsets meet in a circle rather than a line and the blend is a torus.
 #[test]
 fn what_a_rounding_cannot_make_is_refused() {
     let cube = cube();
@@ -571,6 +571,10 @@ fn what_a_rounding_cannot_make_is_refused() {
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
 
+    // The rim of a rod, where the plane stands square to the cylinder's axis:
+    // the two offsets meet in a circle rather than a line, so what goes there
+    // is a torus and of the fitted tier — where the flat milled *down* a rod
+    // two rows above is a cylinder and exact.
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 1.0);
@@ -586,7 +590,7 @@ fn what_a_rounding_cannot_make_is_refused() {
             &rod,
             &mut into
         ),
-        "the rim of a rod was answered, and a blend there is not a cylinder",
+        "the rim of a rod was answered, and a blend there is a torus",
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
 }
@@ -967,6 +971,251 @@ fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
     assert!(into.exact(), "three planes crossing in a point stay exact");
 }
 
+/// The rod of `radius` with a flat milled down it through its own axis, and the
+/// two names the edge between them carries.
+///
+/// **What §9.2 made buildable**, and the one body in this file whose blend runs
+/// out onto something that is not a plane: the flat meets the rod in a straight
+/// edge, and the two faces stand square to each other there.
+fn milled(radius: f64, deep: f64) -> Milled {
+    let mut sketch = Sketch::default();
+    let centre = sketch.add_point(DVec2::new(0.0, 0.0));
+    sketch.add_circle(centre, radius);
+    let rod = Extrusion::new(&Arrangement::of(&sketch), &[0], Plane::GROUND, deep, SOLID).body();
+    let wide = 2.0 * radius;
+    let tool = block(
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            ..Plane::GROUND
+        },
+        &[(0.0, -wide), (wide, -wide), (wide, wide), (0.0, wide)],
+        deep + 2.0,
+        TOOL,
+    );
+    let mut cut = Body::default();
+    assert!(
+        Boolean::default().combine(&rod, &tool, Operation::Cut, &mut cut),
+        "milling a flat down a rod was refused",
+    );
+    // Found by their shape rather than counted off either step, which is what
+    // a caller does: a person picks the two faces in the viewport, and what
+    // reaches the kernel is the pair of names they carry.
+    let named = |wanted: fn(&Surface) -> bool| {
+        cut.topology()
+            .faces()
+            .find(|(_, face)| wanted(&face.surface))
+            .map(|(_, face)| face.name)
+            .expect("the milled rod has a wall and a flat")
+    };
+    Milled {
+        round: named(|surface| matches!(surface, Surface::Natural(Natural::Cylinder(_)))),
+        flat: named(|surface| {
+            matches!(surface, Surface::Natural(Natural::Plane(plane))
+                if plane.normal().x.abs() > 0.5)
+        }),
+        cut,
+    }
+}
+
+/// A rod a flat was milled down, and the two names its new edge carries.
+#[derive(Debug)]
+struct Milled {
+    cut: Body,
+    /// The rod's wall, one name over several patches: an extrusion splits a
+    /// whole turn in half, and the flat then cuts each half again.
+    round: Named,
+    flat: Named,
+}
+
+/// **A blend onto a cylinder is a cylinder, and the body stays exact.**
+///
+/// A rolling ball touching two faces has its centre a reach inside each of
+/// them, so where a blend's axis runs is where the two faces' *offsets* meet —
+/// see [`Face::offset`](crate::solid::topology::face::Face). Offset a plane and
+/// you get a plane, offset a cylinder and you get a cylinder, and a plane
+/// parallel to a cylinder's axis meets it in a pair of straight lines. So the
+/// axis is a line, the blend on it is a cylinder of the reach, and nothing here
+/// leaves the exact tier — which `.notes/KERNEL.md` §9.5 used to say was not
+/// so.
+///
+/// The rulings are straight for the same reason: one is the axis dropped onto
+/// the flat and the other is the ruling of the rod the ball touches, and a
+/// cylinder is made of straight lines.
+///
+/// **The arithmetic is the corner between a line and an arc.** The ball of
+/// radius `r` sits at `x = −r` and `R − r` from the axis, so it stands
+/// `y₀ = √((R−r)² − r²)` up the flat and `φ = asin(r/(R−r))` round the rod.
+/// Writing the corner it leaves as a closed walk — up the flat, round the rod
+/// through `φ`, back along the ball — the area comes to
+/// `½(R² − r²)·φ − ¼πr² − ½r·y₀`. Which is `(1 − π/4)r²` as `R` grows, the
+/// square corner two flats leave, and `0.0872911…` at `R = 2, r = ½`.
+#[test]
+fn a_blend_onto_a_cylinder_is_a_cylinder_and_stays_exact() {
+    let (rod, reach, deep) = (2.0, 0.5, 3.0);
+    let milled = milled(rod, deep);
+    let along = [[milled.round, milled.flat]];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Round, ROUND),
+            &milled.cut,
+            &mut into
+        ),
+        "a blend between a plane and a cylinder was refused",
+    );
+
+    let up = ((rod - reach) * (rod - reach) - reach * reach).sqrt();
+    let round_by = (reach / (rod - reach)).asin();
+    let corner =
+        0.5 * (rod * rod - reach * reach) * round_by - 0.25 * PI * reach * reach - 0.5 * reach * up;
+    let want = deep * (PI * rod * rod / 2.0 - 2.0 * corner);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the filleted rod shuts in {} where {want} is the half rod less the two \
+         corners",
+        volume(&into),
+    );
+
+    // Two blends, one down each straight edge, and both on a cylinder of the
+    // reach standing where the rolling ball's centre does.
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(
+        raised.len(),
+        2,
+        "one pick down two parallel edges is two blends"
+    );
+    for (_, face) in &raised {
+        let Surface::Natural(Natural::Cylinder(cylinder)) = face.surface else {
+            panic!("a blend between a plane and a cylinder lies on a cylinder, not {face:?}");
+        };
+        assert!(
+            (cylinder.radius - reach).abs() < PLACED,
+            "the blend has radius {}",
+            cylinder.radius,
+        );
+        let axis = cylinder.axis;
+        assert!(
+            (axis.origin.x + reach).abs() < PLACED && (axis.origin.z.abs() - up).abs() < PLACED,
+            "the blend's axis runs through {} rather than a reach inside the flat \
+             and a reach inside the rod",
+            axis.origin,
+        );
+    }
+
+    // Ten corners, fifteen edges and seven faces, which Euler holds to a ball:
+    // the milled rod's nine edges less the two replaced, four rulings and one
+    // arc across each blend's two ends.
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "a filleted half rod is still a ball");
+    let topology = into.topology();
+    assert_eq!(
+        topology.faces().count(),
+        7,
+        "the milled rod's five and two blends"
+    );
+    assert_eq!(topology.edges().count(), 15);
+    assert_eq!(topology.vertices().count(), 10);
+    // Four more than the body already had, which is the rod's own seam: two
+    // patches of one cylinder join smoothly, and the blend adds two such joins
+    // apiece.
+    assert_eq!(
+        smooth(&into),
+        smooth(&milled.cut) + 4,
+        "a blend runs out smoothly onto a rod as onto a plane",
+    );
+    assert!(
+        into.exact(),
+        "a cylinder tangent to a plane and a cylinder is still a cylinder",
+    );
+}
+
+/// **A chamfer onto a cylinder stands its setback along the face**, which is
+/// the one thing "the reach back from the edge" can mean where the face curves.
+///
+/// A plane gives a straight step and a rod gives an arc — see
+/// [`Surface::walked`](crate::solid::geometry::surface::Surface) — so the
+/// ruling on the rod stands `reach/R` radians round it rather than a chord
+/// away. The plane through the two rulings then holds the rod's edge direction,
+/// so it meets the rod in exactly that ruling and the blend stays exact.
+///
+/// **The arithmetic is the triangle and the segment it cuts off.** Walking the
+/// corner — down the flat by the setback, round the rod through `ψ = reach/R`,
+/// and back along the chord — leaves `½R²ψ − ½R(R − reach)·sin ψ`. Which is
+/// `½·reach²` as `R` grows, the square corner two flats leave, and
+/// `0.1288940…` at `R = 2, reach = ½`.
+#[test]
+fn a_chamfer_onto_a_cylinder_stands_its_setback_along_the_face() {
+    let (rod, reach, deep) = (2.0, 0.5, 3.0);
+    let milled = milled(rod, deep);
+    let along = [[milled.round, milled.flat]];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Flat, ROUND),
+            &milled.cut,
+            &mut into
+        ),
+        "a chamfer between a plane and a cylinder was refused",
+    );
+
+    let round_by = reach / rod;
+    let corner = 0.5 * rod * rod * round_by - 0.5 * rod * (rod - reach) * round_by.sin();
+    let want = deep * (PI * rod * rod / 2.0 - 2.0 * corner);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the chamfered rod shuts in {} where {want} is the half rod less the two \
+         corners",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(
+        raised.len(),
+        2,
+        "one pick down two parallel edges is two chamfers"
+    );
+    for (_, face) in &raised {
+        assert!(
+            matches!(face.surface, Surface::Natural(Natural::Plane(_))),
+            "a chamfer lies on a plane, not {face:?}",
+        );
+    }
+
+    // The rod's own edge runs down `x = 0` at `z = ±R`, and the setback goes
+    // round the rod from there rather than across the chord — so the corner it
+    // leaves stands a whole radius from the axis, not less.
+    let touched = DVec3::new(-rod * round_by.sin(), 0.0, rod * round_by.cos());
+    let topology = into.topology();
+    assert!(
+        topology
+            .vertices()
+            .any(|(_, vertex)| vertex.at.abs_diff_eq(touched, PLACED)),
+        "no corner of the answer stands at {touched}, where the setback reaches \
+         round the rod",
+    );
+
+    assert_eq!(
+        into.reckoning().genus,
+        0,
+        "a chamfered half rod is still a ball"
+    );
+    assert_eq!(
+        topology.faces().count(),
+        7,
+        "the milled rod's five and two chamfers"
+    );
+    assert_eq!(topology.edges().count(), 15);
+    assert_eq!(
+        smooth(&into),
+        smooth(&milled.cut),
+        "no join of a chamfer is smooth, onto a rod or onto a plane",
+    );
+    assert!(
+        into.exact(),
+        "a plane through two rulings of a cylinder is still a plane",
+    );
+}
+
 /// **A blend whose ends lean cuts ellipses rather than arcs of a circle**,
 /// which is the second thing a face across the end of one can be.
 ///
@@ -984,6 +1233,7 @@ fn a_blend_whose_ends_lean_is_closed_by_two_ellipses() {
         Plane::GROUND,
         &[(0.0, 0.0), (4.0, 0.0), (3.0, 4.0), (1.0, 4.0)],
         4.0,
+        SOLID,
     );
     assert!(
         (volume(&trapezoid) - 48.0).abs() < CLOSES,

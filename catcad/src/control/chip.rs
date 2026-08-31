@@ -141,7 +141,7 @@ impl Chip {
         // it.
         let snapshot = chip.response.snapshot();
         let clicked = chip.response.left.clicked();
-        Tooltip::on(&snapshot).text(self.tip).show(ui);
+        Tooltip::on(&snapshot).label(self.tip).show(ui);
         clicked
     }
 }

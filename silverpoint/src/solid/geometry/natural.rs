@@ -209,6 +209,73 @@ impl Natural {
         }
     }
 
+    /// The surface everywhere `by` off this one, along its own normal.
+    ///
+    /// **Where a rolling ball's centre stands**, which is the whole of why a
+    /// blend wants it: a ball of one radius touching two faces has its centre
+    /// where the two offsets meet, so where a blend's axis runs is one
+    /// statement for every pair rather than a formula per pair. See
+    /// `.notes/KERNEL.md` §7.5.
+    ///
+    /// **A plane and a cylinder alone.** Both are what this kernel blends
+    /// between today, and both keep their kind under an offset — which is what
+    /// makes a blend onto a cylinder a cylinder rather than a surface with a
+    /// radius that moves. A cone and a sphere keep their kind as well, the apex
+    /// sliding along the axis and the radius growing, and neither is written
+    /// because nothing asks yet.
+    pub(crate) fn offset(&self, by: f64) -> Option<Self> {
+        match self {
+            Self::Plane(plane) => Some(Self::Plane(Plane {
+                origin: plane.origin + plane.normal() * by,
+                ..*plane
+            })),
+            Self::Cylinder(cylinder) => {
+                // A tube offset in past its own axis is inside out rather than
+                // narrow, and there is no surface there to hand back.
+                let radius = cylinder.radius + by;
+                (radius > PLACED).then_some(Self::Cylinder(Cylinder {
+                    radius,
+                    ..*cylinder
+                }))
+            }
+            Self::Cone(_) | Self::Sphere(_) => None,
+        }
+    }
+
+    /// The place `by` along this surface from `at`, setting out along the unit
+    /// tangent `way`.
+    ///
+    /// **Along the surface and not through space**, which is what a setback
+    /// means on a face that curves: a chamfer stands its reach back from an
+    /// edge measured across each face it cuts, and across a cylinder that is an
+    /// arc rather than a chord.
+    ///
+    /// A cylinder answers only a `way` running round it, which is the one a
+    /// setback from an edge along a ruling asks for. Anything else is a helix,
+    /// and nothing wants one.
+    pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
+        match self {
+            Self::Plane(plane) => {
+                debug_assert!(
+                    predicate::touching(way.dot(plane.normal()).abs(), ALIGNED),
+                    "a walk across a plane sets out along it",
+                );
+                Some(at + way * by)
+            }
+            Self::Cylinder(cylinder) => {
+                let axis = cylinder.axis;
+                let uv = cylinder.uv(at);
+                let round = axis.direction.cross(axis.radial(uv.x));
+                let sense = way.dot(round);
+                predicate::touching((sense.abs() - 1.0).abs(), ALIGNED).then(|| {
+                    let turn = by * sense.signum() / cylinder.radius;
+                    cylinder.at(DVec2::new(uv.x + turn, uv.y))
+                })
+            }
+            Self::Cone(_) | Self::Sphere(_) => None,
+        }
+    }
+
     /// Whether the parameterization says nothing at `at` — one place that
     /// every angle names.
     ///

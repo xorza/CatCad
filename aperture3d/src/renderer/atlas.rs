@@ -13,7 +13,7 @@
 //! the side.
 
 use glam::{UVec2, Vec2};
-use palantir::{GlyphImageKind, GlyphRasterKey, PlacedGlyph, TextGlyphs};
+use palantir::{ContentType, GlyphRasterKey, PlacedGlyph, TextGlyphs};
 use std::collections::HashMap;
 
 /// Side of a fresh sheet, in pixels. A 256² sheet is 64 KB and holds a hundred
@@ -151,7 +151,7 @@ impl GlyphAtlas {
         let image = glyphs.rasterize(glyph)?;
         // Colour glyphs are dropped rather than drawn wrong: the sheet is a
         // single coverage channel, and a drawing's text is digits and symbols.
-        if image.kind != GlyphImageKind::Mask {
+        if image.kind != ContentType::Mask {
             return None;
         }
         let (width, height) = (image.placement.width, image.placement.height);

@@ -1086,12 +1086,6 @@ impl Rounding {
             return None;
         }
         let faces = between.map(|id| topology.face(id));
-        if faces
-            .iter()
-            .any(|face| !matches!(face.surface, Surface::Natural(Natural::Plane(_))))
-        {
-            return None;
-        }
         let middle = line.at((edge.bounds[0] + edge.bounds[1]) / 2.0);
         let normals = faces.map(|face| face.normal(face.surface.uv(middle)));
         let leaning = normals[0].dot(normals[1]);
@@ -1114,25 +1108,76 @@ impl Rounding {
             true => -1.0,
             false => 1.0,
         };
-        // **The rulings first, because a chamfer's plane is the one through
-        // both.** A round blend's stand where its cylinder touches; a flat
-        // one's stand the setback back along each face, which is that face's
-        // own normal taken square to the other's.
-        let centre =
-            line.origin + (normals[0] + normals[1]) * (toward * of.reach / (1.0 + leaning));
-        let rails = [0, 1].map(|side| Line {
-            origin: match of.bevel {
-                Bevel::Round => centre - normals[side] * (toward * of.reach),
-                Bevel::Flat => {
-                    let inward = normals[1 - side] - normals[side] * leaning;
-                    line.origin + inward.normalize() * (toward * of.reach)
-                }
-            },
-            direction: line.direction,
+        // **The axis is where the two faces' offsets meet.** A ball of the
+        // reach touching both has its centre a reach inside each of them, so
+        // the locus of centres is the meeting of the two offset surfaces — one
+        // statement for every pair rather than a formula per pair, and what
+        // says a blend onto a cylinder is a cylinder. See [`Face::offset`].
+        let offsets = faces.map(|face| face.offset(toward * of.reach));
+        let [Some(one), Some(two)] = offsets else {
+            return None;
+        };
+        let Meeting::Along(curves) = Meeting::of(&one, &two) else {
+            return None;
+        };
+        // Two offsets may meet twice — a plane crosses a cylinder in a pair of
+        // rulings — and the blend's own is the one beside the edge it replaces.
+        let straight = curves
+            .all()
+            .iter()
+            .filter_map(|curve| match curve {
+                Curve::Line(line) => Some(*line),
+                _ => None,
+            })
+            .min_by(|one, two| one.off(middle).total_cmp(&two.off(middle)))?;
+        let centre = straight.at((middle - straight.origin).dot(straight.direction));
+        debug_assert!(
+            faces
+                .iter()
+                .all(|face| (face.surface.off(centre) - of.reach).abs() <= PLACED),
+            "a blend's axis stands its reach off both the faces it runs out onto",
+        );
+        // **The rulings, because a chamfer's plane is the one through both.** A
+        // round blend's stand where its own surface touches, which is the place
+        // of each face nearest the axis. A flat one's stand the setback back
+        // along each face — measured *across the face*, so a cylinder gives an
+        // arc where a plane gives a step.
+        let rails = [0, 1].map(|side| {
+            let surface = faces[side].surface;
+            Some(Line {
+                origin: match of.bevel {
+                    Bevel::Round => surface.at(surface.uv(centre)),
+                    Bevel::Flat => {
+                        let inward = normals[1 - side] - normals[side] * leaning;
+                        surface.walked(line.origin, inward.normalize() * toward, of.reach)?
+                    }
+                },
+                direction: line.direction,
+            })
         });
+        let [Some(here), Some(there)] = rails else {
+            return None;
+        };
+        let rails = [here, there];
+        debug_assert!(
+            rails.iter().zip(faces).all(|(rail, face)| {
+                let span = edge.bounds[1] - edge.bounds[0];
+                [0.0, span]
+                    .iter()
+                    .all(|&at| face.surface.off(rail.at(at)) <= PLACED)
+            }),
+            "a blend's ruling lies along the face it runs out onto",
+        );
         let laid = match of.bevel {
             Bevel::Round => Laid::Round(Cylinder {
-                axis: Axis::new(centre, line.direction, normals[0] * -toward),
+                // Where rail nought stands rather than the face's own normal:
+                // the two agree over a plane and part over a cylinder, whose
+                // normal at the edge is not its normal at the touch line.
+                axis: Axis::new(
+                    centre,
+                    line.direction,
+                    (rails[0].origin - centre).normalize(),
+                ),
                 radius: of.reach,
             }),
             Bevel::Flat => Laid::Flat(Plane {
@@ -2269,12 +2314,9 @@ fn cut_back(
     at: VertexId,
 ) -> Option<Cut> {
     let run = topology.edge(along);
-    let Curve::Line(straight) = run.curve else {
-        return None;
-    };
-    let plane = topology.face(on).surface;
+    let surface = topology.face(on).surface;
     let corner = topology.vertex(at).at;
-    let cut = crossed(straight, rail, plane.normal(plane.uv(corner)))?;
+    let cut = cut_at(run, rail, surface.normal(surface.uv(corner)))?;
     let [first, last] = run.bounds;
     let (near, far) = match run.from == at {
         true => (first, last),
@@ -2283,8 +2325,43 @@ fn cut_back(
     let reached = (cut - near) / (far - near);
     (reached > 0.0 && reached < 1.0).then(|| Cut {
         at: cut,
-        made: straight.at(cut),
+        made: run.curve.at(cut, topology.carried()),
     })
+}
+
+/// How far along `edge`'s own curve the ruling `rail` crosses it, on a face
+/// facing `normal` there.
+///
+/// **Two shapes and no more**, which is what an edge a blend runs up to can be:
+/// a straight one, where the crossing is a pair of lines solved outright, and a
+/// circle, where it is where the ruling reaches the circle's own plane. A rod
+/// with a flat milled down it has one of each at every corner the blend
+/// swallows — the flat's own edge and the cap's rim.
+fn cut_at(edge: &Edge, rail: Line, normal: DVec3) -> Option<f64> {
+    match edge.curve {
+        Curve::Line(straight) => crossed(straight, rail, normal),
+        Curve::Circle(circle) => {
+            let axis = circle.axis;
+            let under = rail.direction.dot(axis.direction);
+            // A ruling running square to the axis lies in the circle's own
+            // plane, where it crosses twice or not at all rather than once.
+            if predicate::touching(under.abs(), ALIGNED) {
+                return None;
+            }
+            let met = rail.at((axis.origin - rail.origin).dot(axis.direction) / under);
+            if !predicate::touching((axis.origin.distance(met) - circle.radius).abs(), PLACED) {
+                return None;
+            }
+            // **An angle read into the edge's own turn.** [`Curve::along`]
+            // answers in `(-π, π]` and an edge's bounds need not be: a rim a
+            // body split in halves runs `π` to `2π`, and the half that does
+            // would read as lying outside itself.
+            let angle = axis.angle_of(met);
+            let from = edge.bounds[0].min(edge.bounds[1]);
+            Some(angle + TAU * ((from - angle) / TAU).ceil())
+        }
+        _ => None,
+    }
 }
 
 /// The stretch of `curve` between the parameters `ends`, the way round `wanted`

@@ -19,7 +19,8 @@ use aperture::internals::SceneApp;
 use aperture::{Highlight, Lit, Pane, Placement, Renderer, Tag};
 use common::AllocTester;
 use glam::Vec3;
-use palantir::{HeadlessGpu, OffscreenHost};
+use palantir::OffscreenHost;
+use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
 use std::cell::RefCell;
 use std::hint::black_box;
 use std::rc::Rc;
@@ -42,26 +43,17 @@ const STILL: u64 = 102;
 const HOVERING: u64 = 106;
 
 /// A device, a target to draw into, and the pane that shows one scene.
-///
-/// `None` where the machine has no usable backend, which still leaves every
-/// gate next door running.
 #[derive(Debug)]
 struct Painting {
-    gpu: HeadlessGpu,
+    gpu: HeadlessTestGpuLease,
     host: OffscreenHost,
     target: wgpu::Texture,
     pane: SceneApp,
 }
 
 impl Painting {
-    fn raise() -> Option<Self> {
-        let Ok(gpu) = HeadlessGpu::new(
-            wgpu::PowerPreference::HighPerformance,
-            wgpu::Features::empty(),
-        ) else {
-            eprintln!("skipped: no usable GPU backend");
-            return None;
-        };
+    fn raise() -> Self {
+        let gpu = headless_test_gpu();
         let host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aperture.alloc.target"),
@@ -87,12 +79,12 @@ impl Painting {
                 Placement::Fill,
             )))),
         };
-        Some(Self {
+        Self {
             gpu,
             host,
             target,
             pane,
-        })
+        }
     }
 
     /// One frame, drained before it is done with.
@@ -114,18 +106,14 @@ impl Painting {
 /// A frame with nothing dirty, which is the driver floor and nothing of ours.
 #[test]
 fn a_still_frame_stays_at_the_driver_floor() {
-    let Some(mut painting) = Painting::raise() else {
-        return;
-    };
+    let mut painting = Painting::raise();
     AllocTester::new().budget(STILL).run(|| painting.frame());
 }
 
 /// A frame whose highlight set changed, which is what hovering does.
 #[test]
 fn a_hovering_frame_stays_at_the_floor_plus_its_upload() {
-    let Some(mut painting) = Painting::raise() else {
-        return;
-    };
+    let mut painting = Painting::raise();
     let mut lit = 0u64;
     AllocTester::new().budget(HOVERING).run(|| {
         lit = (lit + 1) % 4;
