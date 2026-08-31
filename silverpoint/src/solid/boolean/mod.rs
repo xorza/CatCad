@@ -46,14 +46,11 @@ impl Boolean {
     /// Put `one` and `two` together as `doing` says, into `into`.
     ///
     /// `false`, with `into` emptied, where it will not — and a refusal is an
-    /// answer rather than a failure. Seven things are refused: a section of a
-    /// cone nothing divides it by, which is a plane through its apex and
-    /// nothing else — that one cuts straight rulings, and a cone's own
-    /// parameters have no arm for a line where they have one for every conic;
-    /// a meeting whose pieces *cross*, which is Villarceau's pair of circles on
-    /// a torus, meeting at both places their plane touches the tube, where a
-    /// walked cut orders places along each piece in turn and two pieces sharing
-    /// a place have no order; a stretch of boundary whose crossing cannot be
+    /// answer rather than a failure. Six things are refused: a meeting whose
+    /// pieces *cross*, which is Villarceau's pair of circles on a torus,
+    /// meeting at both places their plane touches the tube, where a walked cut
+    /// orders places along each piece in turn and two pieces sharing a place
+    /// have no order; a stretch of boundary whose crossing cannot be
     /// walked down to; a region the sounder cannot place, because every
     /// direction it casts grazes the other body; a result whose regions leave
     /// an edge with one face or three, which two solids meeting along nothing

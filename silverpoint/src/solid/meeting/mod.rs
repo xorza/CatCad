@@ -8,6 +8,11 @@
 //! parameterization to construct. Everything else meets in a quartic and is
 //! answered [`Meeting::Algebraic`], for the pencil route that is still to come.
 //!
+//! **A plane against any of the four is written down in full**, which is what a
+//! document reaches most: the plane row of §7.3's table has no gap in it, the
+//! degenerate section of a cone by a plane through its apex included — see
+//! [`Meeting::apexed`].
+//!
 //! Geometric rather than algebraic *because* it is the degenerate cases: the
 //! general route finds these too, and finds them worse conditioned — the
 //! literature on natural quadrics exists for exactly this reason. See
@@ -432,13 +437,61 @@ impl Meeting {
         ))
     }
 
+    /// A plane through the apex cuts the cone in the rulings it holds.
+    ///
+    /// **The section of a cone by a plane is a conic, and this is the
+    /// degenerate one.** Every place of it stands on a ray from the apex, so
+    /// what comes back is one line, two lines crossing there, or the apex on
+    /// its own — which is what slicing a turned part down its own axis reaches,
+    /// the plane a revolve was drawn in holding the axis.
+    ///
+    /// **How far the axis leans into the plane decides.** Lay the axis into the
+    /// plane and the section's directions are `p·cos φ + q·sin φ` about it,
+    /// standing on the cone where `s·cos φ = ±cos α` for `s` the length that
+    /// laying it in left. So the ratio `cos α / s` is the whole
+    /// classification: under one is two rulings, over one is none but the apex,
+    /// and one exactly is the plane laid along a single ruling.
+    ///
+    /// **Read as a sine, so the tolerance means an angle.** What separates the
+    /// two rulings is `√|1 − ratio²|`, which is the sine of half the angle
+    /// between them wherever the ratio falls — so a plane a rounding past
+    /// tangency answers the tangent it was drawn as rather than a miss. Held at
+    /// nought under the root for the same reason the conics above are.
+    fn apexed(plane: &Plane, cone: &Cone) -> Self {
+        let (normal, axis) = (plane.normal(), cone.axis);
+        // The axis laid into the plane, which is the way out of the apex the
+        // section is steepest along and the frame both rulings are measured
+        // from. Never nought, a plane square to the axis having left above.
+        let laid = axis.direction - normal * normal.dot(axis.direction);
+        let steepest = laid.normalize();
+        let across = normal.cross(steepest);
+        let leaning = cone.half_angle.cos() / laid.length();
+        let spread = (1.0 - leaning * leaning).abs().sqrt();
+        let ruling = |direction: DVec3| {
+            Curve::Line(Line {
+                origin: axis.origin,
+                direction,
+            })
+        };
+        if predicate::touching(spread, ALIGNED) {
+            return Self::Along(Curves::one(ruling(steepest)));
+        }
+        if leaning > 1.0 {
+            return Self::Touching(axis.origin);
+        }
+        Self::Along(Curves::two(
+            ruling(steepest * leaning + across * spread),
+            ruling(steepest * leaning - across * spread),
+        ))
+    }
+
     /// A plane cuts a cone in a conic: a circle square across it, an ellipse
     /// where it clears one nappe, and a parabola, a hyperbola or a pair of
     /// rulings otherwise.
     ///
-    /// **All four conics are taken here**, and what is left to
-    /// [`Meeting::Algebraic`] is the plane through the apex, whose section is
-    /// straight rulings that a cone's own parameters have no arm for.
+    /// **All four conics are taken here**, and the plane through the apex with
+    /// them — see [`Meeting::apexed`], whose section is rulings rather than a
+    /// conic.
     ///
     /// **The principal plane decides everything.** It is the plane through the
     /// apex holding the axis and the steepest direction of the cut, and the
@@ -477,7 +530,7 @@ impl Meeting {
         // and both divisions below come to nought.
         let apart = (plane.origin - axis.origin).dot(normal);
         if predicate::touching(apart.abs(), PLACED) {
-            return Self::Algebraic;
+            return Self::apexed(plane, cone);
         }
         // The principal plane: `across` stands square to the axis and to the
         // normal both, and `up` is the steepest way out of the axis within it —
@@ -502,9 +555,11 @@ impl Meeting {
             (None, Some(along)) => {
                 return Self::parabola(plane, cone, rulings[1], along, rulings[0]);
             }
-            // Both rulings along the plane, which is a plane through the apex
-            // and has left already.
-            (None, None) => return Self::Algebraic,
+            // Both rulings along the plane wants the plane parallel to the
+            // axis *and* to the steepest way out of it — and with the first,
+            // the second *is* the plane's own normal. So no plane is both, and
+            // the plane row has no gap for one to fall in.
+            (None, None) => unreachable!("{plane:?} lies along both rulings of {cone:?}"),
         };
         // The two ends of the section along the principal plane, which are the
         // ellipse's two extremes or the hyperbola's two vertices.

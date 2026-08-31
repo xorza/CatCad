@@ -1232,6 +1232,7 @@ fn leaning_block() -> Body {
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.
+mod curved;
 mod matrix;
 
 /// **Two equal cylinders on crossing axes intersect in the Steinmetz solid**,
@@ -1868,8 +1869,8 @@ fn a_bar_bored_again_and_again_loses_the_same_each_time() {
     }
 }
 
-/// A ball of `radius` about the origin, spun from half a disc.
-fn ball(radius: f64) -> Body {
+/// A ball of `radius` about `at`, spun from half a disc, grown by `by`.
+fn ball(at: DVec3, radius: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, radius);
@@ -1877,17 +1878,21 @@ fn ball(radius: f64) -> Body {
     let high = sketch.add_point(DVec2::new(0.0, radius + 0.5));
     sketch.add_segment(low, high);
     let found = Arrangement::of(&sketch);
-    for at in 0..found.faces().len() {
+    let plane = Plane {
+        origin: at,
+        ..Plane::FRONT
+    };
+    for region in 0..found.faces().len() {
         // Half the disc is on each side of the line, and a revolve of a region
         // straddling it is refused — see [`Revolving::raise`].
         let body = Revolution::new(
             &found,
-            &[at],
-            Plane::FRONT,
+            &[region],
+            plane,
             DVec2::ZERO,
             DVec2::Y,
             Sector::WHOLE,
-            TOOL,
+            by,
         )
         .body();
         if !body.is_empty() {
@@ -1932,7 +1937,7 @@ fn a_ball_and_a_cone_are_cut_through_the_places_their_parameters_run_out() {
     let mut boolean = Boolean::default();
     let mut into = Body::default();
 
-    let ball = ball(3.0);
+    let ball = ball(DVec3::ZERO, 3.0, TOOL);
     assert_eq!(ball.topology().faces().count(), 3, "the ball is not a ball");
     assert!(
         boolean.combine(&ball, &across, Operation::Cut, &mut into),
@@ -1999,7 +2004,7 @@ fn a_ball_halved_by_a_leaning_plane_keeps_the_circle_it_was_cut_by() {
     let mut into = Body::default();
     assert!(
         boolean.combine(
-            &ball(3.0),
+            &ball(DVec3::ZERO, 3.0, TOOL),
             &leaning_block(),
             Operation::Intersect,
             &mut into
@@ -2280,6 +2285,107 @@ fn a_flat_milled_down_a_taper_is_cut_along_the_hyperbola_the_wall_leaves() {
         walls,
         &[1e-2, 1e-3],
         "the two sides of the milled taper",
+    );
+}
+
+/// **A plane through a cone's apex cuts it along the two rulings it holds**,
+/// which is the section gone degenerate: no conic, two straight lines crossing
+/// at the apex, and the commonest thing anyone does to a turned part.
+///
+/// **Hand-computed.** [`taper`] stands one across for every two down from an
+/// apex at `(0, 4, 0)`, so it is `x² + z² = (4 − y)²/4`. The wall is `x = 0`,
+/// which holds the axis, and on it `z = ±(4 − y)/2` — two lines from the apex
+/// through `(0, 0, ±2)`, which are the ends of the base circle's own diameter.
+///
+/// So each half is bounded by a *triangle*: the two rulings and that diameter,
+/// with the apex where the rulings meet. Three edges, and the apex is a corner
+/// of the body already — see `.notes/KERNEL.md` §9.1.
+///
+/// **And the two halves sum to the cone**, `πr²h/3 = 16π/3` between them, which
+/// is the cross-check that needs no closed form of its own.
+#[test]
+fn a_plane_through_a_tapers_apex_cuts_it_along_the_rulings_it_holds() {
+    // A wall at `x = 0`, holding the axis the taper was spun about.
+    let halving = block(
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            x: DVec3::X,
+            y: DVec3::NEG_Z,
+        },
+        &[(0.0, -9.0), (9.0, -9.0), (9.0, 9.0), (0.0, 9.0)],
+        9.0,
+        CUBE,
+    );
+    let mut boolean = Boolean::default();
+    let (mut kept, mut lost) = (Body::default(), Body::default());
+    assert!(
+        boolean.combine(&taper(), &halving, Operation::Cut, &mut kept),
+        "the taper less the half was turned away",
+    );
+    assert!(
+        boolean.combine(&taper(), &halving, Operation::Intersect, &mut lost),
+        "the half the taper gave up was turned away",
+    );
+
+    for (named, body) in [("what is left", &kept), ("what went", &lost)] {
+        let reckoning = body.reckoning();
+        assert_eq!(reckoning.genus, 0, "{named} is a ball: {reckoning:?}");
+        assert_eq!(body.topology().lumps().count(), 1, "{named} is one solid",);
+        assert!(body.exact(), "{named}: a cone and a plane are both exact");
+        assert_eq!(body.strays(), 0.0, "{named}: nothing here was walked");
+
+        // The flat the cut left, which is the one face on a plane facing along
+        // the world's `x`.
+        let flats: Vec<_> = body
+            .topology()
+            .faces()
+            .filter(|(_, face)| match face.surface {
+                Surface::Natural(Natural::Plane(plane)) => {
+                    plane.normal().abs().abs_diff_eq(DVec3::X, 1e-12)
+                }
+                _ => false,
+            })
+            .collect();
+        let [(id, face)] = flats.as_slice() else {
+            panic!("{named}: {} faces stand across the cut", flats.len());
+        };
+        assert_eq!(face.holes(), 0, "{named}: the flat is not pierced");
+        let walk = body.topology().outline_of(face);
+        assert_eq!(walk.len(), 3, "{named}: the flat is not a triangle");
+
+        // Two of its three sides are the rulings, running from the apex to the
+        // two ends of the base circle's diameter.
+        let apex = DVec3::new(0.0, 4.0, 0.0);
+        let mut rulings = 0;
+        for coedge in walk {
+            let edge = body.topology().edge(coedge.edge);
+            let [from, to] = [edge.from, edge.to].map(|end| body.topology().vertex(end).at);
+            // Read from the apex outwards, whichever end of the edge it is.
+            let base = match (from.abs_diff_eq(apex, 1e-12), to.abs_diff_eq(apex, 1e-12)) {
+                (true, _) => to,
+                (_, true) => from,
+                _ => continue,
+            };
+            rulings += 1;
+            let along = (base - apex).normalize();
+            let want = DVec3::new(0.0, -2.0, base.z.signum()).normalize();
+            assert!(
+                along.abs_diff_eq(want, 1e-12),
+                "{named}: {edge:?} runs {along} rather than {want}",
+            );
+        }
+        assert_eq!(rulings, 2, "{named}: {id:?} is not walled by two rulings");
+    }
+
+    // The cone's own `πrl` for a slant of `√20` and its base disc. The two
+    // flats are planar and give the chording nothing to span.
+    let walls = PI * 2.0 * 20.0_f64.sqrt() + PI * 4.0;
+    closes(
+        &[&kept, &lost],
+        16.0 * PI / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the two halves of the taper",
     );
 }
 

@@ -614,11 +614,86 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
         Meeting::of(&facing(DVec3::ZERO, DVec3::Y), &cone),
         Meeting::Touching(DVec3::ZERO)
     );
+}
 
-    // A plane through the apex cuts rulings rather than a conic, and a cone's
-    // own parameters have no arm for one — see `.notes/KERNEL.md` §9.2.
-    let leaning = facing(DVec3::ZERO, DVec3::new(0.0, 1.0, 1.0));
-    assert_eq!(Meeting::of(&leaning, &cone), Meeting::Algebraic);
+/// **A plane through a cone's apex cuts the rulings it holds**, which is the
+/// conic gone degenerate: two lines crossing there, one where the plane lies
+/// tangent along a ruling, and the apex on its own where it holds none.
+///
+/// **Hand-computed.** The cone is [`taper`], `x² + z² = y²` about the origin.
+///
+/// - The plane `z = 0` holds the axis, so `x² = y²` and the section is
+///   `x = ±y` — the directions `(±1, 1, 0)/√2`.
+/// - The plane `y + 2z = 0` gives `x² + z² = 4z²`, so `x = ±√3·z` and the
+///   directions are `(±√3, −2, 1)/√8`.
+/// - The plane `x = y` holds the ruling `(1, 1, 0)` and leans exactly along the
+///   cone there, so the two come to one.
+/// - The plane `x = 3y` gives `9y² + z² = y²`, which only `y = z = 0` answers.
+#[test]
+fn a_plane_through_a_cones_apex_cuts_the_rulings_it_holds() {
+    let cone = taper();
+    let ruling = |meeting: Meeting, plane: &Surface, want: [DVec3; 2], what: &str| {
+        lies_on(meeting, plane, &cone, what);
+        let Meeting::Along(along) = meeting else {
+            panic!("{what}: {meeting:?} is not a curve");
+        };
+        let [Curve::Line(one), Curve::Line(two)] = along.all() else {
+            panic!("{what}: {:?} is not two lines", along.all());
+        };
+        for line in [one, two] {
+            assert!(
+                line.origin.abs_diff_eq(DVec3::ZERO, NEAR),
+                "{what}: {line:?} does not run from the apex",
+            );
+        }
+        // Either way round and either sign, a line being its own reverse and
+        // the pair coming back in no order.
+        for way in want {
+            let held = [one, two].iter().any(|line| {
+                line.direction.abs_diff_eq(way, NEAR) || line.direction.abs_diff_eq(-way, NEAR)
+            });
+            assert!(held, "{what}: neither of {one:?} and {two:?} runs {way}");
+        }
+    };
+
+    let held = facing(DVec3::ZERO, DVec3::Z);
+    ruling(
+        Meeting::of(&held, &cone),
+        &held,
+        [
+            DVec3::new(1.0, 1.0, 0.0).normalize(),
+            DVec3::new(-1.0, 1.0, 0.0).normalize(),
+        ],
+        "a plane holding the axis",
+    );
+
+    let leaning = facing(DVec3::ZERO, DVec3::new(0.0, 1.0, 2.0));
+    ruling(
+        Meeting::of(&leaning, &cone),
+        &leaning,
+        [
+            DVec3::new(3.0_f64.sqrt(), -2.0, 1.0).normalize(),
+            DVec3::new(-(3.0_f64.sqrt()), -2.0, 1.0).normalize(),
+        ],
+        "a plane leaning through the apex",
+    );
+
+    // Tangent along one ruling, where the two come to one.
+    let laid = facing(DVec3::ZERO, DVec3::new(1.0, -1.0, 0.0));
+    let meeting = Meeting::of(&laid, &cone);
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Line(line)] = along.all() else {
+        panic!("{:?} is not one line", along.all());
+    };
+    let want = DVec3::new(1.0, 1.0, 0.0).normalize();
+    assert!(line.direction.abs_diff_eq(want, NEAR), "{line:?}");
+    lies_on(meeting, &laid, &cone, "a plane laid along a ruling");
+
+    // Steeper than the cone spreads, so nothing but the apex is on both.
+    let past = facing(DVec3::ZERO, DVec3::new(1.0, -3.0, 0.0));
+    assert_eq!(Meeting::of(&past, &cone), Meeting::Touching(DVec3::ZERO));
 }
 
 /// **A plane leaning across a cone cuts the ellipse its two rulings set**, and

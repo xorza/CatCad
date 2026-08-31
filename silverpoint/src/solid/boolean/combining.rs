@@ -10,6 +10,7 @@ use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::ALIGNED;
 use crate::number::tolerance::CHORDED;
+use crate::number::tolerance::PLACED;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::boolean::sounding::Sounding;
@@ -1005,6 +1006,32 @@ fn imprinted(
             if predicate::parallel(line.direction, tube.axis.direction) =>
         {
             let angle = tube.axis.angle_of(line.origin);
+            Some(Cut::Straight {
+                at: DVec2::new(branch::nearest(angle, about.x), 0.0),
+                along: DVec2::Y,
+                run: None,
+            })
+        }
+        // **A ruling on a cone is one straight cut across both nappes**, which
+        // its parameters make of a line through the apex: `u = that`, the same
+        // number either side. A place at a negative `v` is measured from the
+        // apex *back* along the ray — see [`Cone::uv`] — so the angle the ray
+        // going one way stands at is the angle the ray going the other way
+        // stands at, and the ruling is one line of the chart rather than two.
+        //
+        // What a plane through the apex leaves — see [`Meeting::apexed`] — and
+        // what cutting a turned part down its own axis reaches. The angle
+        // wraps, so which turn is the one nearest the middle the region was
+        // laid out about, exactly as a cylinder's ruling below.
+        //
+        // Straight in the world, so it carries no imprint.
+        (Surface::Natural(Natural::Cone(cone)), Curve::Line(line)) => {
+            let on = line.origin + line.direction;
+            debug_assert!(
+                predicate::touching(cone.off(on), PLACED),
+                "{line:?} is no ruling of {cone:?}",
+            );
+            let angle = cone.uv(on).x;
             Some(Cut::Straight {
                 at: DVec2::new(branch::nearest(angle, about.x), 0.0),
                 along: DVec2::Y,

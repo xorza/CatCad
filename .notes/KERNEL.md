@@ -844,11 +844,20 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 ## 9. What is left, in order
 
 M0 through M6 are in the tree, and the reason each piece works is in the code
-that does it. What follows is what is not, in the order to take it in.
+that does it. What follows is the order the rest was taken in, and each section
+says what it came to.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
+
+**§9.1 through §9.4 are done**, and the plane row of §7.3's table now has no
+gap in it. What is left below either needs the algebraic route of §7.3 — see
+§9.4, where the pairs that want it are measured — or is M7, which is another
+project. Two refusals stand outside both and are in `.notes/ISSUES.md`: a
+bitangent plane on a torus, whose two circles cross at both places it touches,
+and a cone bored coaxially, which is turned away where the same bore of a
+frustum is answered.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -856,7 +865,7 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 M6a — a boolean over a surface whose parameters run out
+### 9.1 M6a — a boolean over a surface whose parameters run out — **done**
 
 **Done, and the pole itself needed no decision.** A ball could not be cut and a
 cone could not be cut without panicking. Both are what a revolve makes, so both
@@ -928,7 +937,7 @@ with a rim of radius three to the last bit.
   both places their plane touches the tube. Two pieces sharing a place have no
   such order.
 
-### 9.2 M6c — the two conics a cone refused
+### 9.2 M6c — the two conics a cone refused — **done**
 
 **Done.** Milling a flat down a taper was the last refusal a document could
 reach. A plane parallel to a cone's axis cuts a hyperbola and one parallel to a
@@ -1117,7 +1126,53 @@ met exactly. The volume is unmoved to `1e-9` at each of them, and both gates in
 `silverpoint/tests/alloc/kernel.rs` hold a further merge of the same body to a
 strict zero, so it runs on every frame of a drag.
 
-### 9.4 M7 — fillet, chamfer, STEP
+### 9.4 M6d — the section a cone's own apex leaves — **done**
+
+**Slicing a turned part down its axis was the last refusal in the plane row**,
+and it is the commonest thing anyone does to one. A plane through a cone's apex
+cuts no conic: every place of the section stands on a ray from the apex, so what
+comes back is two lines crossing there, one where the plane lies tangent along a
+ruling, or the apex on its own.
+
+**How far the axis leans into the plane decides, and nothing else.** Lay the
+axis into the plane and the section's directions are `p·cos φ + q·sin φ` about
+it, standing on the cone where `s·cos φ = ±cos α` for the `s` that laying it in
+left. So the ratio `cos α / s` is the whole classification — under one is two
+rulings, over one is the apex alone, and one exactly is the tangent plane. Read
+as `√|1 − ratio²|`, which is the sine of half the angle between the two rulings
+whether the ratio falls under one or over it, so the tolerance means an angle
+and a plane a rounding past tangency answers the tangent it was drawn as.
+
+**And the cone's own parameters hold a ruling as one straight cut**, which is
+what the section wanted and had looked to be missing. A place at a negative `v`
+is measured from the apex *back* along its ray, so the angle the ray one way
+stands at is the angle the ray the other way stands at: a line through the apex
+is `u = that` across both nappes rather than two lines of the chart. The same
+`Cut::Straight` a cylinder's ruling already used, and the same wrap — the turn
+taken is the one nearest the middle the region was laid out about.
+
+Straight in the world, so it carries no imprint, which is what §9.2 measured
+about numbering a straight cut.
+
+**Held to a triangle.** A cone one across for every two down, halved by the
+plane holding its axis, leaves each side bounded by the two rulings and the base
+circle's own diameter — three edges, meeting at the apex the body already had
+(§9.1). Both halves are genus 0, one lump, exact, walked nowhere, and the two
+volumes sum to `πr²h/3`.
+
+**What is left after it needs the algebraic route** — §7.3's second routine, and
+nothing smaller. `boolean::tests::curved` sweeps the answered side and holds
+every row to its own complement; what is not in that table is refused. Measured
+over the pairs a document can build: two rods whose
+cross-sections overlap rather than nest, two rods on axes that meet at anything
+but a right angle, a rod against a ball its axis misses, and a cone against
+anything curved it is not coaxial with. Each of those is a true quartic. The
+nested rod pair is written down because its branch points are complex; move the
+axes apart and they become real, the two loops join into one, and every
+parameter a graph could use turns vertical where they join. That is an elliptic
+curve, and `X₁(u) ± X₂(u)·√Δ(u)` is what writes one down.
+
+### 9.5 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
