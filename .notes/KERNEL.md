@@ -837,6 +837,31 @@ an ellipse where it leans, and `Meeting::of` answers both. Which of the two
 sweeps between the corners is the blend's own is the one whose middle stands
 inside the turn the blend covers.
 
+**A pick is a *run* of edges, not one.** A boolean cuts by whole surfaces, so a
+pocket's wall divides every face it reaches and every edge bounding one — §9.3,
+where those splits are the answer's contract for the next boolean. What one pick
+finds on a body a document has worked on is therefore a chain of pieces of what
+was one edge, and one blend goes down the lot: they lie on one line between one
+pair of planes. The pieces are gathered by walking corners where exactly two
+picked edges meet *collinearly* — two that turn there are a junction instead —
+and ordered by where each stands along the run's own line, which no arena order
+can disturb.
+
+**A run crosses corners of its own.** At each, four edges meet: the two pieces
+of the edge the cut split, and the edge it left on each of the two faces. The
+run goes straight on through, the two other edges are cut back to where the
+rulings cross them, and the rulings are cut at the same two places — because a
+ruling divides the blend from a *patch*, and the run crosses from one patch to
+the next there. So a blend's own loop is as many pieces of ruling as the run has
+edges, not one apiece.
+
+**Which pair of patches a corner stands between is the *tip's* to say.** A run's
+two ends lie on different patches of the same two planes, so everything a corner
+decides — which face a sphere patch seats a blend against, which edge is cut
+back, which way an arc runs — is read off the spine at that end rather than off
+the run. A blend carries no face pair of its own for that reason: one would be
+right at one end and wrong at the other, and silently.
+
 **A flat blend is the same routine with a plane between the rulings.** A
 chamfer cuts the two faces back to rulings of its own — the setback outright,
 where a fillet's stand `reach·tan(θ/2)` back — puts a plane through both, and
@@ -1413,8 +1438,9 @@ NURBS, and mark the body fitted.
 **The first slice is in the tree**: a constant-reach blend down a straight edge
 between two planes, exact, convex or concave, round or flat, several edges at a
 time — meeting at a corner or not, and with a patch of a sphere where three
-round ones meet — and a body like any other afterwards. §7.5 is how it works and
-what it refuses.
+round ones meet — and a body like any other afterwards. **On a body a boolean
+has already cut, too**: a pick finds every piece the cut left of its edge and
+one blend runs down them all. §7.5 is how it works and what it refuses.
 
 **A chamfer is the same routine and not a second one**, which is what
 `Bevel::Flat` buys: the two share the corners they swallow, the edges they cut
@@ -1460,11 +1486,6 @@ arcs is §7.5.
   filled in. A rolling ball is on one side of the material throughout, so what
   goes there is a surface with a radius that moves — which is the row below by
   another road.
-- **A blend down an edge a boolean split.** A cut whose wall reaches the picked
-  edge splits both faces there as well, so *four* edges meet at the place it was
-  cut — which the corner rule refuses. What the document hands the kernel is the
-  *pieces*, because §9.3 measures that the splits are the answer's contract for
-  the next boolean; merging first would trade this refusal for a worse one.
 - **A blend onto anything but a plane.** The rulings are the whole of why this
   slice stays exact — a cylinder tangent to two planes is one cylinder, where a
   blend running out onto a cylinder or a cone is a surface of the fitted tier

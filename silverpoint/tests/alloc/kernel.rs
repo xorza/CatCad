@@ -282,6 +282,60 @@ fn rounding_three_edges_that_meet_allocates_nothing() {
     );
 }
 
+/// A blend on a body a boolean cut into pieces, which is what a body a document
+/// has worked on actually looks like.
+///
+/// **The two gates that walk a run of more than one piece**, and the reason
+/// they are worth their own rows: grouping the pieces, the corners the run
+/// crosses and the pieces of its rulings are three more tables, and every one
+/// of them is refilled on every frame of a drag. The second walks three such
+/// runs into a corner patch, which is the widest the tables ever go.
+///
+/// A two-by-two slot through the block leaves forty-eight and the two faces it
+/// divides in patches — see `a_pick_a_boolean_cut_into_pieces_is_one_blend` and
+/// `three_picks_meeting_on_a_body_a_boolean_cut_leave_the_same_patch`, where
+/// the arithmetic is argued.
+fn split(picks: &[[usize; 2]], want: f64) {
+    let cube = cube();
+    let slot = block(1.0..3.0, 1.0..3.0, -1.0, 5.0, TOOL);
+    let mut cut = Body::default();
+    assert!(
+        Boolean::default().combine(&cube, &slot, Operation::Cut, &mut cut),
+        "a slot through a block was refused, so this gate would measure a refusal"
+    );
+    let names: Vec<_> = cube.names().collect();
+    let along: Vec<[Named; 2]> = picks.iter().map(|at| at.map(|at| names[at])).collect();
+    let round = Round::new(&along, 0.5, Bevel::Round, Step(3));
+    let mut rounding = Rounding::default();
+    let mut rounded = Body::default();
+    assert!(
+        rounding.round(&round, &cut, &mut rounded),
+        "the rounding was refused, so this gate would measure a refusal"
+    );
+    let shut_in = Mesher::default().volume(&rounded, SAGITTA);
+    assert!(
+        (shut_in - want).abs() < ROUNDED,
+        "the rounding shut in {shut_in} rather than {want}, so this gate measures the wrong answer"
+    );
+    AllocTester::new().run(|| {
+        rounding.round(&round, &cut, &mut rounded);
+        black_box(&rounded);
+    });
+}
+
+#[test]
+fn rounding_an_edge_a_cut_split_allocates_nothing() {
+    split(&[[1, 2]], 48.0 - (1.0 - PI / 4.0) * 0.25 * 4.0);
+}
+
+#[test]
+fn rounding_three_picks_a_cut_split_allocates_nothing() {
+    split(
+        &[[1, 2], [1, 3], [2, 3]],
+        48.0 - 3.0 * (1.0 - PI / 4.0) * 0.25 * 3.5 - 0.125 * (1.0 - PI / 6.0),
+    );
+}
+
 /// And a chamfer, which is the same walk over a plane rather than a cylinder.
 ///
 /// One row rather than three, because what a flat blend does differently is the

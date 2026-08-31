@@ -367,6 +367,90 @@ fn a_rounded_block_is_bored_like_any_other() {
     assert_eq!(into.reckoning().genus, 1, "a bore right through is a hole");
 }
 
+/// **A pick whose edge a boolean cut into pieces is one blend**, which is what
+/// a body the kernel hands on actually looks like.
+///
+/// A cut is taken by whole surfaces, so a pocket's four walls divide the *whole*
+/// of every face they reach and every edge bounding one — see
+/// `.notes/KERNEL.md` §9.3, where those splits are the answer's contract for
+/// the next boolean. Here a two-by-two pocket through a four-cube leaves the
+/// far cap in nine patches and its edge against the first wall in three, and a
+/// pick naming the pair finds all three.
+///
+/// **One face, and the arithmetic of one blend.** The three pieces lie on one
+/// line between one pair of planes, so what goes down them is one cylinder: the
+/// corner it takes is the whole four-long edge's, `(1 − π/4)·r²·l`, off the
+/// forty-eight the pocket left.
+#[test]
+fn a_pick_a_boolean_cut_into_pieces_is_one_blend() {
+    let cube = cube();
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
+    let found = Arrangement::of(&sketch);
+    let pocket = Extrusion::new(
+        &found,
+        &[0],
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            ..Plane::GROUND
+        },
+        6.0,
+        Step(3),
+    )
+    .body();
+    let mut cut = Body::default();
+    assert!(
+        Boolean::default().combine(&cube, &pocket, Operation::Cut, &mut cut),
+        "a pocket through a block was refused",
+    );
+
+    // Named off the block rather than off what the cut left, which is the whole
+    // point: a face of the answer answers to the name the step that grew it
+    // gave it, however many patches the cut left it in.
+    let names: Vec<_> = cube.names().collect();
+    let along = [[names[1], names[2]]];
+    let pieces = cut
+        .topology()
+        .edges()
+        .filter(|(_, edge)| {
+            let here = edge.between.map(|face| cut.topology().face(face).name);
+            here == along[0] || here == [along[0][1], along[0][0]]
+        })
+        .count();
+    assert_eq!(pieces, 3, "the cut left the edge in {pieces} pieces");
+
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, 0.5, Bevel::Round, ROUND),
+            &cut,
+            &mut into
+        ),
+        "a pick of three pieces of one edge was refused",
+    );
+
+    let want = 48.0 - corner(0.5, 4.0);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the rounded pocket shuts in {} where {want} is the corner off forty-eight",
+        volume(&into),
+    );
+    assert_eq!(
+        into.patches(ROUND.grew(Grown::Rounded(0))).count(),
+        1,
+        "three pieces of one edge raised other than one blend",
+    );
+    assert_eq!(
+        into.reckoning().genus,
+        1,
+        "a pocket right through is a hole, rounded or not",
+    );
+    assert!(
+        into.exact(),
+        "a blend on two planes is a cylinder and exact"
+    );
+}
+
 /// **What a rounding cannot make is refused rather than guessed at**, which is
 /// the standing every unanswerable case in this kernel takes.
 ///
@@ -812,5 +896,118 @@ fn a_blend_whose_ends_lean_is_closed_by_two_ellipses() {
     assert!(
         into.exact(),
         "an ellipse on a cylinder is of the exact tier"
+    );
+}
+
+/// **Three picks meeting at a corner, on a body a boolean has cut into
+/// patches**, which is where a run's two ends stop being interchangeable.
+///
+/// A slot through the block leaves both of the faces at that corner in patches,
+/// so two of the three picks are runs of three pieces — and the pair of patches
+/// a corner of the answer stands between is the pair the spine *at that end*
+/// divides, not the pair the run started from. The patch seats each blend
+/// against the face it touches there, so reading the run's first spine at its
+/// far end seats it against a patch that is not even there.
+///
+/// **The arithmetic is the corner arithmetic off what the slot left.** The
+/// blends stand half a unit off faces the slot comes no nearer than one, so
+/// each takes the same `(1 − π/4)·r²·(l − r)` outside the corner cube it would
+/// take off a whole block, and the cube gives up `r³(1 − π/6)` — off the
+/// forty-eight a two-by-two slot through a four-cube leaves.
+#[test]
+fn three_picks_meeting_on_a_body_a_boolean_cut_leave_the_same_patch() {
+    let cube = cube();
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]);
+    let found = Arrangement::of(&sketch);
+    let slot = Extrusion::new(
+        &found,
+        &[0],
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            ..Plane::GROUND
+        },
+        6.0,
+        Step(3),
+    )
+    .body();
+    let mut cut = Body::default();
+    assert!(
+        Boolean::default().combine(&cube, &slot, Operation::Cut, &mut cut),
+        "a slot through a block was refused",
+    );
+
+    // Named off the block, which is what makes each pick one run: the patches
+    // the slot left all answer to the name of the face they were cut from.
+    let names: Vec<_> = cube.names().collect();
+    let along = [
+        [names[1], names[2]],
+        [names[1], names[3]],
+        [names[2], names[3]],
+    ];
+    let pieces = along.map(|pick| {
+        cut.topology()
+            .edges()
+            .filter(|(_, edge)| {
+                let here = edge.between.map(|face| cut.topology().face(face).name);
+                here == pick || here == [pick[1], pick[0]]
+            })
+            .count()
+    });
+    assert_eq!(
+        pieces,
+        [3, 3, 1],
+        "the slot left the three picked edges in other than three, three and one",
+    );
+
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, 0.5, Bevel::Round, ROUND),
+            &cut,
+            &mut into
+        ),
+        "three picks meeting at a corner of a cut body were refused",
+    );
+
+    let want = 48.0 - 3.0 * corner(0.5, 3.5) - 0.125 * (1.0 - PI / 6.0);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the rounded slot shuts in {} where {want} is the three corners and the \
+         ball octant between them",
+        volume(&into),
+    );
+    for pick in 0..3 {
+        assert_eq!(
+            into.patches(ROUND.grew(Grown::Rounded(pick))).count(),
+            1,
+            "pick {pick} raised other than one blend",
+        );
+    }
+
+    let (_, face) = into
+        .patches(ROUND.grew(Grown::Cornered([0, 1, 2])))
+        .next()
+        .expect("the patch is a face of the answer");
+    let Surface::Natural(Natural::Sphere(sphere)) = face.surface else {
+        panic!("a patch between three cylinders lies on a sphere, not {face:?}");
+    };
+    // Half a unit inside all three faces of the corner at `(4, 4, 0)`, whose
+    // walls are `y = 4`, `x = 4` and `z = 0`.
+    assert!(
+        (sphere.radius - 0.5).abs() < PLACED
+            && sphere.centre().distance(DVec3::new(3.5, 3.5, -0.5)) < PLACED,
+        "the patch is {} at {} rather than half a unit inside all three faces",
+        sphere.radius,
+        sphere.centre(),
+    );
+    assert_eq!(
+        into.reckoning().genus,
+        1,
+        "a slot right through is a hole, rounded or not",
+    );
+    assert!(
+        into.exact(),
+        "a cylinder and a sphere are of the exact tier"
     );
 }

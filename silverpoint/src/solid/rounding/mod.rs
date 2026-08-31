@@ -106,7 +106,69 @@ impl Laid {
     }
 }
 
-/// One edge to be blended, and the surface the blend on it lies on.
+/// One edge of a run, and the two faces it divides.
+///
+/// **In the run's own side order rather than the edge's.** A boolean cuts an
+/// edge wherever a surface crosses it and cuts each face it divides at the same
+/// place, so what one pick finds is a chain of edges between a chain of patches
+/// — and which patch is on the run's first side is not what any one edge says.
+/// Matched by surface, two patches of one face carrying the identical one — see
+/// `.notes/KERNEL.md` §9.3.
+#[derive(Debug, Clone, Copy)]
+struct Spine {
+    edge: EdgeId,
+    between: [FaceId; 2],
+}
+
+impl Spine {
+    /// The piece `edge` is of a run whose first side is the face `held[0]`
+    /// stands on, or `None` where it divides no face carrying that surface.
+    ///
+    /// Matched by surface rather than by face, on the terms above: what is one
+    /// across a whole run is the pair of planes.
+    fn new(topology: &Topology, held: [FaceId; 2], edge: EdgeId) -> Option<Self> {
+        let first = topology.face(held[0]).surface;
+        let between = topology.edge(edge).between;
+        let at = between
+            .iter()
+            .position(|&face| topology.face(face).surface == first)?;
+        Some(Self {
+            edge,
+            between: [between[at], between[1 - at]],
+        })
+    }
+}
+
+/// One run of picked edges, gathered before any of it is measured.
+///
+/// Apart from [`Blend`] below because it is what the blend is worked out
+/// *from*: which pieces there are and what order they run in is settled by the
+/// picks alone, where everything a blend holds is geometry read off them.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    /// Where its spines sit in [`Rounding::runs`], in the order it walks them.
+    spines: [u32; 2],
+    /// Which of the caller's picks found it, which every piece shares — see
+    /// [`Rounding::carries_on`].
+    pick: u32,
+}
+
+/// One piece of a run on its way into order, and how far along the run it
+/// stands.
+#[derive(Debug, Clone, Copy)]
+struct Ordered {
+    along: f64,
+    /// Where the piece sits in [`Rounding::picked`].
+    picked: u32,
+}
+
+/// One run of edges to be blended, and the surface the blend on it lies on.
+///
+/// **A run rather than an edge**, because a boolean leaves one edge as several:
+/// a cut whose wall crosses it splits the edge and both faces at that place,
+/// and a pick naming the pair finds every piece. They lie on one line between
+/// one pair of planes, so one blend runs the whole way and the rulings are cut
+/// only where the pieces are.
 ///
 /// Worked out before a face of the answer is raised, so that a pick nothing can
 /// be made of is a refusal rather than half a body — the standing every
@@ -118,14 +180,21 @@ impl Laid {
 /// [`Rounding::close`].
 #[derive(Debug, Clone, Copy)]
 struct Blend {
-    /// The edge of the body it replaces.
-    spine: EdgeId,
-    /// The two faces that edge divides, in the order the edge names them.
+    /// Where its spines sit in [`Rounding::runs`], in the order the run walks
+    /// them.
     ///
-    /// Every pair below is in step with this one: the first of two is always
-    /// the first of these.
-    between: [FaceId; 2],
-    /// Which way the first of those faces walks the spine, which is what says
+    /// A pair rather than a range, which would not be [`Copy`] and this is.
+    ///
+    /// **Which faces it lies between is not here**, and must not be: every
+    /// spine names a different pair of patches, so a place on the run reads
+    /// them off the spine it stands on — see [`Spine`]. Every pair below is in
+    /// step with that side order, the first of two always on the run's first
+    /// side.
+    run: [u32; 2],
+    /// Where the corners it crosses sit in [`Rounding::crossings`], in the same
+    /// order.
+    inside: [u32; 2],
+    /// Which way its first spine's first face walks the run, which is what says
     /// where its material is and so which way round the blend is wound.
     walks: bool,
     /// The surface it lies on, and whether the material is inside it.
@@ -135,12 +204,29 @@ struct Blend {
     pick: u32,
     /// The two rulings it runs out along, one on each face.
     rails: [Line; 2],
-    /// The corner of the body at each end of the spine, the spine's own `from`
+    /// The corner of the body at each end of the run, the run's own start
     /// first.
     at: [VertexId; 2],
 }
 
-/// What a blend closes with at one end of the edge it replaces.
+impl Blend {
+    /// Its spines, in the order the run walks them.
+    fn spines<'a>(&self, runs: &'a [Spine]) -> &'a [Spine] {
+        &runs[self.run[0] as usize..self.run[1] as usize]
+    }
+
+    /// The spine at its `end`, which is the one whose faces a corner there
+    /// stands on.
+    fn tip(&self, runs: &[Spine], end: usize) -> Spine {
+        let spines = self.spines(runs);
+        match end {
+            0 => spines[0],
+            _ => spines[spines.len() - 1],
+        }
+    }
+}
+
+/// What a blend closes with at one end of the run it replaces.
 ///
 /// **Three, and which one it is turns on how many picks run to the same
 /// corner.** A corner the rounding leaves standing is closed across the face on
@@ -295,6 +381,30 @@ struct Joined {
     arc: EdgeId,
 }
 
+/// Where a run crosses a corner of the body between two of its own spines.
+///
+/// **The one corner a blend swallows without closing anything**: the run goes
+/// straight on through it, so what has to move is the pair of edges running to
+/// it on the run's two faces — cut back to where the rulings cross them, which
+/// is also where the rulings themselves are cut into pieces.
+#[derive(Debug, Clone, Copy)]
+struct Crossing {
+    /// The corner of the body it swallows.
+    at: VertexId,
+    /// The edge running to it on each of the run's two faces.
+    along: [EdgeId; 2],
+    /// How far along each of those the cut lands, and where.
+    cut: [f64; 2],
+    made: [DVec3; 2],
+}
+
+/// Which blend an edge of the body is a spine of, and where in its run.
+#[derive(Debug, Clone, Copy)]
+struct Placed {
+    blend: usize,
+    at: usize,
+}
+
 /// Where one edge of the body is cut back to at one of its ends.
 #[derive(Debug, Clone, Copy)]
 struct Trim {
@@ -312,8 +422,13 @@ struct Swallow {
 /// What one blend came to in the answer.
 #[derive(Debug, Clone, Copy)]
 struct Minted {
-    /// The ruling along each of the two faces the spine divided.
-    rails: [EdgeId; 2],
+    /// Where the pieces of the ruling on each face begin in
+    /// [`Rounding::railed`], one per spine of the run and in the run's order.
+    ///
+    /// **Pieces rather than one edge apiece**, because a ruling divides the
+    /// blend from a *patch* and a run crosses several: an edge names two faces,
+    /// so the ruling is cut wherever the face under it is.
+    rails: [u32; 2],
     /// The arc across each end of it.
     arcs: [EdgeId; 2],
     /// Whether each of those arcs runs from this blend's first side to its
@@ -379,8 +494,20 @@ pub struct Rounding {
     landed: Vec<Inline<Swallow, 3>>,
     /// How many edges meet each corner of the body, by slot.
     meeting: Vec<u32>,
-    /// Which blend each edge of the body is the spine of, by slot.
-    spined: Vec<Option<usize>>,
+    /// Every spine of every run, laid end to end, each run in its own order.
+    runs: Vec<Spine>,
+    /// The runs the picks were gathered into, in the order they were given.
+    grouped: Vec<Run>,
+    /// Every corner a run crosses, laid end to end — see [`Blend::inside`].
+    crossings: Vec<Crossing>,
+    /// Which picked edges end at each corner of the body, by slot.
+    ends_at: Vec<Inline<u32, 3>>,
+    /// One run on its way into [`Rounding::runs`], and the order it goes in.
+    chained: Vec<u32>,
+    ordering: Vec<Ordered>,
+    taken: Vec<bool>,
+    /// Which blend each edge of the body is a spine of, by slot.
+    spined: Vec<Option<Placed>>,
     /// Which blend swallowed each corner of the body, by slot.
     ///
     /// The first of them where more than one did, the rest being what put the
@@ -398,6 +525,12 @@ pub struct Rounding {
     /// The face each blend raised, and everything else it came to.
     raised: Vec<FaceId>,
     minted: Vec<Minted>,
+    /// Every piece of every ruling, laid end to end — see [`Minted::rails`].
+    railed: Vec<EdgeId>,
+    /// The two corners each crossing left, in [`Rounding::crossings`]'s order.
+    made_at: Vec<[VertexId; 2]>,
+    /// One blend's loop on its way into the answer.
+    bounding: Vec<Coedge>,
     /// What each junction came to, by junction.
     joined: Vec<Joined>,
     /// The face each corner patch raised, and everything else it came to.
@@ -489,13 +622,157 @@ impl Rounding {
                 return false;
             }
         }
-        for at in 0..self.picked.len() {
-            let Some(blend) = Self::blended(topology, self.picked[at], of) else {
+        if !self.chain(topology) {
+            return false;
+        }
+        self.crossings.clear();
+        for at in 0..self.grouped.len() {
+            let run = self.grouped[at];
+            let Some(blend) = self.blended(topology, run, of) else {
                 return false;
             };
             self.blends.push(blend);
         }
         self.note(topology) && self.close(topology)
+    }
+
+    /// Group the picked edges into runs of collinear pieces meeting end to end.
+    ///
+    /// **A boolean leaves one edge as several**, cutting it wherever a surface
+    /// crosses it and cutting both faces it divides at the same place — see
+    /// `.notes/KERNEL.md` §9.3, where those splits are the answer's contract
+    /// for the next boolean. A pick naming the pair finds every piece, and one
+    /// blend runs down the lot: they lie on one line between one pair of
+    /// planes.
+    ///
+    /// **Ordered by where each piece stands along the run's own line**, which
+    /// is what makes the order the geometry's rather than the arena's — two
+    /// pieces of one edge cannot overlap, so the parameter says which comes
+    /// first.
+    fn chain(&mut self, topology: &Topology) -> bool {
+        self.ends_at.clear();
+        self.ends_at.resize(topology.vertex_slots(), Inline::none());
+        for at in 0..self.picked.len() {
+            for end in topology.edge(self.picked[at].edge).ends(true) {
+                // A fourth picked edge at one corner is a corner nothing here
+                // fills, and the count is what says so before anything reads a
+                // slot that is not there.
+                if self.ends_at[end.slot()].all().len() == 3 {
+                    return false;
+                }
+                self.ends_at[end.slot()].push(at as u32);
+            }
+        }
+        self.runs.clear();
+        self.grouped.clear();
+        self.taken.clear();
+        self.taken.resize(self.picked.len(), false);
+        for at in 0..self.picked.len() {
+            if self.taken[at] {
+                continue;
+            }
+            let from = self.runs.len() as u32;
+            if !self.follow(topology, at) {
+                return false;
+            }
+            self.grouped.push(Run {
+                spines: [from, self.runs.len() as u32],
+                // Every piece of one run was found by the same pick — see
+                // [`Rounding::carries_on`] — so the one this started from names
+                // the whole of it.
+                pick: self.picked[at].pick,
+            });
+        }
+        true
+    }
+
+    /// Gather the run the picked edge at `from` is a piece of, in order, into
+    /// [`Rounding::runs`].
+    fn follow(&mut self, topology: &Topology, from: usize) -> bool {
+        self.chained.clear();
+        self.chained.push(from as u32);
+        self.taken[from] = true;
+        let mut step = 0;
+        while step < self.chained.len() {
+            let at = self.chained[step] as usize;
+            step += 1;
+            for end in topology.edge(self.picked[at].edge).ends(true) {
+                let Some(next) = self.carries_on(topology, at, end) else {
+                    continue;
+                };
+                if !self.taken[next] {
+                    self.taken[next] = true;
+                    self.chained.push(next as u32);
+                }
+            }
+        }
+        let Curve::Line(line) = topology.edge(self.picked[from].edge).curve else {
+            return false;
+        };
+        self.ordering.clear();
+        for &at in &self.chained {
+            let edge = topology.edge(self.picked[at as usize].edge);
+            let middle = edge
+                .curve
+                .at((edge.bounds[0] + edge.bounds[1]) / 2.0, topology.carried());
+            self.ordering.push(Ordered {
+                along: (middle - line.origin).dot(line.direction),
+                picked: at,
+            });
+        }
+        self.ordering
+            .sort_unstable_by(|one, two| one.along.total_cmp(&two.along));
+        // **Turned so the first piece runs the way the run does**, which is
+        // what lets everything below read the run off that piece alone: which
+        // way its own face walks it, and which of its corners the run starts
+        // at.
+        let first = self.picked[self.ordering[0].picked as usize].edge;
+        if let Some(next) = self.ordering.get(1) {
+            let after = topology
+                .edge(self.picked[next.picked as usize].edge)
+                .ends(true);
+            if !after.contains(&topology.edge(first).to) {
+                self.ordering.reverse();
+            }
+        }
+        let held = topology
+            .edge(self.picked[self.ordering[0].picked as usize].edge)
+            .between;
+        for at in 0..self.ordering.len() {
+            let edge = self.picked[self.ordering[at].picked as usize].edge;
+            let Some(spine) = Spine::new(topology, held, edge) else {
+                return false;
+            };
+            self.runs.push(spine);
+        }
+        true
+    }
+
+    /// The picked edge that carries the one at `at` on through the corner
+    /// `corner`, or `None` where nothing does.
+    ///
+    /// **Two picked edges at one corner either continue each other or meet
+    /// there**, and which it is turns on whether they are collinear: two pieces
+    /// of what was one edge run on into each other, where two edges of a real
+    /// corner turn. A third picked edge at the same corner is a corner none of
+    /// them runs through.
+    fn carries_on(&self, topology: &Topology, at: usize, corner: VertexId) -> Option<usize> {
+        let &[one, two] = self.ends_at[corner.slot()].all() else {
+            return None;
+        };
+        let other = match one as usize == at {
+            true => two as usize,
+            false => one as usize,
+        };
+        let ways = [at, other].map(|which| match topology.edge(self.picked[which].edge).curve {
+            Curve::Line(line) => Some(line.direction),
+            _ => None,
+        });
+        let [Some(here), Some(there)] = ways else {
+            return None;
+        };
+        let alike = self.picked[at].pick == self.picked[other].pick;
+        (alike && predicate::parallel(here, there)).then_some(other)
     }
 
     /// Note which edges and corners each blend takes away, and what the blends
@@ -507,11 +784,16 @@ impl Rounding {
     /// them.
     fn note(&mut self, topology: &Topology) -> bool {
         for at in 0..self.blends.len() {
-            let spine = self.blends[at].spine;
-            if self.spined[spine.slot()].is_some() {
-                return false;
+            for (which, spine) in self.blends[at].spines(&self.runs).iter().enumerate() {
+                let slot = spine.edge.slot();
+                if self.spined[slot].is_some() {
+                    return false;
+                }
+                self.spined[slot] = Some(Placed {
+                    blend: at,
+                    at: which,
+                });
             }
-            self.spined[spine.slot()] = Some(at);
         }
         self.landed.clear();
         self.landed.resize(topology.vertex_slots(), Inline::none());
@@ -555,7 +837,9 @@ impl Rounding {
                 true
             }
             [first, second] => {
-                let Some(junction) = Self::joining(topology, &self.blends, [first, second]) else {
+                let Some(junction) =
+                    Self::joining(topology, &self.blends, &self.runs, [first, second])
+                else {
                     return false;
                 };
                 self.swallowed[at.slot()] = Some(first);
@@ -565,7 +849,8 @@ impl Rounding {
             }
             [first, second, third] => {
                 let three = [first, second, third];
-                let Some(corner) = Self::cornering(topology, &self.blends, three, at) else {
+                let Some(corner) = Self::cornering(topology, &self.blends, &self.runs, three, at)
+                else {
                     return false;
                 };
                 self.swallowed[at.slot()] = Some(first);
@@ -599,7 +884,7 @@ impl Rounding {
                         shared: self.junctions[junction].shared(at),
                     }),
                     Some(Filled::Corner(patch)) => Some(Ending::Cornered { corner: patch }),
-                    None => Self::across(topology, &blend, corner),
+                    None => Self::across(topology, &self.runs, &blend, end, corner),
                 };
             }
             let [Some(one), Some(two)] = ends else {
@@ -623,12 +908,14 @@ impl Rounding {
     /// reach is read as the setback outright, so its rulings stand that far
     /// along each face rather than `reach·tan(θ/2)` — which is the same place
     /// wherever the two faces meet square. See [`Round::new`].
-    fn blended(topology: &Topology, picked: Picked, of: &Round<'_>) -> Option<Blend> {
-        let edge = topology.edge(picked.edge);
+    fn blended(&mut self, topology: &Topology, run: Run, of: &Round<'_>) -> Option<Blend> {
+        let spines = &self.runs[run.spines[0] as usize..run.spines[1] as usize];
+        let first = spines[0];
+        let edge = topology.edge(first.edge);
         let Curve::Line(line) = edge.curve else {
             return None;
         };
-        let between = edge.between;
+        let between = first.between;
         if between[0] == between[1] {
             return None;
         }
@@ -647,7 +934,7 @@ impl Rounding {
         if predicate::touching((1.0 + leaning).abs(), ALIGNED) {
             return None;
         }
-        let walks = walked(topology, between[0], picked.edge)?;
+        let walks = walked(topology, between[0], first.edge)?;
         // **Which side the material is on, read off the walk.** A loop is wound
         // counterclockwise about its own face's outward normal, so the face
         // lies to the left of the walk seen from outside — and stepping that
@@ -688,9 +975,32 @@ impl Rounding {
                 y: (rails[1].origin - rails[0].origin).normalize(),
             }),
         };
+        // **Where the run crosses a corner of its own**, which is every corner
+        // between two of its pieces: the run goes straight on, and the two
+        // edges running to it are cut back to where the rulings cross them.
+        let inside = self.crossings.len() as u32;
+        for at in 1..spines.len() {
+            let crossing = Self::crossing(topology, [spines[at - 1], spines[at]], rails)?;
+            self.crossings.push(crossing);
+        }
+        // The two ends of the run, its own start first: the first piece runs the
+        // way the run does — see [`Rounding::follow`] — so the run starts where
+        // it does, and ends at whichever corner of the last piece the one
+        // before it does not share.
+        let last = topology.edge(spines[spines.len() - 1].edge).ends(true);
+        let at = [
+            edge.ends(true)[0],
+            match spines.len() {
+                1 => last[1],
+                held => {
+                    let before = topology.edge(spines[held - 2].edge).ends(true);
+                    last[usize::from(before.contains(&last[0]))]
+                }
+            },
+        ];
         Some(Blend {
-            spine: picked.edge,
-            between,
+            run: run.spines,
+            inside: [inside, self.crossings.len() as u32],
             walks,
             laid,
             // **Out of the material is away from the edge** for a blend cut
@@ -704,20 +1014,69 @@ impl Rounding {
                     (plane.normal().dot(line.origin - plane.origin) > 0.0) == convex
                 }
             },
-            pick: picked.pick,
+            pick: run.pick,
             rails,
-            at: edge.ends(true),
+            at,
+        })
+    }
+
+    /// Where the run crosses the corner between the two pieces of `pair`, or
+    /// `None` where it cannot.
+    ///
+    /// **Four edges meet there**, which is what a boolean's cut leaves: the two
+    /// pieces of the edge it split, and the edge it left on each of the two
+    /// faces. The two that are not the run's are cut back to where the rulings
+    /// cross them, at the same place the rulings are cut.
+    fn crossing(topology: &Topology, pair: [Spine; 2], rails: [Line; 2]) -> Option<Crossing> {
+        let [before, after] = pair;
+        let here = topology.edge(before.edge).ends(true);
+        let there = topology.edge(after.edge).ends(true);
+        let corner = *here.iter().find(|end| there.contains(end))?;
+        let mut along = [before.edge; 2];
+        let mut cut = [0.0; 2];
+        let mut made = [DVec3::ZERO; 2];
+        for side in 0..2 {
+            along[side] = neighbour(topology, before.between[side], before.edge, corner)?;
+            // The face on this side has to be cut there too, or the run has no
+            // edge to cut back and the ruling no place to be cut.
+            if along[side] == after.edge {
+                return None;
+            }
+            let Cut {
+                at: bound,
+                made: to,
+            } = cut_back(
+                topology,
+                along[side],
+                rails[side],
+                before.between[side],
+                corner,
+            )?;
+            cut[side] = bound;
+            made[side] = to;
+        }
+        Some(Crossing {
+            at: corner,
+            along,
+            cut,
+            made,
         })
     }
 
     /// How a blend closes across the corner `at`, or `None` where it cannot.
-    fn across(topology: &Topology, blend: &Blend, at: VertexId) -> Option<Ending> {
-        let Blend {
-            spine,
+    fn across(
+        topology: &Topology,
+        runs: &[Spine],
+        blend: &Blend,
+        end: usize,
+        at: VertexId,
+    ) -> Option<Ending> {
+        let Spine {
+            edge: spine,
             between,
-            rails,
             ..
-        } = *blend;
+        } = blend.tip(runs, end);
+        let rails = blend.rails;
         let mut along = [spine; 2];
         let mut cut = [0.0; 2];
         let mut made = [DVec3::ZERO; 2];
@@ -771,8 +1130,14 @@ impl Rounding {
     /// corners are where the rails cross: on the shared face the two blends'
     /// own rails cross each other, and on the face neither shares they cross
     /// the one edge neither replaces, at the same place.
-    fn joining(topology: &Topology, blends: &[Blend], ends: [Swallow; 2]) -> Option<Junction> {
-        let pair = ends.map(|end| blends[end.blend]);
+    fn joining(
+        topology: &Topology,
+        blends: &[Blend],
+        runs: &[Spine],
+        ends: [Swallow; 2],
+    ) -> Option<Junction> {
+        let whole = ends.map(|end| blends[end.blend]);
+        let pair = ends.map(|end| blends[end.blend].tip(runs, end.end));
         let sides = [0, 1].map(|which| {
             let other = pair[1 - which].between;
             (0..2).find(|&side| other.contains(&pair[which].between[side]))
@@ -787,34 +1152,34 @@ impl Rounding {
         // other.** Both cylinders stand a radius off the face they share, and
         // one cut into a convex edge stands off it on the other side from one
         // filled into a concave one — so the two never cross there at all.
-        if pair[0].outward != pair[1].outward {
+        if whole[0].outward != whole[1].outward {
             return None;
         }
-        let at = pair[0].at[ends[0].end];
+        let at = whole[0].at[ends[0].end];
         let corner = topology.vertex(at).at;
         // Where the two rails cross on the face they share, which is the one
         // corner of the answer that lies on no edge the body had.
         let plane = topology.face(pair[0].between[one]).surface;
         let facing = plane.normal(plane.uv(corner));
-        let rails = [pair[0].rails[one], pair[1].rails[two]];
+        let rails = [whole[0].rails[one], whole[1].rails[two]];
         let met = rails[0].at(crossed(rails[0], rails[1], facing)?);
         // And the edge neither of them replaces, cut back to where the first
         // one's rail crosses it. The second one's crosses it at the same place,
         // both rails standing a radius off the face they share.
-        let along = neighbour(topology, pair[0].between[1 - one], pair[0].spine, at)?;
+        let along = neighbour(topology, pair[0].between[1 - one], pair[0].edge, at)?;
         let Cut {
             at: cut,
             made: back,
         } = cut_back(
             topology,
             along,
-            pair[0].rails[1 - one],
+            whole[0].rails[1 - one],
             pair[0].between[1 - one],
             at,
         )?;
         let made = [met, back];
         let carried = topology.carried();
-        let surfaces = pair.map(|blend| blend.laid.surface());
+        let surfaces = whole.map(|blend| blend.laid.surface());
         let Meeting::Along(curves) = Meeting::of(&surfaces[0], &surfaces[1]) else {
             return None;
         };
@@ -852,20 +1217,22 @@ impl Rounding {
     fn cornering(
         topology: &Topology,
         blends: &[Blend],
+        runs: &[Spine],
         ends: [Swallow; 3],
         at: VertexId,
     ) -> Option<Cornered> {
         let three = ends.map(|end| blends[end.blend]);
+        let tips = ends.map(|end| blends[end.blend].tip(runs, end.end));
         // **Three faces between them, one apiece**, or the corner is not the
         // trihedral one this fills. The first blend divides two of them and the
         // second brings the third, every blend already dividing two that
         // differ — see [`Rounding::blended`].
-        let held = three[0].between;
-        let &across = three[1].between.iter().find(|face| !held.contains(face))?;
+        let held = tips[0].between;
+        let &across = tips[1].between.iter().find(|face| !held.contains(face))?;
         let faces = [held[0], held[1], across];
-        if three
+        if tips
             .iter()
-            .any(|blend| !blend.between.iter().all(|face| faces.contains(face)))
+            .any(|tip| !tip.between.iter().all(|face| faces.contains(face)))
         {
             return None;
         }
@@ -1018,30 +1385,40 @@ impl Rounding {
             let ringed = self.ring(at, into);
             self.ringed.push(ringed);
         }
+        // The corners a run leaves where it crosses one of the body's own, on
+        // which the pieces of its rulings end.
+        self.made_at.clear();
+        for at in 0..self.crossings.len() {
+            let crossing = self.crossings[at];
+            let made = array::from_fn(|side| {
+                let corner = into.topology_mut().add_vertex(Vertex {
+                    at: crossing.made[side],
+                    tolerance: topology.edge(crossing.along[side]).tolerance,
+                });
+                self.trim(
+                    topology,
+                    crossing.along[side],
+                    crossing.at,
+                    crossing.cut[side],
+                    corner,
+                );
+                corner
+            });
+            self.made_at.push(made);
+        }
         self.minted.clear();
+        self.railed.clear();
         for at in 0..self.blends.len() {
             let blend = self.blends[at];
             let ends = self.ends[at];
             let face = self.raised[at];
-            // The four corners, the spine's `from` end first and within each
-            // end the first of the two faces first.
+            // The four corners, the run's own start first and within each end
+            // the first of the two faces first.
             let corners: [VertexId; 4] = array::from_fn(|which| {
-                let end = which / 2;
-                self.ended(topology, at, ends[end], blend.at[end], which % 2, into)
+                self.ended(topology, at, which / 2, ends[which / 2], which % 2, into)
             });
             let rails = array::from_fn(|side| {
-                let rail = blend.rails[side];
-                let bounds = [0, 1].map(|end| {
-                    (into.topology().vertex(corners[end * 2 + side]).at - rail.origin)
-                        .dot(rail.direction)
-                });
-                Self::arc(
-                    into,
-                    Curve::Line(rail),
-                    bounds,
-                    [corners[side], corners[2 + side]],
-                    [self.made[blend.between[side].slot()].expect(RAISED), face],
-                )
+                self.rail(blend, side, [corners[side], corners[2 + side]], face, into)
             });
             let mut arced = [true; 2];
             let arcs = array::from_fn(|end| match ends[end] {
@@ -1075,6 +1452,50 @@ impl Rounding {
         }
     }
 
+    /// Mint the pieces of one blend's ruling on its `side`, and say where they
+    /// begin in [`Rounding::railed`].
+    ///
+    /// **One piece per spine of the run**, because a ruling divides the blend
+    /// from a *patch* of the face it runs out onto: the run crosses from one
+    /// patch to the next at every corner it goes through, and an edge names two
+    /// faces. `ends` are the corners at the two ends of the whole run.
+    fn rail(
+        &mut self,
+        blend: Blend,
+        side: usize,
+        ends: [VertexId; 2],
+        face: FaceId,
+        into: &mut Body,
+    ) -> u32 {
+        let rail = blend.rails[side];
+        let from = self.railed.len() as u32;
+        let pieces = blend.spines(&self.runs).len();
+        let mut along = ends[0];
+        for at in 0..pieces {
+            let patch = blend.spines(&self.runs)[at].between[side];
+            // Every piece but the last ends on the corner the run's crossing
+            // there left on this side. The last ends where the run does.
+            let upto = match at + 1 < pieces {
+                true => self.made_at[blend.inside[0] as usize + at][side],
+                false => ends[1],
+            };
+            let corners = [along, upto];
+            let bounds = corners.map(|corner| {
+                (into.topology().vertex(corner).at - rail.origin).dot(rail.direction)
+            });
+            let piece = Self::arc(
+                into,
+                Curve::Line(rail),
+                bounds,
+                corners,
+                [self.made[patch.slot()].expect(RAISED), face],
+            );
+            self.railed.push(piece);
+            along = upto;
+        }
+        from
+    }
+
     /// The corner one blend's rail on its `side` ends at, minted where the
     /// blend owns it.
     ///
@@ -1085,15 +1506,19 @@ impl Rounding {
         &mut self,
         topology: &Topology,
         blend: usize,
+        end: usize,
         ending: Ending,
-        swallowed: VertexId,
         side: usize,
         into: &mut Body,
     ) -> VertexId {
+        let swallowed = self.blends[blend].at[end];
         let (along, cut, made) = match ending {
             Ending::Cornered { corner } => {
-                let seat = self.cornered[corner].seat(self.blends[blend].between[side]);
-                return self.ringed[corner].made[seat];
+                // The face the patch seats this side against is the one the
+                // spine *at this end* divides — see [`Blend::run`], which is
+                // why no blend carries a face pair of its own.
+                let face = self.blends[blend].tip(&self.runs, end).between[side];
+                return self.ringed[corner].made[self.cornered[corner].seat(face)];
             }
             Ending::Against { junction, shared } => {
                 return self.joined[junction].made[usize::from(side != shared)];
@@ -1111,6 +1536,19 @@ impl Rounding {
         });
         self.trim(topology, along, swallowed, cut, corner);
         corner
+    }
+
+    /// Which seat of the patch at `corner` each of the two faces at the run
+    /// end `end` takes.
+    ///
+    /// **Read off the spine at that end** rather than off the blend, on the
+    /// terms [`Blend::run`] states: a run crosses from one patch of a face to
+    /// the next, so which pair a corner stands between is the tip's to say.
+    fn seated(&self, corner: &Cornered, end: Swallow) -> [usize; 2] {
+        self.blends[end.blend]
+            .tip(&self.runs, end.end)
+            .between
+            .map(|face| corner.seat(face))
     }
 
     /// Mint what one corner patch leaves: the corner it touches each face at,
@@ -1135,14 +1573,14 @@ impl Rounding {
         let centre = corner.sphere.centre();
         let arcs = array::from_fn(|which| {
             let end = corner.ends[which];
-            let seats = self.blends[end.blend].between.map(|face| corner.seat(face));
+            let seats = self.seated(&corner, end);
             let Laid::Round(cylinder) = self.blends[end.blend].laid else {
                 unreachable!("a patch of a sphere is only ever put between round blends");
             };
             let axis = Axis::new(
                 centre,
                 cylinder.axis.direction,
-                corner.made[seats[0]] - centre,
+                (corner.made[seats[0]] - centre).normalize(),
             );
             let curve = Curve::Circle(Circle {
                 axis,
@@ -1250,8 +1688,8 @@ impl Rounding {
         }
         for at in 0..self.blends.len() {
             let raised = self.raised[at];
-            let wound = self.wound(at);
-            Self::outline(into, raised, &wound);
+            self.wound(at);
+            Self::outline(into, raised, &self.bounding);
         }
         for at in 0..self.cornered.len() {
             let raised = self.patched[at];
@@ -1284,10 +1722,12 @@ impl Rounding {
         for at in 0..walk.len() {
             let coedge = walk[at];
             match self.spined[coedge.edge.slot()] {
-                Some(blend) => {
-                    let side = usize::from(self.blends[blend].between[1] == face);
+                Some(placed) => {
+                    let spine = self.blends[placed.blend].spines(&self.runs)[placed.at];
+                    let side = usize::from(spine.between[1] == face);
+                    let from = self.minted[placed.blend].rails[side] as usize;
                     self.walk.push(Coedge {
-                        edge: self.minted[blend].rails[side],
+                        edge: self.railed[from + placed.at],
                         forward: coedge.forward,
                     });
                 }
@@ -1319,40 +1759,42 @@ impl Rounding {
             .add_loop(|write| write.extend_from_slice(wrote));
     }
 
-    /// The one loop of one blend: along one ruling, across an end, back along
-    /// the other ruling, and across the other end.
+    /// Wind the loop of one blend into [`Rounding::bounding`]: along one
+    /// ruling, across an end, back along the other ruling, and across the other
+    /// end.
     ///
     /// **Wound off the face it was cut from**, which is the whole of the
-    /// arrangement: a blend uses each of its four edges the way the face across
-    /// that edge does not, so fixing the first ruling against the walk of the
-    /// face it runs out onto fixes the other three.
-    fn wound(&self, at: usize) -> [Coedge; 4] {
+    /// arrangement: a blend uses each of its edges the way the face across that
+    /// edge does not, so fixing the first ruling against the walk of the face
+    /// it runs out onto fixes the rest.
+    fn wound(&mut self, at: usize) {
         let Minted { rails, arcs, arced } = self.minted[at];
-        let mut walk = [
-            Coedge {
-                edge: rails[0],
-                forward: true,
-            },
-            Coedge {
-                edge: arcs[1],
-                forward: arced[1],
-            },
-            Coedge {
-                edge: rails[1],
-                forward: false,
-            },
-            Coedge {
-                edge: arcs[0],
-                forward: !arced[0],
-            },
-        ];
-        if self.blends[at].walks {
-            walk.reverse();
-            for coedge in &mut walk {
+        let blend = self.blends[at];
+        let pieces = blend.spines(&self.runs).len();
+        let (bounding, railed) = (&mut self.bounding, &self.railed);
+        bounding.clear();
+        bounding.extend((0..pieces).map(|which| Coedge {
+            edge: railed[rails[0] as usize + which],
+            forward: true,
+        }));
+        bounding.push(Coedge {
+            edge: arcs[1],
+            forward: arced[1],
+        });
+        bounding.extend((0..pieces).rev().map(|which| Coedge {
+            edge: railed[rails[1] as usize + which],
+            forward: false,
+        }));
+        bounding.push(Coedge {
+            edge: arcs[0],
+            forward: !arced[0],
+        });
+        if blend.walks {
+            bounding.reverse();
+            for coedge in bounding.iter_mut() {
                 *coedge = coedge.turned();
             }
         }
-        walk
     }
 
     /// The one loop of one corner patch: its three arcs, chained.
@@ -1371,9 +1813,7 @@ impl Rounding {
         // Which corner each arc runs between as the patch walks it, so the
         // three can be chained into one loop.
         let ends: [[usize; 2]; 3] = array::from_fn(|which| {
-            let seats = self.blends[corner.ends[which].blend]
-                .between
-                .map(|face| corner.seat(face));
+            let seats = self.seated(&corner, corner.ends[which]);
             match turned[which] {
                 true => seats,
                 false => [seats[1], seats[0]],
@@ -1458,7 +1898,7 @@ impl Rounding {
                 for at in 0..self.blends.len() {
                     if topology
                         .faces_of(shell)
-                        .contains(&self.blends[at].between[0])
+                        .contains(&self.blends[at].tip(&self.runs, 0).between[0])
                     {
                         into.topology_mut().add_shelled(self.raised[at]);
                     }
