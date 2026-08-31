@@ -40,6 +40,18 @@ pub(crate) enum Surface {
 /// the reason [`roots`](crate::math::quartic::roots) gives.
 pub(crate) type Crossings = Inline<f64, 4>;
 
+/// How many times [`Surface::reaches`] splits a box before it gives the box the
+/// benefit of the doubt.
+///
+/// **Four, which brings the ball round a cube down by a factor of four.** Each
+/// split halves the widest axis, so four of them take a cube to a sixteenth of
+/// its volume and its diagonal to a quarter. The cost is the other half of it:
+/// a box the surface really does pass through is narrowed down one branch and
+/// answers in about eight readings, and one that neither reaches nor culls
+/// cleanly costs at most thirty-one. Both are a handful of arithmetic against a
+/// face split that would otherwise be taken for nothing.
+const SPLITS: usize = 4;
+
 impl Surface {
     /// Whether this is of the exact tier.
     ///
@@ -120,6 +132,15 @@ impl Surface {
         }
     }
 
+    /// Whether any of it passes within `slack` of `fills`, where that is
+    /// answerable in closed form.
+    fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> Option<bool> {
+        match self {
+            Self::Natural(of) => of.spans(fills, slack),
+            Self::Fitted(of) => of.spans(),
+        }
+    }
+
     /// How far `at` stands from the surface, never signed.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {
@@ -137,13 +158,23 @@ impl Surface {
     /// nowhere near it. What it must never be cut by is a surface that misses
     /// it, and this is the question that says so.
     ///
-    /// **A ball round the box, held against the surface's own distance to its
-    /// middle.** [`Surface::off`] never overstates how far a place stands from
-    /// the surface, so a middle standing further off than the box's own half
-    /// diagonal is a surface no corner of the box reaches. Coarse — a plane
-    /// clipping one corner of a long thin box answers yes wherever it crosses
-    /// the ball — and not wrong, which is the whole of what a cull owes: it
-    /// drops work and never an answer.
+    /// **A plane and a sphere answer outright** — see [`Natural::spans`], which
+    /// is where the two closed forms are and why the other three have none.
+    ///
+    /// **The rest are narrowed.** [`Surface::off`] is a true distance, so it
+    /// changes no faster than the place does: a box whose middle stands further
+    /// off than the box's own half diagonal holds no part of the surface. Read
+    /// once that is a ball round the box, which is far larger than a long thin
+    /// box and so never culls an unbounded surface standing clear of one — a
+    /// block's wall nine units off a cone reads seven against a half diagonal of
+    /// ten, and the pair is cut although the two never meet. Which costs the
+    /// whole boolean where the crossing is a conic nothing writes down. So the
+    /// box is halved where one reading cannot settle it, [`SPLITS`] times over,
+    /// each half being nearer its own middle.
+    ///
+    /// **Conservative where the halving runs out.** A box still unsettled at the
+    /// last split is called reached. That drops work and never an answer, which
+    /// is the whole of what a cull owes.
     ///
     /// **Sound across a shared edge**, which is what a uniform cut needs: a
     /// surface reaching an edge of this face reaches a place on the box of
@@ -151,9 +182,25 @@ impl Surface {
     /// face beside it too. Nothing is divided on one side of an edge and left
     /// whole on the other — see `.notes/KERNEL.md` §7.4.
     pub(crate) fn reaches(&self, fills: Bounds<DVec3>, slack: f64) -> bool {
-        let half = fills.half();
-        debug_assert!(half.is_finite(), "an empty box holds no ball to reach");
-        self.off(fills.middle()) <= half.length() + slack
+        debug_assert!(
+            fills.half().is_finite(),
+            "an empty box holds no ball to reach",
+        );
+        self.spans(fills, slack)
+            .unwrap_or_else(|| self.narrowed(fills, slack, SPLITS))
+    }
+
+    /// The same question by [`Surface::off`] alone, with `splits` halvings of
+    /// the box left to narrow it by.
+    fn narrowed(&self, fills: Bounds<DVec3>, slack: f64, splits: usize) -> bool {
+        if self.off(fills.middle()) > fills.half().length() + slack {
+            return false;
+        }
+        splits == 0
+            || fills
+                .halved()
+                .into_iter()
+                .any(|half| self.narrowed(half, slack, splits - 1))
     }
 
     /// Whether the parameterization says nothing at `at` — one place that

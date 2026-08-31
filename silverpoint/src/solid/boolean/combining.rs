@@ -31,9 +31,9 @@ use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::quartic::{Quartered, Quartic};
 use crate::solid::geometry::surface::Surface;
-use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
 use crate::solid::meeting::seeding;
+use crate::solid::meeting::{Curves, Meeting};
 use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::{Face, FaceId};
@@ -160,9 +160,12 @@ struct Scratch {
     /// A face's boundary in the world, walked as chords: one loop of it on its
     /// way into that face's own parameters, or the whole of it on its way into
     /// the box the face fills. `marks` is in step with `traced` for the first
-    /// of those, saying which edge put each place there.
+    /// of those, saying which edge put each place there, and `spread` is the
+    /// same marks in step with the flattening — see [`Face::doubled`], a place
+    /// the surface has no angle for being written twice.
     traced: Vec<DVec3>,
     marks: Vec<Came>,
+    spread: Vec<Came>,
     /// The places one meeting's walks are started from, which are at least one
     /// on every piece of it and for a leaning drill are more — see
     /// [`seeding::seeded`].
@@ -399,20 +402,35 @@ impl Combining {
                     }
                     Meeting::Along(along) => along,
                 };
+                // **A closed form where the face's own parameters hold one,
+                // and the curve walked where they do not.** `imprinted` writes
+                // a meeting down in the parameters of the surface being cut,
+                // and there are pairs it has no line for — a circle leaning
+                // across a sphere runs `v = ψ(u) ± acos(…)` there, a graph over
+                // the angle with two branches. What answers those is the shape
+                // that asks nothing of the parameters at all: a traced cut
+                // reads how far a place stands off it from the other *surface*
+                // and lays its corners down by walking the curve. So a gap in
+                // the table costs sampling rather than the whole boolean.
+                //
+                // **All of the meeting or none of it**, which the traced cut
+                // requires rather than prefers: its reading comes to nought on
+                // every piece of the meeting at once, so a cut carrying one
+                // piece would call a place on another piece its own — see
+                // [`Traced`]. One curve with no closed form sends the pair of
+                // them down the walked route.
+                if along.all().iter().any(|it| self.written(on, *it).is_none()) {
+                    if !self.walked(&on, &other, along) {
+                        return false;
+                    }
+                    continue;
+                }
                 // Each curve of the meeting in turn: a plane cutting a chord
                 // off a cylinder meets it in two, and both divide the face.
                 for curve in along.all() {
-                    // Numbered before the cut is built rather than after, which
-                    // is what a round cut needs: it carries its own number —
-                    // see [`Cut::Round`] — so there is nothing to hand back.
-                    // A straight imprint carries none and spends none.
-                    let next = match curve {
-                        Curve::Line(_) => None,
-                        _ => Some(self.imprints.crossing(*curve)),
-                    };
-                    let Some(cut) = imprinted(on, *curve, next, self.scratch.laid) else {
-                        return false;
-                    };
+                    let cut = self
+                        .written(on, *curve)
+                        .expect("every curve of the meeting was written down");
                     let reading = Reading {
                         on,
                         imprints: &self.imprints,
@@ -564,6 +582,57 @@ impl Combining {
         Some(self.file(on, other, from))
     }
 
+    /// How `curve` divides the face being laid out, in that face's own
+    /// parameters — `None` where nothing here writes that shape down.
+    ///
+    /// **Numbered before the cut is built rather than after**, which is what a
+    /// round cut needs: it carries its own number — see [`Cut::Round`] — so
+    /// there is nothing to hand back. A straight imprint carries none and
+    /// spends none.
+    ///
+    /// **Asked twice of every curve that has one**, once to find out whether the
+    /// whole meeting is written down and once to cut by it. That costs a second
+    /// reading of the table and no second run: the number a curve takes is the
+    /// number it already has — see [`Imprints::crossing`].
+    fn written(&mut self, on: Surface, curve: Curve) -> Option<Cut<'static>> {
+        let run = match curve {
+            Curve::Line(_) => None,
+            _ => Some(self.imprints.crossing(curve)),
+        };
+        imprinted(on, curve, run, self.scratch.laid)
+    }
+
+    /// Cut the face being worked on by a meeting its own parameters have no
+    /// line for, walking the curves instead.
+    ///
+    /// **The floor under [`Combining::written`]**, and the route the quartic
+    /// and the marched tiers already take: the curves are filed for the pair
+    /// exactly as those file theirs, so a meeting worked out for one face is
+    /// walked once and read by every face after it.
+    ///
+    /// **A straight curve is refused rather than walked.** A traced cut samples
+    /// a whole turn of its curve's own parameter, and a line's parameter is a
+    /// distance with no turn in it — so a line arriving here would be sampled
+    /// over the length of a turn and cut nothing past that. Nothing produces
+    /// one today: a line lies on a plane, a cylinder or a cone, and a face's
+    /// own parameters hold it on the first two.
+    fn walked(&mut self, on: &Surface, other: &Surface, along: Curves) -> bool {
+        if along.all().iter().any(|it| matches!(it, Curve::Line(_))) {
+            return false;
+        }
+        let curves = match self.filed(on, other) {
+            Some(had) => had,
+            None => {
+                let from = self.curves.len() as u32;
+                for curve in along.all() {
+                    self.curves.push(*curve);
+                }
+                self.file(on, other, from)
+            }
+        };
+        self.trace(on, other, curves)
+    }
+
     /// Cut the face being worked on by what `on` and `other` meet in, which is
     /// the curves filed at `curves`.
     ///
@@ -670,6 +739,7 @@ impl Combining {
             corners,
             traced,
             marks,
+            spread,
             ..
         } = scratch;
         cells.clear();
@@ -707,10 +777,12 @@ impl Combining {
                 for at in walk.iter() {
                     laid.hold(*at);
                 }
+                spread.clear();
+                face.doubled(traced, marks, spread);
                 corners.clear();
                 corners.extend(
                     walk.iter()
-                        .zip(marks.iter())
+                        .zip(spread.iter())
                         .map(|(&at, &came)| Corner { at, came }),
                 );
                 if at == 0 {
@@ -852,6 +924,27 @@ fn imprinted(
             along: DVec2::X,
             run,
         }),
+        // **A circle on a sphere square to its axis is a straight cut too**, and
+        // in the same parameter — but that one is an *angle* up from the
+        // equator where a cylinder's is a height along the axis, so the two
+        // cannot share an arm however alike they read. Every place of such a
+        // circle stands at one angle up, so it is the line `v = that`.
+        //
+        // Square to the axis or not at all. A circle on a sphere that is not
+        // square to it is one no straight line in these parameters holds: it
+        // runs `v = ψ(u) ± acos(…)` for an amplitude and a phase that both move
+        // with `u`, and nothing writes that down. Which costs nothing but the
+        // sampling — the caller walks the curve instead, see
+        // [`Combining::walked`].
+        (Surface::Natural(Natural::Sphere(sphere)), Curve::Circle(circle))
+            if predicate::parallel(circle.axis.direction, sphere.axis.direction) =>
+        {
+            Some(Cut::Straight {
+                at: DVec2::new(0.0, sphere.uv(circle.at(0.0)).y),
+                along: DVec2::X,
+                run,
+            })
+        }
         // A ruling line on a cylinder is a cut at a constant angle, which is a
         // straight cut in a parameter that *wraps*: `θ = that`, and which turn
         // of it decides whether the face is divided at all. A face may not wrap
@@ -1026,6 +1119,103 @@ pub(crate) mod internals {
 
         pub(crate) fn loops(&self) -> &Loops<Corner> {
             &self.loops
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::solid::geometry::axis::Axis;
+    use crate::solid::geometry::circle::Circle;
+    use crate::solid::geometry::sphere::Sphere;
+    use std::f64::consts::FRAC_PI_6;
+
+    /// **A circle on a sphere square to its axis is the line `v = that`**,
+    /// where a circle on a cylinder is the line at a height.
+    ///
+    /// A ball of radius two about the origin, spun about the world's `+y`. The
+    /// circle at `y = 1` on it stands where `sin v = 1/2`, so the cut is the
+    /// line `v = π/6` — the whole of the hand computation, and the reason the
+    /// two cannot share the cylinder's arm: that one carries a *distance* along
+    /// the axis where this carries an angle up from the equator.
+    ///
+    /// **And a circle that leans is not written down at all**, there being no
+    /// straight line in these parameters holding one: it runs at an angle that
+    /// moves with the angle round. What cuts by one is
+    /// [`Combining::walked`], and the boolean over it is held by
+    /// `a_ball_halved_by_a_leaning_plane_keeps_the_circle_it_was_cut_by`.
+    #[test]
+    fn a_circle_square_to_a_sphere_is_a_straight_cut_at_its_own_angle() {
+        let sphere = Sphere {
+            axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+            radius: 2.0,
+        };
+        let on = Surface::Natural(Natural::Sphere(sphere));
+        let laid = Bounds {
+            low: DVec2::new(0.0, -FRAC_PI_2),
+            high: DVec2::new(TAU, FRAC_PI_2),
+        };
+        let square = Curve::Circle(Circle {
+            axis: Axis::new(DVec3::Y, DVec3::Y, DVec3::X),
+            radius: 3.0f64.sqrt(),
+        });
+        let Some(Cut::Straight { at, along, .. }) = imprinted(on, square, Some(0), laid) else {
+            panic!("a circle square to the axis is no straight cut");
+        };
+        assert!((at.y - FRAC_PI_6).abs() < 1e-12, "{at:?}");
+        assert_eq!(along, DVec2::X, "the cut runs the wrong way");
+
+        let leaning = Curve::Circle(Circle {
+            axis: Axis::new(DVec3::ZERO, DVec3::new(0.0, 1.0, 1.0).normalize(), DVec3::X),
+            radius: 2.0,
+        });
+        assert!(
+            imprinted(on, leaning, Some(0), laid).is_none(),
+            "a leaning circle was written down as a straight cut",
+        );
+    }
+
+    /// **A meeting one of whose curves has no closed form is walked whole.**
+    ///
+    /// A traced cut reads how far a place stands off it from the other
+    /// *surface*, and that reading comes to nought on every piece of the
+    /// meeting at once — so a cut carrying one piece would call a place on
+    /// another piece its own. A sphere on a cylinder's axis meets it in two
+    /// circles, and those are square to the sphere's axis and written down; the
+    /// same pair on a *leaning* sphere gives two circles neither of which is,
+    /// and both go down the walked route together.
+    #[test]
+    fn a_meeting_is_written_down_whole_or_walked_whole() {
+        let laid = Bounds {
+            low: DVec2::new(0.0, -FRAC_PI_2),
+            high: DVec2::new(TAU, FRAC_PI_2),
+        };
+        let sphere = |direction| {
+            Surface::Natural(Natural::Sphere(Sphere {
+                axis: Axis::new(DVec3::ZERO, direction, DVec3::X),
+                radius: 2.0,
+            }))
+        };
+        let tube = Surface::Natural(Natural::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+            radius: 1.0,
+        }));
+        let Meeting::Along(along) = Meeting::of(&sphere(DVec3::Y), &tube) else {
+            panic!("a sphere on a cylinder's axis meets it in circles");
+        };
+        assert_eq!(along.all().len(), 2, "one circle either side of the axis");
+        let upright = sphere(DVec3::Y);
+        let leaning = sphere(DVec3::new(0.0, 1.0, 1.0).normalize());
+        for curve in along.all() {
+            assert!(
+                imprinted(upright, *curve, Some(0), laid).is_some(),
+                "a circle square to the sphere's own axis is the line `v = that`",
+            );
+            assert!(
+                imprinted(leaning, *curve, Some(0), laid).is_none(),
+                "a circle leaning across a sphere is no straight cut",
+            );
         }
     }
 }

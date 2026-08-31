@@ -809,22 +809,9 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
     // **And it shuts in what the arithmetic says.** A cylinder cut by a plane
     // through its axis holds `πr²` times the height where the axis crosses it,
     // the two halves of the wedge above and below cancelling exactly — three
-    // here, so `3π`. Chorded, so it reads short by about the wall inscribed in
-    // itself: two thirds of the sagitta over the circumference, along the
-    // height, which is the same bound the round tool above is held to.
-    let want = 3.0 * PI;
-    let mut mesher = Mesher::default();
-    let mut last = f64::INFINITY;
-    for sagitta in [1e-2, 1e-3, 1e-4] {
-        let off = mesher.volume(&into, sagitta) - want;
-        let slack = (2.0 / 3.0) * sagitta * TAU * 3.0;
-        assert!(
-            off < 0.0 && -off < slack,
-            "the mitre shut in {off} off {want} at a sagitta of {sagitta}",
-        );
-        assert!(-off < last, "no closer at a sagitta of {sagitta}: {off}");
-        last = -off;
-    }
+    // here, so `3π`. The wall the chording spans is that circumference along
+    // that height.
+    closes(&into, 3.0 * PI, TAU * 3.0, &[1e-2, 1e-3, 1e-4], "the mitre");
 }
 
 /// The volume two cylinders of unequal radius on square axes have in common,
@@ -1872,5 +1859,327 @@ fn a_bar_bored_again_and_again_loses_the_same_each_time() {
             last - now,
         );
         last = now;
+    }
+}
+
+/// A ball of `radius` about the origin, spun from half a disc.
+fn ball(radius: f64) -> Body {
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, radius);
+    let low = sketch.add_point(DVec2::new(0.0, -radius - 0.5));
+    let high = sketch.add_point(DVec2::new(0.0, radius + 0.5));
+    sketch.add_segment(low, high);
+    let found = Arrangement::of(&sketch);
+    for at in 0..found.faces().len() {
+        // Half the disc is on each side of the line, and a revolve of a region
+        // straddling it is refused — see [`Revolving::raise`].
+        let body = Revolution::new(
+            &found,
+            &[at],
+            Plane::FRONT,
+            DVec2::ZERO,
+            DVec2::Y,
+            Sector::WHOLE,
+            TOOL,
+        )
+        .body();
+        if !body.is_empty() {
+            return body;
+        }
+    }
+    panic!("neither half of the disc swept a ball")
+}
+
+/// **A ball and a cone are cut clean through the places their own parameters
+/// run out at.**
+///
+/// A cone's apex and a sphere's poles are one place the surface names with
+/// every angle at once, so [`Face::flatten`](crate::solid::topology::face::Face)
+/// writes one of them *twice* — at the two angles its neighbours round the loop
+/// stand at. What that costs is the reading of it: a boolean lays a face out
+/// with one mark per traced corner saying which edge put it there, and against
+/// a walk two corners longer those marks slide, the loop loses its tail and no
+/// crossing is found. [`Face::doubled`] is the same rule over the marks, which
+/// is what keeps the two readable together.
+///
+/// **A slab through a ball**, taking everything above `y = 1` off a ball of
+/// three. What is left is the ball less its cap, `4πr³/3 − π(r−h)²(2r+h)/3`,
+/// which for `r = 3` and `h = 1` is `36π − 28π/3 = 80π/3`. Four faces: the
+/// three lunes a revolve builds a ball from, each cut down to its lower part,
+/// and the disc the slab leaves.
+///
+/// **And a rod under a cone**, joined rather than cut so the apex stands in the
+/// answer instead of being taken away by it. `πr²h/3 + πs²d` for a cone of base
+/// two and height four on a rod of one, two deep, is `16π/3 + 2π = 22π/3`.
+///
+/// Chorded, so each reads under and closes on the true figure as the sagitta
+/// falls.
+#[test]
+fn a_ball_and_a_cone_are_cut_through_the_places_their_parameters_run_out() {
+    let across = block(
+        raised(1.0),
+        &[(-9.0, -9.0), (9.0, -9.0), (9.0, 9.0), (-9.0, 9.0)],
+        9.0,
+        CUBE,
+    );
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+
+    let ball = ball(3.0);
+    assert_eq!(ball.topology().faces().count(), 3, "the ball is not a ball");
+    assert!(
+        boolean.combine(&ball, &across, Operation::Cut, &mut into),
+        "a ball sliced across its poles was turned away",
+    );
+    assert_eq!(into.reckoning().genus, 0, "a ball less its cap is a ball");
+    assert_eq!(
+        into.topology().faces().count(),
+        4,
+        "three lunes cut down and the disc the slab left",
+    );
+    // The zone left of the ball is `2πrh` for the four it reaches through, and
+    // the disc the slab leaves is `π(r² − h²)` across.
+    let walls = TAU * 3.0 * 4.0 + PI * 8.0;
+    closes(
+        &into,
+        80.0 * PI / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the ball less its cap",
+    );
+
+    let cone = taper();
+    assert_eq!(cone.topology().faces().count(), 6, "the cone is not a cone");
+    let stub = rod(raised(-2.0), DVec2::ZERO, 1.0, 2.0, CUBE);
+    assert!(
+        boolean.combine(&cone, &stub.body, Operation::Join, &mut into),
+        "a cone stood on a rod was turned away",
+    );
+    assert_eq!(into.reckoning().genus, 0, "a cone on a rod is a ball");
+    // The cone's own `πrl`, the rod's `2πrd`, the annulus the base is left as
+    // and the rod's far disc.
+    let walls = PI * 2.0 * 20.0_f64.sqrt() + TAU * 2.0 + PI * 3.0 + PI;
+    closes(
+        &into,
+        22.0 * PI / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the cone and the rod under it",
+    );
+}
+
+/// **A ball halved by a plane leaning across its axis**, which is the crossing
+/// no line in a sphere's own parameters holds.
+///
+/// A circle square across a sphere's axis is the line `v = that` there. One
+/// leaning is `v = ψ(u) ± acos((D/r) / hypot(R cos(u − φ), C))` — a graph over
+/// the angle with two branches, and nothing writes it down. What answers it is
+/// the cut that asks the parameters nothing: a traced cut reads how far a place
+/// stands off it from the other *surface*, so a gap in the table costs sampling
+/// rather than the whole boolean. See [`Boolean::combine`].
+///
+/// **Exactly half, by an argument rather than by quadrature.** The plane runs
+/// through the centre, so the reflection through that centre carries the ball
+/// onto itself and swaps the two sides — the halves are congruent, and each is
+/// `2πr³/3`, which for three is `18π`.
+///
+/// **And the body it leaves is exact.** Only the classification was walked. The
+/// edge comes off the meeting itself, so the rim is the great circle the plane
+/// really cut — radius three to the last bit — and nothing carries a sagitta.
+#[test]
+fn a_ball_halved_by_a_leaning_plane_keeps_the_circle_it_was_cut_by() {
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(
+            &ball(3.0),
+            &leaning_block(),
+            Operation::Intersect,
+            &mut into
+        ),
+        "a ball halved by a leaning plane was turned away",
+    );
+    assert_eq!(into.reckoning().genus, 0, "half a ball is a ball");
+    assert_eq!(
+        into.topology().faces().count(),
+        4,
+        "three lunes halved and the disc the plane left",
+    );
+    assert!(into.exact(), "a ball and a plane are both exact surfaces");
+    assert_eq!(into.strays(), 0.0, "nothing here was walked into an edge");
+    let widest = into
+        .topology()
+        .edges()
+        .filter_map(|(_, edge)| match edge.curve {
+            Curve::Circle(circle) => Some(circle.radius),
+            _ => None,
+        })
+        .fold(0.0_f64, f64::max);
+    assert_eq!(widest, 3.0, "the rim is the ball's own great circle");
+    // Half the ball's own `4πr²`, and the great disc the plane leaves.
+    closes(
+        &into,
+        18.0 * PI,
+        TAU * 9.0 + PI * 9.0,
+        &[1e-2, 1e-3],
+        "half a ball",
+    );
+}
+
+/// **A taper sliced by a slab, whose walls run parallel to its own axis.**
+///
+/// A cut is taken by whole *surfaces* — see `.notes/KERNEL.md` §7.4 — so a
+/// block's wall divides a cone however far off the cone it stands, and a plane
+/// parallel to a cone's axis meets it in a hyperbola, which is a curve nothing
+/// here writes down. So what keeps this a body rather than a refusal is the
+/// cull: the wall stands nine units off the cone, which is seven from it
+/// against a ball of ten round the face's own box, and one halving of that box
+/// settles the pair — see
+/// [`Surface::reaches`](crate::solid::geometry::surface::Surface).
+///
+/// **The frustum the arithmetic says.** A cone of base two and height four cut
+/// off at `y = 1` stands `1.5` across there, so what is left is `πh(R² + Rr +
+/// r²)/3 = π(4 + 3 + 2.25)/3`. Seven faces: three lateral pieces, three sectors
+/// of the base, and the disc the slab leaves.
+#[test]
+fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
+    let across = block(
+        raised(1.0),
+        &[(-9.0, -9.0), (9.0, -9.0), (9.0, 9.0), (-9.0, 9.0)],
+        9.0,
+        CUBE,
+    );
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&taper(), &across, Operation::Cut, &mut into),
+        "a taper sliced square across was turned away",
+    );
+    assert_eq!(into.reckoning().genus, 0, "a frustum is a ball");
+    assert_eq!(
+        into.topology().faces().count(),
+        7,
+        "three lateral pieces, three sectors of the base and the slab's disc",
+    );
+    // The frustum's own `π(R + r)l` for a slant of `√(0.25 + 1)`, and the two
+    // discs it stands between.
+    let walls = PI * 3.5 * 1.25_f64.sqrt() + PI * 4.0 + PI * 2.25;
+    closes(
+        &into,
+        PI * (4.0 + 3.0 + 2.25) / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the frustum",
+    );
+}
+
+/// **A meeting no face can carry is refused rather than answered wrongly**,
+/// which is the standing every unanswerable case in this boolean takes — see
+/// [`Boolean::combine`].
+///
+/// Two are left, and each is a shape rather than an oversight.
+///
+/// **A plane that genuinely crosses a cone.** Milling a flat down a taper is
+/// that: the wall runs parallel to the axis and passes through the cone, so no
+/// cull can drop it and the hyperbola has to be written down. Which is what
+/// `Curve` does not hold — see `.notes/KERNEL.md` §9.1, where the two ways in
+/// are weighed.
+///
+/// **And Villarceau's circles.** A plane through a ring's middle at the
+/// bitangent lean cuts two circles of the major radius, and they *cross* — at
+/// both places the plane touches the tube. A traced cut carries every piece of
+/// one meeting together and orders places along each piece in turn, which two
+/// pieces sharing a place have no answer for. So the fall-back that carries a
+/// leaning circle on a sphere does not carry these.
+#[test]
+fn a_meeting_no_face_can_carry_is_refused_rather_than_answered_wrongly() {
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+
+    // A wall at `x = 1`, which the taper is two across at its base and so
+    // stands wholly inside.
+    let milled = block(
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            x: DVec3::X,
+            y: DVec3::NEG_Z,
+        },
+        &[(1.0, -9.0), (9.0, -9.0), (9.0, 9.0), (1.0, 9.0)],
+        9.0,
+        CUBE,
+    );
+    assert!(
+        !boolean.combine(&taper(), &milled, Operation::Cut, &mut into),
+        "a flat was milled down a taper",
+    );
+    assert!(into.is_empty(), "a refusal left half a body behind");
+
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    // `cos α = √(R² − r²)/R`, which is the lean that makes the plane touch the
+    // tube twice — see `Meeting::plane_torus`.
+    let lean = (major * major - minor * minor).sqrt() / major;
+    let bitangent = block(
+        Plane {
+            origin: DVec3::ZERO,
+            x: DVec3::new(lean, -(1.0 - lean * lean).sqrt(), 0.0),
+            y: DVec3::NEG_Z,
+        },
+        &[(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
+        20.0,
+        TOOL,
+    );
+    assert!(
+        !boolean.combine(
+            &Body::ring(major, minor),
+            &bitangent,
+            Operation::Intersect,
+            &mut into,
+        ),
+        "a ring was cut along Villarceau's circles",
+    );
+    assert!(into.is_empty(), "a refusal left half a body behind");
+}
+
+/// A cone of base two and height four, apex up the world's `+y`, spun from a
+/// right triangle.
+fn taper() -> Body {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (0.0, 4.0)]);
+    let found = Arrangement::of(&sketch);
+    Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        TOOL,
+    )
+    .body()
+}
+
+/// Hold `body` against the volume `want` at each of `sagittas`, in turn.
+///
+/// **Under and closing**, which is what a mesh of an exact body owes: every
+/// chord lies inside the surface it cuts across, so the figure reads short and
+/// the shortfall falls as the sagitta does. A test that only bounded the error
+/// would pass on a body that meshed the same wrong shape every time.
+///
+/// **`walls` is how much face the chording spans**, which is what turns the
+/// sagitta into a volume: what a chord cuts off goes as two thirds of the
+/// sagitta times the area it reaches over. A bound on what the mesh gives up
+/// rather than a prediction of it, and the same one every measured test in this
+/// file is held to.
+fn closes(body: &Body, want: f64, walls: f64, sagittas: &[f64], named: &str) {
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for &sagitta in sagittas {
+        let slack = (2.0 / 3.0) * sagitta * walls;
+        let off = want - mesher.volume(body, sagitta);
+        assert!(off > 0.0, "{named} read over the true {want} at {sagitta}");
+        assert!(off < slack, "{named} read {off} off {want} at {sagitta}");
+        assert!(off < last, "{named} read no nearer at {sagitta}: {off}");
+        last = off;
     }
 }

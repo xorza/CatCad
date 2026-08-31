@@ -78,8 +78,8 @@ impl Face {
     /// round the loop stand at, the corner before it and the corner after.
     ///
     /// So this is **appends, one corner per traced place and a second for each
-    /// place the surface has no angle for** — see [`Face::placed`], which walks
-    /// the same rule to say where each of them stands in the world. How finely
+    /// place the surface has no angle for** — see [`Face::doubled`], which walks
+    /// the same rule over whatever a caller holds per corner. How finely
     /// the loop was traced is whoever traced it's business, see
     /// [`Topology::walk`](crate::solid::topology::Topology). Both readers want
     /// the same answer and for different reasons, which is why it is here
@@ -143,19 +143,26 @@ impl Face {
         })
     }
 
-    /// Where each corner [`Face::flatten`] writes stands in the world.
+    /// What each corner [`Face::flatten`] writes carries, from what each corner
+    /// of `traced` carries.
     ///
-    /// The walk it was given, with a place the surface has no angle for written
-    /// twice — the same rule, so the two come out the same length and a caller
-    /// holding both can read them together. Kept as the *traced* place rather
-    /// than evaluated back from the parameters, which is what makes a corner
-    /// shared with the face across an edge bit for bit the one that face has.
-    pub(crate) fn placed(&self, traced: &[DVec3], into: &mut Vec<DVec3>) {
+    /// The marks it was given, with the one at a place the surface has no angle
+    /// for written twice — the same rule, so the two come out the same length
+    /// and a caller holding both can read them together. Without it a loop
+    /// reaching a pole is read against marks a corner short, and every mark
+    /// after that pole belongs to the corner before it.
+    ///
+    /// The places themselves are a mark like any other, and the mesher asks for
+    /// them that way. Kept as the *traced* place rather than evaluated back
+    /// from the parameters, which is what makes a corner shared with the face
+    /// across an edge bit for bit the one that face has.
+    pub(crate) fn doubled<T: Copy>(&self, traced: &[DVec3], marks: &[T], into: &mut Vec<T>) {
+        debug_assert_eq!(traced.len(), marks.len(), "one mark to a traced corner");
         into.reserve(traced.len());
-        for &at in traced {
-            into.push(at);
+        for (&at, &mark) in traced.iter().zip(marks) {
+            into.push(mark);
             if self.surface.singular(at) {
-                into.push(at);
+                into.push(mark);
             }
         }
     }

@@ -167,6 +167,38 @@ impl Natural {
         }
     }
 
+    /// Whether any of this surface passes within `slack` of the box `fills`, or
+    /// `None` where that has no closed form — see
+    /// [`Surface::reaches`](super::surface::Surface), which walks the box for
+    /// the ones that answer `None`.
+    ///
+    /// **Two of the four have a box test outright.** A plane's nearest and
+    /// furthest corners are the box's own support along the normal; a sphere's
+    /// are the nearest and furthest places of the box from its centre, and a
+    /// sphere reaches the box exactly where its radius falls between the two. A
+    /// cylinder and a cone both want the nearest place of a box to a *line*,
+    /// which is no closed form for an axis running any way it likes.
+    pub(crate) fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> Option<bool> {
+        let (middle, half) = (fills.middle(), fills.half());
+        match self {
+            Self::Plane(plane) => {
+                let normal = plane.normal();
+                let reach = normal.abs().dot(half);
+                Some((middle - plane.origin).dot(normal).abs() <= reach + slack)
+            }
+            Self::Sphere(sphere) => {
+                // How far the centre stands along each axis, from which the
+                // nearest place of the box is the overshoot on each and the
+                // furthest is the sum.
+                let off = (middle - sphere.centre()).abs();
+                let near = (off - half).max(DVec3::ZERO).length();
+                let far = (off + half).length();
+                Some(near <= sphere.radius + slack && sphere.radius - slack <= far)
+            }
+            Self::Cylinder(_) | Self::Cone(_) => None,
+        }
+    }
+
     /// How far `at` stands from the surface, never signed.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {

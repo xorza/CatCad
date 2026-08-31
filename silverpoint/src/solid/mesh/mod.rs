@@ -181,7 +181,7 @@ impl Mesher {
             topology.walked(coedge).walk(sagitta, traced);
         }
         face.flatten(&traced[..], None, outline);
-        face.placed(&traced[..], standing);
+        face.doubled(&traced[..], &traced[..], standing);
         // **The turn the outline was laid out in**, which every hole of the
         // face has to be read into as well — see [`Face::flatten`]. Taken
         // before the cells below, the lattice being a reading of these and not
@@ -206,7 +206,7 @@ impl Mesher {
             }
             let from = done;
             done = traced.len();
-            face.placed(&traced[from..done], standing);
+            face.doubled(&traced[from..done], &traced[from..done], standing);
             punched.clear();
             face.flatten(&traced[from..done], Some(about), punched);
             for uv in punched.iter_mut() {

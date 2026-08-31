@@ -489,28 +489,32 @@ fn a_boundary_bounds_its_face_on_everything_but_a_sphere() {
 /// **A surface reaches the box it passes through and refuses the one it
 /// misses**, which is what decides the faces a cut has to be taken across.
 ///
-/// Hand-computed against a ball round each box. The plane is the world's
-/// `y = 0` and the cylinder is radius two about the world's `+y` through the
-/// origin, so both answer a distance in closed form and every figure below is
-/// one subtraction.
+/// Hand-computed throughout, and in the three regimes the answer comes out of.
+/// The plane is the world's `y = 0`, the ball is radius two about the origin
+/// and the cylinder is radius two about the world's `+y` through the origin.
 ///
-/// A unit box from `(0, 3, 0)` to `(1, 4, 1)` has its middle at
-/// `(0.5, 3.5, 0.5)` and a half diagonal of `√3/2 ≈ 0.866`. It stands `3.5`
-/// off the plane, so the plane misses it; from the cylinder's axis it stands
-/// `√(0.25 + 0.25) ≈ 0.707`, which is `1.29` inside the radius, so the cylinder
-/// misses it too.
+/// **A plane and a sphere answer outright.** A plane's nearest and furthest
+/// corners of a box are its support along the normal; a sphere reaches a box
+/// exactly where its radius falls between the nearest and furthest places of
+/// that box from its centre. A unit box from `(0, 3, 0)` to `(1, 4, 1)` stands
+/// `3` clear of the plane, so a slack of `2.9` leaves them apart and `3` brings
+/// them exactly together — no size of the box moves either figure.
 ///
-/// A box from `(0, -1, 0)` to `(1, 1, 1)` straddles the plane, standing nought
-/// off it. And a box from `(1.5, 0, 0)` to `(2.5, 1, 0)` has its middle
-/// `2` from the axis, which is exactly the radius — so it straddles the
-/// cylinder however small it is.
-///
-/// **The slack is what a chorded box owes**, and it moves the answer: the first
-/// box misses the plane by `3.5 − 0.866 = 2.634`, so a slack of `2.6` leaves
-/// them apart and one of `2.7` brings them together.
+/// **A cylinder is narrowed, which is what one ball round the box cannot do.**
+/// A box from `(5, −10, 0)` to `(6, 10, 0)` stands `3` clear of the cylinder,
+/// and its own half diagonal is `10.01` — so one reading at its middle calls a
+/// surface `3.5` off it a meeting. Halved down the long axis four times the box
+/// is `0.625` tall, its half diagonal is `0.8`, and its middle is still `3.5`
+/// off: everything under `2.7` of slack is settled apart. Over that the halving
+/// runs out and the box gets the benefit of the doubt, which is a cull dropping
+/// work and never an answer.
 #[test]
 fn a_surface_reaches_the_box_it_crosses_and_no_other() {
     let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
+    let ball = Surface::Natural(Natural::Sphere(Sphere {
+        axis: upright(),
+        radius: 2.0,
+    }));
     let tube = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: upright(),
         radius: 2.0,
@@ -521,9 +525,11 @@ fn a_surface_reaches_the_box_it_crosses_and_no_other() {
         high: DVec3::new(1.0, 4.0, 1.0),
     };
     assert!(!flat.reaches(away, 0.0));
+    assert!(!flat.reaches(away, 2.9), "2.9 of slack is under the true 3");
+    assert!(flat.reaches(away, 3.0), "touching exactly is meeting");
+    // From the cylinder's axis the box stands `√(0.25 + 0.25) ≈ 0.707`, which
+    // is `1.29` inside the radius and further than the box's own `0.866`.
     assert!(!tube.reaches(away, 0.0));
-    assert!(!flat.reaches(away, 2.6), "2.6 of slack bridged 2.634");
-    assert!(flat.reaches(away, 2.7));
 
     let straddling = Bounds {
         low: DVec3::new(0.0, -1.0, 0.0),
@@ -547,6 +553,41 @@ fn a_surface_reaches_the_box_it_crosses_and_no_other() {
     };
     assert!(tube.reaches(point, 0.0));
     assert!(!flat.reaches(point, 0.0));
+
+    // **A box wholly inside a sphere reaches none of it**, which needs both
+    // ends of the reading: the nearest place of this box to the centre is the
+    // centre and the furthest is `√0.75 ≈ 0.866`, so a surface `2` out is past
+    // both.
+    let within = Bounds::about(DVec3::ZERO, 0.5);
+    assert!(!ball.reaches(within, 0.0));
+    // And one that swallows it reaches it, the radius falling between `0` and
+    // `5√3`.
+    assert!(ball.reaches(Bounds::about(DVec3::ZERO, 5.0), 0.0));
+    // **Where one ball round the box would say otherwise.** The nearest place
+    // of this one to the centre is `3` along `x`, so it stands `1` off a sphere
+    // of two — where its middle reads `1.5` off against its own half diagonal
+    // of `√50.25 ≈ 7.09`.
+    let alongside = Bounds {
+        low: DVec3::new(3.0, -5.0, -5.0),
+        high: DVec3::new(4.0, 5.0, 5.0),
+    };
+    assert!(!ball.reaches(alongside, 0.0));
+    assert!(ball.reaches(alongside, 1.1), "1.1 of slack bridges 1");
+
+    // **And the cylinder's own long box**, which is halved rather than answered
+    // outright: `3` clear at its nearest, and `3.5` off its middle against a
+    // half diagonal of `10.01`.
+    let long = Bounds {
+        low: DVec3::new(5.0, -10.0, 0.0),
+        high: DVec3::new(6.0, 10.0, 0.0),
+    };
+    assert!(
+        !tube.reaches(long, 0.0),
+        "one ball round it called this a meeting"
+    );
+    assert!(!tube.reaches(long, 2.6));
+    assert!(tube.reaches(long, 2.8), "the halving ran out at 2.7");
+    assert!(tube.reaches(long, 3.1), "3.1 of slack genuinely bridges 3");
 }
 
 /// **A curve's parameter reads back the way it was written**, which for an

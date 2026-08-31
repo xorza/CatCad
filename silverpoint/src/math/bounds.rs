@@ -172,6 +172,41 @@ impl<At: Axial> Bounds<At> {
     }
 }
 
+impl Bounds<DVec3> {
+    /// The two halves it splits into across its widest axis.
+    ///
+    /// **The widest, so the two are as near cubes as one cut leaves them.**
+    /// What asks is a cull that reads a distance at a box's middle and holds it
+    /// against the box's own half-diagonal — see
+    /// [`Surface::reaches`](crate::solid::geometry::surface::Surface) — so what
+    /// it wants of a halving is that diagonal down. Halving a long thin box the
+    /// short way barely moves it.
+    pub(crate) fn halved(self) -> [Self; 2] {
+        let half = self.half();
+        let across = if half.x >= half.y.max(half.z) {
+            DVec3::X
+        } else if half.y >= half.z {
+            DVec3::Y
+        } else {
+            DVec3::Z
+        };
+        // That axis alone taken to the middle, and every other left where it
+        // was.
+        let middle = self.middle() * across;
+        let kept = DVec3::ONE - across;
+        [
+            Self {
+                low: self.low,
+                high: self.high * kept + middle,
+            },
+            Self {
+                low: self.low * kept + middle,
+                high: self.high,
+            },
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +265,30 @@ mod tests {
         assert!(here.holds(DVec3::ONE));
         assert!(!here.holds(DVec3::new(1.5, 0.0, 0.0)));
         assert!(!Bounds::default().holds(DVec3::ZERO));
+
+        // **Halved across the widest axis**, which for `grown` is `y`: it
+        // reaches `3` either way there against `1` and `2.5`, so the cut is
+        // `y = 1` and the other two ends are untouched. The two halves lay one
+        // box's worth of room end to end and each carries the smaller diagonal
+        // that a walk over the box is after — `√(1 + 2.25 + 6.25)` against
+        // `√(1 + 9 + 6.25)`.
+        let [under, over] = grown.halved();
+        assert_eq!(under.low, grown.low);
+        assert_eq!(under.high, DVec3::new(1.0, 1.0, 5.0));
+        assert_eq!(over.low, DVec3::new(-1.0, 1.0, 0.0));
+        assert_eq!(over.high, grown.high);
+        assert_eq!(under.half().length(), 9.5_f64.sqrt());
+        assert_eq!(grown.half().length(), 16.25_f64.sqrt());
+
+        // And a box already widest across `x` is cut there instead, which is
+        // the branch the one above does not take.
+        let [left, right] = Bounds {
+            low: DVec3::new(-4.0, 0.0, 0.0),
+            high: DVec3::new(4.0, 1.0, 2.0),
+        }
+        .halved();
+        assert_eq!(left.high, DVec3::new(0.0, 1.0, 2.0));
+        assert_eq!(right.low, DVec3::new(0.0, 0.0, 0.0));
     }
 
     /// **The same box one dimension down**, which is the whole point of the

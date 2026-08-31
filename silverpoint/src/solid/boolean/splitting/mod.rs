@@ -17,11 +17,15 @@
 //! faces the body has is answered in names rather than in pieces. See
 //! `.notes/KERNEL.md` §4.4 and §5.
 //!
-//! It costs one thing more now that a surface may be round. What divides a face
-//! has to be writable in that face's own parameters, and some crossings are not
-//! — so a surface the face never actually meets can refuse the whole boolean
-//! for a cut that would have divided nothing. Asking whether the *faces* meet
-//! before asking whether the surfaces do is the answer, and it is not written.
+//! It costs one thing more now that a surface may be round. A cut is taken by
+//! every surface of the other body that reaches this face's own box, so a
+//! meeting nothing writes down refuses the whole boolean for a cut that would
+//! have divided nothing at all — which is what a cone leaning across a block's
+//! wall used to be, the wall standing nine units off it. How tightly
+//! [`Surface::reaches`](crate::solid::geometry::surface::Surface) answers is
+//! what decides how often that happens, and it is the whole of the mitigation
+//! there is: the surface is what divides a face, so the *faces* meeting is not
+//! a question that may be asked instead.
 
 use crate::loops::Loops;
 use crate::math::bounds::Bounds;
@@ -528,7 +532,9 @@ impl Splitting {
                 // Onto the kept side, across the line or off a corner standing
                 // on it. Either way the chain begins where the cut is met.
                 (Side::Dropped, Side::Kept) => {
-                    let at = cut.crossing(from, to, reading);
+                    let Some(at) = cut.crossing(from, to, reading) else {
+                        return Chained::Refused;
+                    };
                     entered = Some(cut.down(at));
                     self.open(back(at));
                 }
@@ -538,7 +544,9 @@ impl Splitting {
                 }
                 // And off it again.
                 (Side::Kept, Side::Dropped) => {
-                    let at = cut.crossing(from, to, reading);
+                    let Some(at) = cut.crossing(from, to, reading) else {
+                        return Chained::Refused;
+                    };
                     self.shut(&mut entered, onto(at), cut);
                 }
                 (Side::Kept, Side::On) => self.shut(&mut entered, onto(to.at), cut),

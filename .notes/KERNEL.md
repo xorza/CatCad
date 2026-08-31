@@ -856,7 +856,72 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 M6a — merging what one cut split
+### 9.1 M6a — a boolean over a surface whose parameters run out
+
+**Done, and the pole itself needed no decision.** A ball could not be cut and a
+cone could not be cut without panicking. Both are what a revolve makes, so both
+were a refusal a user met — which §9's own order put first.
+
+**A cone's apex and a sphere's poles are one place the surface names with every
+angle at once.** `Surface::singular` says where, and `Face::flatten` writes such
+a corner *twice*, at the two angles its neighbours round the loop stand at,
+which keeps a ruling that ends at an apex from reading as a run clean across the
+face. So anything a caller holds one of per traced corner has to be doubled the
+same way, and `Face::doubled` is that rule: the boolean marks each corner with
+the edge that put it there, and one mark per traced corner read against a walk
+two corners longer slides at the first pole and loses the tail of the loop.
+
+**§4.4 is untouched.** A pole is a vertex with the edges that genuinely end
+there and no fan, and no seam caps one. Both writings of it stand at the one
+place, so no cut puts the pair on opposite sides of itself, and the sewing
+already drops a step from a vertex to itself.
+
+Held by a ball of three sliced at `y = 1`, which comes back `80π/3` in four
+faces, and by a cone stood on a coaxial rod, which comes back `22π/3` with its
+apex in the answer.
+
+**And the leaning circle came out of the same work, structurally.** A plane not
+square to a sphere's axis cuts a circle that is no straight line in `(u, v)`:
+writing `A = n·e`, `B = n·q` and `C = n·d` for the sphere's own frame, the trace
+is `cos v·(A cos u + B sin u) + C sin v = D/r`, which is
+`v = ψ(u) ± acos((D/r) / hypot(R cos(u − φ), C))` for `R = hypot(A, B)` and
+`φ = atan2(B, A)` — a graph over the angle with two branches. That shape is not
+written, and does not need to be: **a meeting the face's own parameters have no
+line for is now cut by the curve walked instead of refused.** `Traced` asks the
+parameters nothing — it reads how far a place stands off from the other
+*surface* and lays its corners down by walking the curve — so it is the floor
+under `imprinted` rather than the fitted tier's own shape, and a gap in the
+table costs sampling instead of the boolean. The body is unmoved by it: only the
+classification is walked, and the edge is still the exact circle the meeting
+gave. A ball halved by a plane at forty-five degrees comes back `18π`, exact,
+with a rim of radius three to the last bit.
+
+**Two refusals are left, and each is a shape rather than an oversight.**
+
+- **A plane that genuinely crosses a cone**, which is milling a flat down a
+  taper. The conic is a parabola or a hyperbola and `Curve` holds neither, so
+  the pair is turned away where the *meeting* is worked out and never reaches a
+  cut at all. What answers it is writing the two conics down: new curves, new
+  open cut shapes in a plane's own parameters, and everything downstream of an
+  edge. A milestone of its own.
+
+  **Slicing a taper is not that, and it works.** A block's walls run parallel to
+  a taper's axis, so a plain slice reached the same refusal for a cut that would
+  have divided nothing — the wall standing nine units off the cone. `Surface::reaches`
+  read one distance at the box's middle against the box's own half diagonal,
+  which is a ball far larger than a long thin box and so never culls an
+  unbounded surface. It now answers a plane and a sphere in closed form, and
+  halves the box four times for the rest: each half is nearer its own middle,
+  and one halving settles the wall. Cutting a straight-walled tool out of a
+  block is unmoved by it — a hundred and twenty-eight sides measures 72 ms
+  either way, within the noise — because a block is planes, and a plane went
+  from a ball round the box to an exact answer.
+- **Villarceau's circles.** The traced cut carries every piece of one meeting
+  together and orders places along each piece in turn, and these two *cross*, at
+  both places their plane touches the tube. Two pieces sharing a place have no
+  such order.
+
+### 9.2 M6b — merging what one cut split
 
 The boolean raises a face per kept region, and a face cut by *n* surfaces comes
 back in *n* or more regions of which nearly all are kept. They lie on one
@@ -931,7 +996,7 @@ What has to hold, and each is a test that breaks a merged body one way:
 - **The name and the orientation are already equal**, both regions coming off
   one face, so nothing is chosen and §5's coincident-surface rule is untouched.
 
-### 9.2 M7 — fillet, chamfer, STEP
+### 9.3 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -1008,7 +1073,7 @@ of the four sides comes back in nine, all kept. They share a surface, a name and
 an orientation, and §5 already calls the set of them one face of the body, so
 nothing above the kernel can tell — but the kernel pays for every one.
 
-**And they cannot be merged away before the sewing**, which §9.1 measures: the
+**And they cannot be merged away before the sewing**, which §9.2 measures: the
 splits one boolean makes are what the next one's uniform cut leans on. So the
 count stands, and where the time goes is a question about the work done per
 face rather than about how many there are.

@@ -1,5 +1,6 @@
+use crate::math::chorded::Chorded;
 use crate::math::plane::Plane;
-use crate::number::tolerance::EXACT;
+use crate::number::tolerance::{CHORDED, EXACT};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::builder::Extrusion;
@@ -411,6 +412,65 @@ fn a_sphere_built_by_hand_is_a_valid_body() {
     assert_eq!(body.topology().faces().count(), 2);
     assert_eq!(body.topology().edges().count(), 2);
     assert_eq!(body.topology().vertices().count(), 2);
+}
+
+/// **One mark to a corner, and two to a corner the parameters run out at.**
+///
+/// [`Face::flatten`] writes a pole *twice* — at the two angles its neighbours
+/// round the loop stand at — so a caller holding one mark per traced corner has
+/// one mark fewer than the walk it has to read them against.
+/// [`Face::doubled`] is that same rule over whatever the caller holds, and it
+/// is what keeps the two readable together.
+///
+/// **Read short, the marks slide and the tail of the loop is lost.** A boolean
+/// laying a face out marks each corner with the edge that put it there, and one
+/// mark per traced corner read against a walk two corners longer drops the last
+/// two corners of every loop that reaches a pole. A ball cannot be cut at all.
+///
+/// Half a ball is bounded by two meridians meeting at both poles, so its one
+/// loop reaches two singular places and comes out two corners longer than the
+/// walk that made it.
+#[test]
+fn a_mark_is_written_twice_where_a_corner_is() {
+    let body = ball();
+    let topology = body.topology();
+    let (_, face) = topology.faces().next().expect("half a ball is a face");
+    let mut traced = Vec::new();
+    let mut marks = Vec::new();
+    for (at, &coedge) in topology.outline_of(face).iter().enumerate() {
+        topology.walked(coedge).walk(CHORDED, &mut traced);
+        marks.resize(traced.len(), at);
+    }
+
+    let mut flattened = Vec::new();
+    face.flatten(&traced, None, &mut flattened);
+    let mut doubled = Vec::new();
+    face.doubled(&traced, &marks, &mut doubled);
+    assert_eq!(
+        flattened.len(),
+        traced.len() + 2,
+        "a pole at each end of the two meridians",
+    );
+    assert_eq!(doubled.len(), flattened.len(), "a mark to every corner");
+    assert_eq!(
+        doubled.last(),
+        marks.last(),
+        "the corner the loop closes at kept its own mark",
+    );
+
+    // The poles, which are the only corners a half turn up or down.
+    let poles: Vec<usize> = (0..flattened.len())
+        .filter(|&at| flattened[at].y.abs() > FRAC_PI_2 - 1e-9)
+        .collect();
+    assert_eq!(poles.len(), 4, "two poles, each written twice");
+    for &[here, there] in poles.as_chunks::<2>().0 {
+        assert_eq!(there, here + 1, "the two writings of one pole are a pair");
+        assert_eq!(doubled[here], doubled[there], "one corner carries one mark");
+        assert_ne!(
+            flattened[here].x, flattened[there].x,
+            "a pole is written at the two angles its neighbours stand at",
+        );
+    }
 }
 
 /// A ball of radius [`ROUND`] about the origin, split down the great circle in

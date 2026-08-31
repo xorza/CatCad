@@ -289,19 +289,46 @@ impl<'a> Cut<'a> {
     /// **On the run that stretch walks, and on the straight line between the
     /// two corners only where it walks none** — see [`Reading`], which argues
     /// what the difference between the two is worth.
-    pub(super) fn crossing(self, from: Corner, to: Corner, reading: Reading<'_>) -> DVec2 {
+    ///
+    /// **`None` where the curve the stretch walks does not cross after all**,
+    /// which the two corners standing either side of the cut says it must. What
+    /// the corners say is where the *straight run* between them stands, and the
+    /// walk goes along the curve — so a stretch whose ends read a hair off the
+    /// cut once carried onto the curve is one the bisection reads as a graze
+    /// and hands nothing back for. Refused rather than guessed at, on the terms
+    /// every other unanswerable case here takes — see
+    /// [`Boolean::combine`](crate::solid::boolean::Boolean), which lists them.
+    ///
+    /// **A corner at a place the surface names with every angle at once is not
+    /// one of them.** A cone's apex and a sphere's pole are written twice — see
+    /// [`Face::flatten`](crate::solid::topology::face::Face) — and both
+    /// writings stand at the one place, so no cut puts the pair of them on
+    /// opposite sides of itself. What each stretch leaving one walks is the
+    /// curve its own mark names, which is why the marks are doubled along with
+    /// the corners — see
+    /// [`Face::doubled`](crate::solid::topology::face::Face).
+    pub(super) fn crossing(self, from: Corner, to: Corner, reading: Reading<'_>) -> Option<DVec2> {
         if let Came::Arc(run) = from.came
             && let Some(curve) = reading.curved(run)
         {
             return self.met_along(curve, from, to, reading);
         }
-        self.met_across(from.at, to.at)
+        Some(self.met_across(from.at, to.at))
     }
 
     /// Where the stretch leaving `from` crosses it, walking `curve` between the
     /// two corners rather than the straight run between them — see [`Reading`],
     /// which argues why that is the difference between a body and a refusal.
-    fn met_along(self, curve: Curve, from: Corner, to: Corner, reading: Reading<'_>) -> DVec2 {
+    ///
+    /// `None` where the walk finds no crossing, which is [`Cut::crossing`]'s
+    /// refusal and where the reason for it is.
+    fn met_along(
+        self,
+        curve: Curve,
+        from: Corner,
+        to: Corner,
+        reading: Reading<'_>,
+    ) -> Option<DVec2> {
         let start = reading.along(curve, from.at);
         let end = reading.along(curve, to.at);
         let middle = (from.at + to.at) / 2.0;
@@ -338,9 +365,8 @@ impl<'a> Cut<'a> {
             let along = start + (end - start) * part;
             reading.at(curve, along, from.at.lerp(to.at, part))
         };
-        let part = bisect::crossed(0.0, 1.0, |part| self.side(place(part)))
-            .expect("the stretch crosses the cut");
-        place(part)
+        let part = bisect::crossed(0.0, 1.0, |part| self.side(place(part)))?;
+        Some(place(part))
     }
 
     /// The same, across the straight run from `from` to `to`.

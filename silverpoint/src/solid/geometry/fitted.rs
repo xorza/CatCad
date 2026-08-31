@@ -78,6 +78,19 @@ impl Fitted {
         }
     }
 
+    /// Whether any of it passes within a slack of a box, where that has a
+    /// closed form — see [`Natural::spans`](super::natural::Natural), which is
+    /// where the two that do are.
+    ///
+    /// Never, here: the nearest place of a box to a torus wants the nearest
+    /// place of it to a *circle*, which is the cylinder's own question one
+    /// level up and no more closed than that one.
+    pub(crate) fn spans(&self) -> Option<bool> {
+        match self {
+            Self::Torus(_) => None,
+        }
+    }
+
     /// How far `at` stands from the surface, never signed.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {
