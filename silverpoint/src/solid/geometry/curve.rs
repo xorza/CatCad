@@ -5,8 +5,10 @@ use crate::solid::buckets::Key;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::hyperbola::Hyperbola;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
+use crate::solid::geometry::parabola::Parabola;
 use crate::solid::geometry::quartic::Quartered;
 use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
@@ -23,10 +25,12 @@ pub(crate) struct Sampled {
 
 /// One of the curves an edge may lie on.
 ///
-/// Three conics, because three is what a sketch and the reducible meetings off
-/// it make: a line, a circle or an ellipse. The fourth is the first curve that
-/// is none of those — the quartic a cross drilling leaves, which
-/// [`Saddle`] carries for the one pair that produces it.
+/// **Every conic**, because a plane against a natural quadric makes every one
+/// of them: a line and a circle come off a sketch, an ellipse off a plane
+/// leaning on a cylinder or a cone, and the open pair off a plane leaning past
+/// a cone's own rulings. Then the first curve that is no conic at all — the
+/// quartic a cross drilling leaves, which [`Saddle`] carries for the one pair
+/// that produces it.
 /// The general quartic a general pair of quadrics gives arrives with the
 /// routine that parameterizes it — see `.notes/KERNEL.md` §7.3.
 ///
@@ -37,6 +41,10 @@ pub(crate) enum Curve {
     Line(Line),
     Circle(Circle),
     Ellipse(Ellipse),
+    /// One branch of a hyperbola — see [`Hyperbola`], which says why a branch
+    /// rather than the pair.
+    Hyperbola(Hyperbola),
+    Parabola(Parabola),
     Saddle(Saddle),
     /// A curve of the fitted tier, laid down as places rather than written
     /// down — see [`Marched`], and `.notes/KERNEL.md` §4.1 for the tier.
@@ -84,6 +92,15 @@ impl Curve {
                 .float(saddle.across)
                 .float(saddle.off)
                 .done(),
+            // The two branches of one meeting differ in the reference alone,
+            // which an axis keys — see [`Axis::keyed`].
+            Self::Hyperbola(of) => of
+                .axis
+                .keyed(Key::default().word(4))
+                .float(of.major)
+                .float(of.minor)
+                .done(),
+            Self::Parabola(of) => of.axis.keyed(Key::default().word(5)).float(of.focal).done(),
             // Worked out where the run was laid down and carried since — see
             // [`Marched::key`], which says why it is not read off the places.
             Self::Marched(marched) => marched.key,
@@ -114,9 +131,30 @@ impl Curve {
                 (out.dot(ellipse.axis.quarter()) / ellipse.minor)
                     .atan2(out.dot(ellipse.axis.reference) / ellipse.major)
             }
+            Self::Hyperbola(of) => of.along(at),
+            Self::Parabola(of) => of.along(at),
             Self::Saddle(saddle) => saddle.along(at),
             Self::Marched(of) => carried.marched.along(of.run, at),
             Self::Quartic(of) => carried.quartics.along(of.run, at),
+        }
+    }
+
+    /// Whether it comes back to where it began.
+    ///
+    /// **What a walked cut asks before it walks one.** A traced cut samples a
+    /// whole turn of the curve's own parameter and orders places by how far
+    /// round they stand — see
+    /// [`Traced`](crate::solid::boolean::splitting::traced::Traced) — and an
+    /// open curve has neither a turn nor a way round. A line, a parabola and a
+    /// hyperbola's branch are the three that run away and never return.
+    pub(crate) fn closed(&self) -> bool {
+        match self {
+            Self::Line(_) | Self::Parabola(_) | Self::Hyperbola(_) => false,
+            Self::Circle(_)
+            | Self::Ellipse(_)
+            | Self::Saddle(_)
+            | Self::Marched(_)
+            | Self::Quartic(_) => true,
         }
     }
 
@@ -134,6 +172,8 @@ impl Curve {
             Self::Line(_)
             | Self::Circle(_)
             | Self::Ellipse(_)
+            | Self::Hyperbola(_)
+            | Self::Parabola(_)
             | Self::Saddle(_)
             | Self::Quartic(_) => 0.0,
             Self::Marched(of) => carried.marched.strayed(of.run).most,
@@ -156,6 +196,12 @@ impl Curve {
             Self::Line(line) => line.origin.length() + t.abs(),
             Self::Circle(circle) => circle.axis.origin.length() + circle.radius,
             Self::Ellipse(ellipse) => ellipse.axis.origin.length() + ellipse.major,
+            // How far out the branch has run at `t`, which grows without bound
+            // where a closed curve's does not.
+            Self::Hyperbola(of) => {
+                of.axis.origin.length() + of.major * t.cosh() + of.minor * t.sinh().abs()
+            }
+            Self::Parabola(of) => of.axis.origin.length() + of.focal * (t * t + 2.0 * t.abs()),
             // Both radii, the loop standing one out from the axis it is
             // written on and the other along it.
             Self::Saddle(saddle) => saddle.axis.origin.length() + saddle.reach + saddle.across,
@@ -191,7 +237,7 @@ impl Curve {
             into.extend(walked.map(|(along, at)| Sampled { along, at }));
             return;
         }
-        let steps = self.steps(span, sagitta, carried);
+        let steps = self.steps([0.0, span], sagitta, carried);
         into.reserve(steps + 1);
         for step in 0..=steps {
             let along = span * step as f64 / steps as f64;
@@ -208,29 +254,42 @@ impl Curve {
             Self::Line(line) => line.at(t),
             Self::Circle(circle) => circle.at(t),
             Self::Ellipse(ellipse) => ellipse.at(t),
+            Self::Hyperbola(of) => of.at(t),
+            Self::Parabola(of) => of.at(t),
             Self::Saddle(saddle) => saddle.at(t),
             Self::Marched(of) => carried.marched.at(of.run, t),
             Self::Quartic(of) => carried.quartics.at(of.run, t),
         }
     }
 
-    /// How many straight pieces a stretch of `span` parameter is worth,
+    /// How many straight pieces the stretch of parameter `bounds` is worth,
     /// flattened no further than `sagitta` from the true curve.
     ///
     /// Straight is exact however coarsely it is cut, so only a round curve is
     /// asked — see [`arc::chords`], which is where the rule lives and why it is
     /// one rule rather than one per caller.
     ///
+    /// **The stretch and not its width**, because a curve need not bend the
+    /// same everywhere along itself. Every closed curve here does and reads
+    /// only the width; a hyperbola's branch bends harder the further out it is
+    /// taken, so where the stretch *stands* decides — see
+    /// [`Hyperbola::bending`].
+    ///
     /// **An ellipse is asked with its longer half**, which is the radius of the
     /// circle it bends no harder than: how far a chord over a parameter step
     /// strays is set by the second derivative, and an ellipse's is at most its
     /// major semi-axis. So the same rule bounds it, conservatively at the flat
     /// ends and exactly at the sharp ones.
-    pub(crate) fn steps(&self, span: f64, sagitta: f64, carried: &Carried) -> usize {
+    pub(crate) fn steps(&self, bounds: [f64; 2], sagitta: f64, carried: &Carried) -> usize {
+        let span = bounds[1] - bounds[0];
         match self {
             Self::Line(_) => 1,
             Self::Circle(circle) => arc::chords(circle.radius, span, sagitta),
             Self::Ellipse(ellipse) => arc::chords(ellipse.major, span, sagitta),
+            Self::Hyperbola(of) => arc::chords(of.bending(bounds), span, sagitta),
+            // Flat in the second derivative, which is what its parameter is
+            // chosen for — see [`Parabola`].
+            Self::Parabola(of) => arc::chords(2.0 * of.focal, span, sagitta),
             // **Its own bound rather than a radius**, a saddle having no
             // circle it bends no harder than — see [`Saddle::bending`].
             Self::Saddle(saddle) => arc::chords(saddle.bending(), span, sagitta),

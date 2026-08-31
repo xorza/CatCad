@@ -69,11 +69,6 @@ impl Edge {
         }
     }
 
-    /// How much curve parameter it covers, never signed.
-    pub(crate) fn length(&self) -> f64 {
-        (self.bounds[1] - self.bounds[0]).abs()
-    }
-
     /// How many straight pieces it is worth, flattened no further than
     /// `sagitta` from the true curve.
     ///
@@ -81,6 +76,6 @@ impl Edge {
     /// is what `marched` holds — see
     /// [`Curve::steps`](crate::solid::geometry::curve::Curve::steps).
     pub(crate) fn steps(&self, sagitta: f64, carried: &Carried) -> usize {
-        self.curve.steps(self.length(), sagitta, carried)
+        self.curve.steps(self.bounds, sagitta, carried)
     }
 }

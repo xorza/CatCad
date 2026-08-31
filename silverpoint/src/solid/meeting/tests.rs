@@ -642,10 +642,6 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
 /// `(out·a)² = cos²α(|out|² + b²)`, so `b² = (8/3)²·2 − 80/9 = 48/9` and the
 /// minor half is `4√3/3`.
 ///
-/// **And the two it will not carry.** A plane parallel to the axis meets the
-/// two rulings on opposite sides of the apex, which is a hyperbola; one
-/// parallel to a ruling meets that one nowhere at all, which is a parabola.
-/// `Curve` holds neither.
 #[test]
 fn a_plane_leaning_across_a_cone_cuts_the_ellipse_its_two_rulings_set() {
     let cone = taper();
@@ -669,14 +665,81 @@ fn a_plane_leaning_across_a_cone_cuts_the_ellipse_its_two_rulings_set() {
         "{oval:?}",
     );
     lies_on(meeting, &leaning, &cone, "leaning across a cone");
+}
 
-    // Parallel to the axis, so the two rulings are met either side of the apex.
+/// **A plane leaning past a cone's rulings cuts the two branches of a
+/// hyperbola**, one on each nappe.
+///
+/// The two rulings of the principal plane are met on opposite sides of the
+/// apex, so the two places are the two vertices — one branch apiece. The
+/// halves come off the same reading everything else here does: `y²` about the
+/// centre is a quadratic in `x` whose roots are the two vertices, so it has no
+/// term in `x` and the one in `x²` is `b²/a²`.
+///
+/// **Hand-computed.** [`taper`] is `r = |y|` about the origin, and the plane is
+/// `x = 1`. Substituting gives `1 + z² = y²`, which is `y² − z² = 1` — centred
+/// at `(1, 0, 0)`, transverse along `y`, and one across each way.
+#[test]
+fn a_plane_past_a_cones_rulings_cuts_the_two_branches_of_a_hyperbola() {
+    let cone = taper();
     let alongside = facing(DVec3::X, DVec3::X);
-    assert_eq!(Meeting::of(&alongside, &cone), Meeting::Algebraic);
+    let meeting = Meeting::of(&alongside, &cone);
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Hyperbola(one), Curve::Hyperbola(two)] = along.all() else {
+        panic!("{:?} is not two hyperbola branches", along.all());
+    };
+    for branch in [one, two] {
+        assert!(branch.axis.origin.distance(DVec3::X) < NEAR, "{branch:?}");
+        assert!((branch.major - 1.0).abs() < NEAR, "{branch:?}");
+        assert!((branch.minor - 1.0).abs() < NEAR, "{branch:?}");
+    }
+    // The two vertices, which are the branches read the two ways along the
+    // transverse axis.
+    assert!(
+        one.axis.reference.distance(-two.axis.reference) < NEAR,
+        "{one:?} and {two:?} are the same branch twice",
+    );
+    assert!(
+        one.at(0.0).distance(-two.at(0.0) + 2.0 * DVec3::X) < NEAR,
+        "the two vertices do not straddle the centre",
+    );
+    lies_on(meeting, &alongside, &cone, "past a cone's rulings");
+}
 
-    // Parallel to the ruling `(1, 1, 0)/√2`, which it therefore never meets.
+/// **A plane parallel to one of a cone's rulings cuts a parabola**, which is
+/// the lean between the ellipse and the hyperbola.
+///
+/// That ruling is met nowhere at all, so the section has one vertex rather than
+/// two — the place the other ruling is met — and it opens along the ruling it
+/// never meets.
+///
+/// **Hand-computed.** [`taper`] is `r = |y|` about the origin, and the plane is
+/// `x − y + 2 = 0`, which holds the ruling `(1, 1, 0)/√2`. The other ruling is
+/// `(−1, 1, 0)/√2`, met `√2` along, so the vertex is `(−1, 1, 0)` — on `r = |y|`
+/// and on the plane, which is a line of arithmetic apiece. The focal length is
+/// `|along|·sin²α = √2/2`.
+#[test]
+fn a_plane_parallel_to_a_cones_ruling_cuts_a_parabola() {
+    let cone = taper();
     let sloped = facing(DVec3::Y * 2.0, DVec3::new(1.0, -1.0, 0.0));
-    assert_eq!(Meeting::of(&sloped, &cone), Meeting::Algebraic);
+    let meeting = Meeting::of(&sloped, &cone);
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Parabola(bent)] = along.all() else {
+        panic!("{:?} is not one parabola", along.all());
+    };
+    let vertex = DVec3::new(-1.0, 1.0, 0.0);
+    assert!(bent.axis.origin.distance(vertex) < NEAR, "{bent:?}");
+    assert!((bent.focal - SQRT_2 / 2.0).abs() < NEAR, "{bent:?}");
+    let opening = DVec3::new(1.0, 1.0, 0.0).normalize();
+    assert!(
+        bent.axis.reference.distance(opening) < NEAR,
+        "{bent:?} does not open along the ruling it never meets",
+    );
+    lies_on(meeting, &sloped, &cone, "parallel to a cone's ruling");
 }
 
 /// **A cone meets a coaxial surface in circles the half angle sets**, which is

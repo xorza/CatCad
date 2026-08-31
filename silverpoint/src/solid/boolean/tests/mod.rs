@@ -2088,9 +2088,10 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
 ///
 /// **A plane that genuinely crosses a cone.** Milling a flat down a taper is
 /// that: the wall runs parallel to the axis and passes through the cone, so no
-/// cull can drop it and the hyperbola has to be written down. Which is what
-/// `Curve` does not hold — see `.notes/KERNEL.md` §9.2, which is the milestone
-/// that writes them down.
+/// cull can drop it. The hyperbola it cuts is written down — `Curve` holds the
+/// branch and a plane's own parameters take it as a graph about its vertex —
+/// but the *cone's* own parameters have no cut for one, and that is where
+/// `.notes/KERNEL.md` §9.2 stops.
 ///
 /// **And Villarceau's circles.** A plane through a ring's middle at the
 /// bitangent lean cuts two circles of the major radius, and they *cross* — at

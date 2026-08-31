@@ -34,8 +34,10 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::fitted::Fitted;
+use crate::solid::geometry::hyperbola::Hyperbola;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::parabola::Parabola;
 use crate::solid::geometry::saddle::Saddle;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
@@ -434,11 +436,9 @@ impl Meeting {
     /// where it clears one nappe, and a parabola, a hyperbola or a pair of
     /// rulings otherwise.
     ///
-    /// **The two closed ones are taken here**, and the rest are
-    /// [`Meeting::Algebraic`] — a parabola and a hyperbola are curves
-    /// [`Curve`] does not hold, and a plane through the apex cuts straight
-    /// rulings a cone's own parameters have no arm for. See
-    /// `.notes/KERNEL.md` §9.2, which is the milestone that writes them down.
+    /// **All four conics are taken here**, and what is left to
+    /// [`Meeting::Algebraic`] is the plane through the apex, whose section is
+    /// straight rulings that a cone's own parameters have no arm for.
     ///
     /// **The principal plane decides everything.** It is the plane through the
     /// apex holding the axis and the steepest direction of the cut, and the
@@ -449,14 +449,16 @@ impl Meeting {
     /// nappes and a hyperbola, and a division by nought is the parabola
     /// between them.
     ///
-    /// **The minor half comes off the cone rather than off the ellipse.** The
-    /// two ends give the centre and the major half outright. The minor
-    /// direction stands square to the principal plane, so a step `b` along it
-    /// from the centre `out` off the apex is on the cone where
+    /// **The halves come off the cone rather than off the section.** The two
+    /// ends give the centre and the major half outright. The minor direction
+    /// stands square to the principal plane, so a step `b` along it from a
+    /// place `out` off the apex is on the cone where
     /// `(out·a)² = cos²α·(|out|² + b²)`, the step adding nothing to either dot
-    /// product it is square to. Held at nought under the root, which is armour
-    /// against a rounding: a section that closes to nothing is a plane touching
-    /// along a ruling, and that one is a parabola and has left already.
+    /// product it is square to. A hyperbola reads its own the same way one
+    /// remove up, off the *ratio* the two vertices pin rather than off a place.
+    /// Both are held at nought under the root, which is armour against a
+    /// rounding: a section that closes to nothing is a plane touching along a
+    /// ruling, and that one is a parabola and has left already.
     fn plane_cone(plane: &Plane, cone: &Cone) -> Self {
         let normal = plane.normal();
         let axis = cone.axis;
@@ -489,21 +491,48 @@ impl Meeting {
             axis.direction * cosine + up * sine,
             axis.direction * cosine - up * sine,
         ];
-        // A parabola where one ruling runs along the plane, and a hyperbola
-        // where the two are met on opposite sides of the apex.
-        let (Some(near), Some(far)) = (met(rulings[0]), met(rulings[1])) else {
-            return Self::Algebraic;
+        // **One ruling met nowhere is the parabola**, which is the lean between
+        // the other two: the section runs away along that ruling and never
+        // comes back, so it has one vertex rather than two.
+        let (near, far) = match (met(rulings[0]), met(rulings[1])) {
+            (Some(near), Some(far)) => (near, far),
+            (Some(along), None) => {
+                return Self::parabola(plane, cone, rulings[0], along, rulings[1]);
+            }
+            (None, Some(along)) => {
+                return Self::parabola(plane, cone, rulings[1], along, rulings[0]);
+            }
+            // Both rulings along the plane, which is a plane through the apex
+            // and has left already.
+            (None, None) => return Self::Algebraic,
         };
-        if near.is_sign_negative() != far.is_sign_negative() {
-            return Self::Algebraic;
-        }
+        // The two ends of the section along the principal plane, which are the
+        // ellipse's two extremes or the hyperbola's two vertices.
         let ends = [
             axis.origin + rulings[0] * near,
             axis.origin + rulings[1] * far,
         ];
         let centre = (ends[0] + ends[1]) / 2.0;
-        let out = centre - axis.origin;
         let reach = ends[0].distance(ends[1]) / 2.0;
+        // **Met either side of the apex is the hyperbola**, the section
+        // reaching both nappes and each vertex standing on one of them.
+        if near.is_sign_negative() != far.is_sign_negative() {
+            // `y² = (b²/a²)(x² − a²)` about the centre, which the two vertices
+            // pin: the reading is a quadratic in `x` with its roots there, so
+            // it has no term in `x` and the one in `x²` is the ratio.
+            let towards = (ends[0] - centre) / reach;
+            let ratio = (towards.dot(axis.direction) / cosine).powi(2) - 1.0;
+            let width = reach * ratio.max(0.0).sqrt();
+            let branch = |towards: DVec3| {
+                Curve::Hyperbola(Hyperbola {
+                    axis: Axis::new(centre, normal, towards),
+                    major: reach,
+                    minor: width,
+                })
+            };
+            return Self::Along(Curves::two(branch(towards), branch(-towards)));
+        }
+        let out = centre - axis.origin;
         let width = ((out.dot(axis.direction) / cosine).powi(2) - out.length_squared())
             .max(0.0)
             .sqrt();
@@ -520,6 +549,35 @@ impl Meeting {
             axis: Axis::new(centre, normal, reference),
             major,
             minor,
+        })))
+    }
+
+    /// The parabola a plane parallel to one ruling cuts out of a cone.
+    ///
+    /// `met` is the ruling the plane does meet and `along` is how far up it,
+    /// and `free` is the one it runs parallel to.
+    ///
+    /// **The vertex is on the ruling that is met**, that being the one place
+    /// the section reaches the principal plane, and the curve opens along the
+    /// other — a parabola's axis runs parallel to the ruling its plane never
+    /// meets. Which way along it is which nappe the section fell on, and that
+    /// is the sign of `along`.
+    ///
+    /// **And the focal length is `|along|·sin²α`.** Taking `f` off the
+    /// half-width at a step `x` out from the vertex gives `f = w²/4x`, and `w`
+    /// comes off the cone as everything here does — `(out·a)² = cos²α(|out|² +
+    /// w²)` for the place `out` off the apex. The term in `x²` cancels, a
+    /// ruling being on the cone, and what is left of `w²/4x` reads
+    /// `|along|·(1 − cos 2α)/2` once the two rulings' own dot products are put
+    /// in — `r·a = cos α` for either of them and `r·r' = cos 2α` between them —
+    /// which is `|along|·sin²α`.
+    fn parabola(plane: &Plane, cone: &Cone, met: DVec3, along: f64, free: DVec3) -> Self {
+        let vertex = cone.axis.origin + met * along;
+        let opening = free * along.signum();
+        let focal = along.abs() * cone.half_angle.sin().powi(2);
+        Self::Along(Curves::one(Curve::Parabola(Parabola {
+            axis: Axis::new(vertex, plane.normal(), opening),
+            focal,
         })))
     }
 

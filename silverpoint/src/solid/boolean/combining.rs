@@ -5,6 +5,7 @@ use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::chorded::Chorded;
 use crate::math::inside::Inside;
+use crate::math::plane::Plane;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::ALIGNED;
@@ -13,6 +14,7 @@ use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::boolean::sounding::Sounding;
 use crate::solid::boolean::splitting::Splitting;
+use crate::solid::boolean::splitting::bough::Bough;
 use crate::solid::boolean::splitting::bow::Bow;
 use crate::solid::boolean::splitting::cells::Cells;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
@@ -610,14 +612,16 @@ impl Combining {
     /// exactly as those file theirs, so a meeting worked out for one face is
     /// walked once and read by every face after it.
     ///
-    /// **A straight curve is refused rather than walked.** A traced cut samples
-    /// a whole turn of its curve's own parameter, and a line's parameter is a
-    /// distance with no turn in it — so a line arriving here would be sampled
-    /// over the length of a turn and cut nothing past that. Nothing produces
-    /// one today: a line lies on a plane, a cylinder or a cone, and a face's
-    /// own parameters hold it on the first two.
+    /// **An open curve is refused rather than walked.** A traced cut samples a
+    /// whole turn of its curve's own parameter and orders places by how far
+    /// round they stand, and a line, a parabola and a hyperbola's branch have
+    /// neither — see [`Curve::closed`]. A line lies on a plane, a cylinder or a
+    /// cone, and the first two hold it outright; the two open conics lie on a
+    /// plane and a cone, and only the plane holds them. So what reaches here is
+    /// an open conic on the *cone*, which is where `.notes/KERNEL.md` §9.2
+    /// still owes a cut.
     fn walked(&mut self, on: &Surface, other: &Surface, along: Curves) -> bool {
-        if along.all().iter().any(|it| matches!(it, Curve::Line(_))) {
+        if along.all().iter().any(|it| !it.closed()) {
             return false;
         }
         let curves = match self.filed(on, other) {
@@ -945,6 +949,27 @@ fn imprinted(
                 run,
             })
         }
+        // **An open conic on a plane is a graph about its own vertex** — see
+        // [`boughed`], which is where the pair of them come to one shape. A
+        // parabola's vertex is its own origin and it has no eccentricity to
+        // spare; a branch stands its own `major` off the centre the two of them
+        // share, and `ε` there is `b²/a²`.
+        (Surface::Natural(Natural::Plane(plane)), Curve::Parabola(bent)) => Some(boughed(
+            plane,
+            bent.axis.origin,
+            bent.axis.reference,
+            bent.latus(),
+            0.0,
+            run,
+        )),
+        (Surface::Natural(Natural::Plane(plane)), Curve::Hyperbola(branch)) => Some(boughed(
+            plane,
+            branch.axis.origin + branch.axis.reference * branch.major,
+            branch.axis.reference,
+            branch.latus(),
+            (branch.minor / branch.major).powi(2),
+            run,
+        )),
         // A ruling line on a cylinder is a cut at a constant angle, which is a
         // straight cut in a parameter that *wraps*: `θ = that`, and which turn
         // of it decides whether the face is divided at all. A face may not wrap
@@ -1108,6 +1133,41 @@ fn imprinted(
 /// Nothing production reads it that way: [`Combining::sewn`] hands the whole of
 /// it over in one borrow, which is what the runs changing hands asks for. Taking
 /// one piece is a test holding the cutting to what it should have produced.
+/// The cut an open conic makes on the plane holding it, about the vertex it
+/// stands at and the direction it opens along.
+///
+/// **One shape for the parabola and the hyperbola's branch**, which is what the
+/// vertex form buys: every conic reads `ε·y² + 2L·y − x² = 0` there, so a
+/// semi-latus rectum and an `ε` are the whole of the difference — see
+/// [`Bough`]. A plane holds the curve, so its frame flattens whole: the vertex
+/// is a place, the opening is a direction, and the two numbers are lengths,
+/// which a plane's parameters keep.
+///
+/// **Framed off the opening direction**, so which way the plane's own two axes
+/// wind decides nothing. What a cut needs is the side it keeps on the left of
+/// the way it runs, and the branch is even about its own axis — so the first
+/// parameter is set a quarter turn back from the second and either sign of it
+/// draws the same curve.
+fn boughed(
+    plane: Plane,
+    vertex: DVec3,
+    opening: DVec3,
+    latus: f64,
+    bend: f64,
+    run: Option<u32>,
+) -> Cut<'static> {
+    let at = plane.flatten(vertex);
+    let up = plane.flatten(vertex + opening) - at;
+    Cut::Bough(Bough {
+        at,
+        across: DVec2::new(up.y, -up.x),
+        latus,
+        bend,
+        above: true,
+        run: run.expect("an open conic is numbered"),
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod internals {
     use super::*;

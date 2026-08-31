@@ -10,9 +10,11 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::hyperbola::Hyperbola;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::parabola::Parabola;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::quartic::{Closing, Quartered, Quartic, Stretch};
@@ -314,7 +316,7 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
     let carried = Carried::default();
     let mut last = 0;
     for sagitta in [1.0, 0.1, 0.01, 1e-4] {
-        let steps = circle.steps(TAU, sagitta, &carried);
+        let steps = circle.steps([0.0, TAU], sagitta, &carried);
         let widest = TAU / steps as f64;
         let off = 3.0 * (1.0 - (widest / 2.0).cos());
         assert!(
@@ -329,12 +331,16 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
         );
         assert!(steps > last, "a finer sagitta cut no finer");
         last = steps;
-        assert_eq!(line.steps(9.0, sagitta, &carried), 1, "a line is straight");
+        assert_eq!(
+            line.steps([0.0, 9.0], sagitta, &carried),
+            1,
+            "a line is straight"
+        );
     }
     // Half the circle wants about half the chords of the whole of it.
     assert_eq!(
-        circle.steps(PI, 0.01, &carried),
-        circle.steps(TAU, 0.01, &carried).div_ceil(2)
+        circle.steps([0.0, PI], 0.01, &carried),
+        circle.steps([0.0, TAU], 0.01, &carried).div_ceil(2)
     );
 }
 
@@ -588,6 +594,87 @@ fn a_surface_reaches_the_box_it_crosses_and_no_other() {
     assert!(!tube.reaches(long, 2.6));
     assert!(tube.reaches(long, 2.8), "the halving ran out at 2.7");
     assert!(tube.reaches(long, 3.1), "3.1 of slack genuinely bridges 3");
+}
+
+/// **The two open conics read their own parameter back, and each is cut as
+/// finely as it bends.**
+///
+/// Neither parameter is an angle and neither is an arc length: a parabola reads
+/// `f·t²` along its axis and `2f·t` across it, and a branch reads `a·cosh t`
+/// and `b·sinh t`. Both are read back off the coordinate *across* the axis,
+/// which is one to one where the one along it is even and would answer two
+/// parameters for one place.
+///
+/// **And how finely to cut them is what separates the two.** A parabola's
+/// second derivative is the constant `2f`, so a stretch of it is chorded by its
+/// width alone; a branch's grows without bound, so the same width taken further
+/// out is cut into more. Which is why
+/// [`Curve::steps`](Curve) is handed the stretch and not its width.
+///
+/// Hand-computed on `f = 1` and on `a = b = 1`, both about the origin in
+/// [`upright`]'s frame: the parabola at `t = 3` stands `9` along and `6`
+/// across, and the branch at `t = 1` stands `cosh 1` and `sinh 1`.
+#[test]
+fn an_open_conic_reads_its_parameter_back_and_is_cut_as_hard_as_it_bends() {
+    let carried = Carried::default();
+    let (along, across) = (upright().reference, upright().quarter());
+
+    let bent = Curve::Parabola(Parabola {
+        axis: upright(),
+        focal: 1.0,
+    });
+    let place = bent.at(3.0, &carried);
+    assert!(
+        place.abs_diff_eq(along * 9.0 + across * 6.0, 1e-12),
+        "{place:?}",
+    );
+    assert!((bent.along(place, &carried) - 3.0).abs() < 1e-12);
+
+    let branch = Curve::Hyperbola(Hyperbola {
+        axis: upright(),
+        major: 1.0,
+        minor: 1.0,
+    });
+    let place = branch.at(1.0, &carried);
+    assert!(
+        place.abs_diff_eq(along * 1.0_f64.cosh() + across * 1.0_f64.sinh(), 1e-12),
+        "{place:?}",
+    );
+    assert!((branch.along(place, &carried) - 1.0).abs() < 1e-12);
+
+    // The same width of stretch, taken at the vertex and taken further out. A
+    // parabola reads the same both times and a branch does not.
+    let near = [0.0, 1.0];
+    let far = [3.0, 4.0];
+    assert_eq!(
+        bent.steps(near, 1e-3, &carried),
+        bent.steps(far, 1e-3, &carried),
+        "a parabola bends the same everywhere along itself",
+    );
+    assert!(
+        branch.steps(far, 1e-3, &carried) > 4 * branch.steps(near, 1e-3, &carried),
+        "a branch four out bends no harder than one at its vertex",
+    );
+
+    // The semi-latus rectum, which is the one number a cut across either reads
+    // them by: `2f` for a parabola and `b²/a` for a branch.
+    assert_eq!(
+        Parabola {
+            axis: upright(),
+            focal: 1.0,
+        }
+        .latus(),
+        2.0,
+    );
+    assert_eq!(
+        Hyperbola {
+            axis: upright(),
+            major: 2.0,
+            minor: 3.0,
+        }
+        .latus(),
+        4.5,
+    );
 }
 
 /// **A curve's parameter reads back the way it was written**, which for an
@@ -1931,7 +2018,7 @@ fn a_marched_curve_answers_through_the_store_it_names() {
     assert!(curve.at(TAU / 4.0, &carried).abs_diff_eq(DVec3::Y, 1e-12));
     assert!(curve.along(DVec3::X, &carried).abs() < 1e-9);
     for sagitta in [1.0, 1e-9] {
-        assert_eq!(curve.steps(TAU, sagitta, &carried), 16, "{sagitta}");
+        assert_eq!(curve.steps([0.0, TAU], sagitta, &carried), 16, "{sagitta}");
     }
 }
 
@@ -2410,8 +2497,8 @@ fn a_quartic_answers_as_a_curve() {
 
         // A finer sagitta wants more chords, which is what says the bound was
         // measured rather than made up.
-        let coarse = curve.steps(TAU, 1e-2, &carried);
-        let fine = curve.steps(TAU, 1e-5, &carried);
+        let coarse = curve.steps([0.0, TAU], 1e-2, &carried);
+        let fine = curve.steps([0.0, TAU], 1e-5, &carried);
         assert!(fine > coarse, "{fine} chords is no more than {coarse}");
     }
 }

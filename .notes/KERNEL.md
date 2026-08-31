@@ -932,9 +932,9 @@ with a rim of radius three to the last bit.
 
 **Milling a flat down a taper**, which is the last refusal a document can reach.
 A plane parallel to a cone's axis cuts a hyperbola and one parallel to a ruling
-cuts a parabola, and `Curve` holds neither. Cutting further than necessary is
-what puts the case in reach at all: a wall that crosses the taper cannot be
-culled, so the shape has to be written down.
+cuts a parabola. Cutting further than necessary is what puts the case in reach
+at all: a wall that crosses the taper cannot be culled, so the shape has to be
+written down.
 
 **No cull can stand in for it, and that is settled rather than assumed.** A
 surface reaches past the faces standing on it — a cone is a double cone whether
@@ -945,30 +945,62 @@ face and kept against the one beside it leaves a vertex on one side of the edge
 they share. Measured: five tests of the suite break, and §7.4 is where the
 argument already was.
 
-**What it wants, in the order it wants it.**
+**Two of the three pieces are in.**
 
 - **`Curve::Parabola` and `Curve::Hyperbola`.** A parabola is a vertex, a focal
-  length and a frame, read `x = f·t², y = 2f·t`; a hyperbola *branch* is a
-  vertex, two halves and a frame, read `x = a·cosh t, y = b·sinh t`. Two
-  branches are two curves of one meeting, which `Curves` already holds. What
-  each owes beyond that is `along`, `key`, `reach` and how finely to chord a
-  stretch of it — and chording is the one that is not the circle's rule, the
-  curvature running from `b²/a` at the vertex away to nothing.
-- **A cut in a plane's own parameters.** Both are a graph over one axis about
-  the vertex — `x = y²/4f` and `x = a(hypot(1, y/b) − 1)` — so one shape carries
-  the pair, and it is `Ripple` next door with the cosine replaced. It is the
-  better shape of the two as well: a straight run meets a conic where a
-  *quadratic* has roots, which is exact, where a run against a wave has to be
-  bisected.
-- **A cut in the cone's own parameters, which is one shape for every plane.**
-  A cone reads `v` along its axis and scales the radius by `v·tan α`, so a plane
-  `n·(x − o) = 0` is `v·(C + T·R cos(u − φ)) = δ` for `C = n·a`, `T = tan α`,
-  `R = hypot(n·e, n·q)` and `φ = atan2(n·q, n·e)`. Which is a graph over the
-  angle with two poles in it — the asymptote directions — and the side is read
-  as `δ − v·f(u)`, linear in `v` and so signed correctly across the whole plane
-  including where `f` comes to nought. One arm covers the circle, the ellipse,
-  the parabola and the hyperbola, and it replaces the walked cut the ellipse
-  takes today.
+  length and a frame, read `f·t²` along it and `2f·t` across; a hyperbola
+  *branch* is a centre, two halves and a frame, read `a·cosh t` and `b·sinh t`.
+  Two branches are two curves of one meeting, which `Curves` already held. Both
+  read their parameter back off the coordinate across the axis, the one along it
+  being even.
+
+  `Meeting::plane_cone` now writes down every conic. The principal plane decides
+  which: the two rulings in it are where the section reaches furthest, so the
+  *signs* of the two divisions that find them are the whole classification —
+  alike is an ellipse, unlike a hyperbola, and a division by nought the parabola
+  between. The halves come off the cone rather than off the section, and a
+  parabola's focal length is `|along|·sin²α` for the ruling it does meet.
+
+  **And how finely to chord one is the stretch and not its width**, which is why
+  `Curve::steps` is handed a bracket. Every closed curve here bends the same all
+  round itself; a branch bends harder the further out it is taken.
+- **A cut in a plane's own parameters.** Both are a graph about the vertex, and
+  the vertex form is what makes them one shape: every conic reads
+  `ε·y² + 2L·y − x² = 0` there, for a semi-latus rectum `L` and an `ε` that is
+  `e² − 1`. Solved for `y` and rationalized that is
+  `y = x²/(L + √(L² + εx²))` — one expression, no case for the parabola's
+  `ε = 0`, and no cancellation for a shallow branch. `Bough` carries it, and it
+  is the better shape of the two next door as well: a straight run meets it
+  where a *quadratic* has roots, which is exact, where a run against `Ripple`
+  has to be bisected. The far branch is dropped by keeping only the roots on the
+  vertex's own side.
+
+**What is left is the cut in the cone's own parameters**, and it is one shape
+for every plane. A cone reads `v` along its axis and scales the radius by
+`v·tan α`, so a plane `n·(x − o) = 0` is `v·f(u) = δ` for
+`f(u) = C + T·R cos(u − φ)`, `C = n·a`, `T = tan α`, `R = hypot(n·e, n·q)` and
+`φ = atan2(n·q, n·e)`. A graph over the angle with two poles in it — the
+asymptote directions — and the side reads `δ − v·f(u)`, linear in `v` and so
+signed correctly across the whole plane including where `f` comes to nought.
+Within one face it is a single arc: a face lies on one nappe, and `f` holds one
+sign over a single interval of the angle. One arm would cover the circle, the
+ellipse, the parabola and the hyperbola, and replace the walked cut the ellipse
+takes today.
+
+**The hard part of it is `met`, and `Bow` is the precedent.** Where a straight
+run crosses `v·f(u) = δ` is a line times a sinusoid against a constant, and
+neither it nor its derivative has a closed-form root. `Bow` next door is fenced
+twice — at the closed-form roots of the *second* derivative, then at the
+bisected roots of the first — and is rigorous for it; here the linear factor
+spoils the second derivative too, so the fencing has to come from somewhere
+else. `Traced::grazes` is the other precedent: it tests a run against the chords
+the cut lays down rather than against the reading, which is what a bisection
+cannot be given a bracket for.
+
+**Until it lands the pair is refused rather than walked.** A traced cut samples
+a whole turn of its curve's own parameter and orders places by how far round
+they stand, and an open curve has neither — so `Curve::closed` says which, and
+`Combining::walked` turns those away.
 
 ### 9.3 M6b — merging what one cut split
 

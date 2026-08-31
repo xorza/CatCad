@@ -6,6 +6,7 @@ use crate::math::bisect;
 use crate::math::bounds::Bounds;
 use crate::math::quadratic;
 use crate::number::tolerance::PLACED;
+use crate::solid::boolean::splitting::bough::Bough;
 use crate::solid::boolean::splitting::bow::{Bow, Bowed};
 use crate::solid::boolean::splitting::corner::{Came, Corner};
 use crate::solid::boolean::splitting::oval::Oval;
@@ -32,7 +33,7 @@ pub(super) const ROUNDED: f64 = 1e-3;
 /// The side kept is always the *left* of the way the cut runs, which is what
 /// makes cutting both ways one operation asked twice — see [`Cut::turned`].
 ///
-/// Five shapes, and what they have in common is that each divides the whole of
+/// Six shapes, and what they have in common is that each divides the whole of
 /// a face rather than a stretch of one. What a cut is *not* is a segment —
 /// every stage downstream needs each region to be wholly one thing or the
 /// other, and a cut that stopped part way would leave a region straddling it.
@@ -70,6 +71,10 @@ pub(crate) enum Cut<'a> {
     /// its own [`Bow::closed`] says — see [`Bow`], which is the one shape here
     /// that is either.
     Bow(Bow),
+    /// A cut along one branch of an open conic, kept above or below as its own
+    /// `above` says — see [`Bough`], which carries the parabola and the
+    /// hyperbola alike.
+    Bough(Bough),
     /// A cut traced from a curve's own places, which is what any curve with no
     /// closed form above gets — see [`Traced`]. A marched run and a general
     /// quartic both land here.
@@ -97,6 +102,10 @@ impl<'a> Cut<'a> {
                 inward: !bow.inward,
                 ..bow
             }),
+            Self::Bough(bough) => Self::Bough(Bough {
+                above: !bough.above,
+                ..bough
+            }),
             Self::Traced(traced) => Self::Traced(traced.turned()),
         }
     }
@@ -121,7 +130,8 @@ impl<'a> Cut<'a> {
             Self::Straight { run: Some(run), .. }
             | Self::Round(Oval { run, .. })
             | Self::Wave(Ripple { run, .. })
-            | Self::Bow(Bow { run, .. }) => Came::Arc(run),
+            | Self::Bow(Bow { run, .. })
+            | Self::Bough(Bough { run, .. }) => Came::Arc(run),
             Self::Traced(traced) => traced.came(at),
             Self::Straight { run: None, .. } => Came::Edge,
         }
@@ -147,7 +157,7 @@ impl<'a> Cut<'a> {
             Self::Round(_) => true,
             Self::Bow(bow) => bow.closed(),
             Self::Traced(traced) => traced.closed(),
-            Self::Straight { .. } | Self::Wave(_) => false,
+            Self::Straight { .. } | Self::Wave(_) | Self::Bough(_) => false,
         }
     }
 
@@ -176,6 +186,9 @@ impl<'a> Cut<'a> {
             // Two measures in one arm, a bow being closed or open — see
             // [`Bow::side`], where each is argued.
             Self::Bow(bow) => bow.side(point),
+            // The wave above read in a frame that leans — see [`Bough::side`],
+            // where the same overstatement is argued.
+            Self::Bough(bough) => bough.side(point),
             // The true distance to the *other surface*, which is the one shape
             // here that has one to give — see [`Traced::side`].
             Self::Traced(traced) => traced.side(point),
@@ -218,6 +231,9 @@ impl<'a> Cut<'a> {
             // An angle round the loop where it is closed and the cylinder's own
             // angle where it is not, which is the two above under one call.
             Self::Bow(bow) => bow.down(point),
+            // The branch's own first parameter, which is a length rather than
+            // an angle — see [`Bough::down`].
+            Self::Bough(bough) => bough.down(point),
             // How far round the run it was walked as, measured from a place
             // the face does not hold — see [`Traced::down`].
             Self::Traced(traced) => traced.down(point),
@@ -279,6 +295,9 @@ impl<'a> Cut<'a> {
             // squares is that radius the whole way round — see [`Bow::turn`].
             Self::Wave(ripple) => banded(ripple.level, ripple.swing, fills),
             Self::Bow(bow) => banded(bow.level, bow.across, fills),
+            // Its own frame rather than a band, a branch being a graph over a
+            // *length* that does not wrap — see [`Bough::reaches`].
+            Self::Bough(bough) => bough.reaches(fills),
             Self::Traced(traced) => traced.reaches(fills),
         }
     }
@@ -449,6 +468,17 @@ impl<'a> Cut<'a> {
                     came,
                 }));
             }
+            // Not wrapped either, a branch running from one edge of the face
+            // to the other.
+            Self::Bough(bough) => {
+                let sweep = to - from;
+                let count = bough.steps(sweep);
+                let came = self.came(bough.at(from));
+                into.extend((1..count).map(|step| Corner {
+                    at: bough.at(from + sweep * step as f64 / count as f64),
+                    came,
+                }));
+            }
             // Wrapped where the loop closes and not where it does not, which
             // is the two above told apart by the one thing that tells them
             // apart anywhere.
@@ -505,7 +535,7 @@ impl<'a> Cut<'a> {
             // **Several loops rather than one**, a marched meeting coming in
             // pieces — see [`Traced`].
             Self::Traced(traced) => traced.walk(into),
-            Self::Straight { .. } | Self::Wave(_) | Self::Bow(_) => {}
+            Self::Straight { .. } | Self::Wave(_) | Self::Bow(_) | Self::Bough(_) => {}
         }
     }
 
@@ -543,6 +573,11 @@ impl<'a> Cut<'a> {
                 }
             }
             Self::Bow(bow) => met = bow.bowed(from, to),
+            Self::Bough(bough) => {
+                for along in bough.crossed(from, to) {
+                    met.push(along);
+                }
+            }
         }
         met
     }
