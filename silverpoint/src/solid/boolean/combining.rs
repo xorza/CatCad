@@ -157,10 +157,9 @@ fn pairing(one: &Surface, two: &Surface) -> Key {
 struct Scratch {
     splitting: Splitting,
     sounding: Sounding,
-    /// The regions one face has been cut into, and the ones it is being cut
-    /// into next: swapped rather than replaced, plane after plane.
+    /// The regions one face has been cut into, plane after plane — cut in
+    /// place, for the reason [`Cells`] gives.
     cells: Cells,
-    spare: Cells,
     inside: Inside,
     /// A face's boundary in the world, walked as chords: one loop of it on its
     /// way into that face's own parameters, or the whole of it on its way into
@@ -441,15 +440,12 @@ impl Combining {
                         imprints: &self.imprints,
                         carried: &self.carried,
                     };
-                    if !self.scratch.splitting.split(
-                        &self.scratch.cells,
-                        cut,
-                        reading,
-                        &mut self.scratch.spare,
-                    ) {
+                    let Scratch {
+                        splitting, cells, ..
+                    } = &mut self.scratch;
+                    if !splitting.split(cells, cut, reading) {
                         return false;
                     }
-                    std::mem::swap(&mut self.scratch.cells, &mut self.scratch.spare);
                 }
             }
             if !self.sift(face, theirs, doing, first) {
@@ -681,28 +677,23 @@ impl Combining {
         if self.scratch.pieces.is_empty() {
             return true;
         }
-        let cut = Cut::Traced(Traced::of(
-            on,
-            other,
-            &self.carried,
-            &self.scratch.sampled,
-            self.scratch.laid,
-            &self.scratch.pieces,
-        ));
+        // Taken apart before the cut is made, the cut standing on two of these
+        // while the splitter takes two more.
+        let Scratch {
+            splitting,
+            cells,
+            sampled,
+            laid,
+            pieces,
+            ..
+        } = &mut self.scratch;
+        let cut = Cut::Traced(Traced::of(on, other, &self.carried, sampled, *laid, pieces));
         let reading = Reading {
             on: *on,
             imprints: &self.imprints,
             carried: &self.carried,
         };
-        if !self
-            .scratch
-            .splitting
-            .split(&self.scratch.cells, cut, reading, &mut self.scratch.spare)
-        {
-            return false;
-        }
-        std::mem::swap(&mut self.scratch.cells, &mut self.scratch.spare);
-        true
+        splitting.split(cells, cut, reading)
     }
 
     /// The box `face` fills, walked as chords at [`CHORDED`].

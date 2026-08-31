@@ -1324,9 +1324,9 @@ the second is a contract with the next boolean.
 **Then the sounding, which was reading the whole of the other body per
 region.** A place is sounded by casting a ray and counting the faces it crosses,
 and the count walked every face of the body — a quadric solve and a walk of the
-face's boundary apiece — where a ray crosses two. Three changes took the same
-five cuts from 0.071, 0.52, 2.2, 12.1 and 78.8 ms to 0.06, 0.38, 1.39, 6.2 and
-34.4, and not one face count moved:
+face's boundary apiece — where a ray crosses two. Four changes took the same
+five cuts from 0.071, 0.52, 2.2, 12.1 and 78.8 ms to 0.06, 0.39, 1.29, 5.3 and
+24.8, and not one face count moved:
 
 - **A ray is held against a face's box before the face's surface.** Six
   comparisons where a solve and a boundary walk stood, and `winding::within`
@@ -1340,13 +1340,23 @@ five cuts from 0.071, 0.52, 2.2, 12.1 and 78.8 ms to 0.06, 0.38, 1.39, 6.2 and
   written into one list, so a region the cut misses belongs wherever it falls
   and needs no reading of the side at all — where two passes had to ask, to keep
   from writing it twice. 38.0 to 34.7.
+- **And it walks them where they lie.** A cut read one store and wrote another,
+  and the two were swapped — so every region the cut missed was copied whole,
+  corner by corner, past every one of the hundred and twenty-eight cuts. Cut in
+  place, what moves is a range and a box per region kept, and only the regions
+  actually divided are taken out — into the store the cut then writes their
+  pieces back into. 34.7 to 24.8. The room it costs is the loops of a divided
+  region, left behind unnamed, and it is bounded by what the face is cut into
+  rather than growing with the cuts.
 
 **The gain grows with the body**, which is the shape wanted: 1.2 times at four
-sides and 2.3 at a hundred and twenty-eight. What is left of the growth is the
-region count itself, which is quadratic in the tool's sides because a face is
-divided by *whole surfaces* and n walls cut a flat in n² pieces. Both of the top
-two arms are that count: the splitter carrying regions past a cut that misses
-them, and the sounder asking one question per region.
+sides and 3.2 at a hundred and twenty-eight. **And what is left is flat** — no
+arm of the profile above a fifth, the largest being the sewing, and the cost per
+face of the answer is 1.9 µs at both ends where it was 2.2 at four sides and 6.0
+at a hundred and twenty-eight. What still grows is the region count itself,
+which is quadratic in the tool's sides because a face is divided by *whole
+surfaces* and n walls cut a flat in n² pieces. That count is §7.4's and cannot be merged away
+before the sewing, for the reason §9.3 gives.
 
 Every arm of a cut now answers off its own shape: a line and an ellipse have a
 box, a wave and a bow a band in the height alone — being graphs over an angle

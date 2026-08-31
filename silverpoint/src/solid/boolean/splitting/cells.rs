@@ -9,9 +9,20 @@ use std::ops::Range;
 /// Regions of one plane, each an outline and the loops punched out of it.
 ///
 /// Flat, like everything else the kernel holds several of: one buffer of loops
-/// and a range per region. A cut reads one of these and writes another, and the
-/// two are swapped rather than replaced, so cutting a face by a dozen planes
-/// reaches the heap for none of them.
+/// and a range per region.
+///
+/// **Cut in place.** A cut divides almost none of what it is handed — a hundred
+/// and twenty-eight walls leave a block's face in as many slices and the next
+/// wall crosses two — so a store the cut copied wholesale would spend its time
+/// carrying regions past cuts that miss them. What a cut moves instead is a
+/// range and a box per region it keeps, and the corners stay where they were
+/// written. See [`Splitting::split`](super::Splitting).
+///
+/// **The loops of a region it divided are left behind**, their runs no longer
+/// named by any region. That is the room a cut in place costs, and it comes to
+/// about what the face is finally cut into: the *k*th line across a face
+/// already in *k* pieces crosses about *k* of them, so what every cut together
+/// divides is of the order of what the last one leaves.
 #[derive(Debug, Default)]
 pub(crate) struct Cells {
     loops: Loops<Corner>,
@@ -66,6 +77,24 @@ impl Cells {
     /// The box the region at `at` fills.
     pub(crate) fn fills(&self, at: usize) -> Bounds<DVec2> {
         self.fills[at]
+    }
+
+    /// Move the region at `from` down to `to`, which stands at or before it.
+    ///
+    /// **The range and the box, and not the corners.** What a region is made of
+    /// stays where it was written — see the note above, which is the whole
+    /// reason a cut walks its regions rather than copying them.
+    pub(crate) fn carry(&mut self, from: usize, to: usize) {
+        debug_assert!(to <= from, "a region cannot be carried forwards");
+        self.owned[to] = self.owned[from].clone();
+        self.fills[to] = self.fills[from];
+    }
+
+    /// Forget every region past `len`, keeping the loops they were written
+    /// into.
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.owned.truncate(len);
+        self.fills.truncate(len);
     }
 }
 

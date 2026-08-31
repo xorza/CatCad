@@ -88,27 +88,6 @@ fn beside(outline: &[Corner], cut: Cut<'_>) -> bool {
     cut.side(outline[0].at) > 0.0
 }
 
-/// What a cut that reaches no part of `region` leaves of it: the region.
-///
-/// **Which side it fell on is not asked here**, and that is what makes a cut
-/// one walk of the regions rather than two. A cut reaching no part of a region
-/// leaves it wholly to one side — see [`Cut::reaches`], and why it says so for
-/// a closed cut as well as a straight one — and both sides are written into one
-/// list, so copying it once puts it where it belongs whichever side that is.
-/// What each region is on is the sifting's question and it asks its own.
-fn aside<'a>(region: impl Iterator<Item = &'a [Corner]>, into: &mut Cells) {
-    let mut walks = region;
-    let Some(outline) = walks.next() else {
-        return;
-    };
-    into.add(|write| {
-        write.push(outline);
-        for walk in walks {
-            write.push(walk);
-        }
-    });
-}
-
 /// Whether a region the cut runs along the boundary of is on the side kept.
 ///
 /// **Which side it is on, where its boundary cannot say.** A corner on the cut
@@ -190,6 +169,9 @@ pub(super) struct Splitting {
     /// Which outline each hole was found inside, in outline order — see
     /// [`Splitting::gather`], which is the only thing that reads it.
     held: Vec<Held>,
+    /// The regions a cut divides, taken out of the store so that it may write
+    /// their pieces back into the same one — see [`Splitting::split`].
+    divided: Cells,
 }
 
 /// What one reassembled loop shuts in, and the box it lies in.
@@ -256,38 +238,48 @@ enum Chained {
 }
 
 impl Splitting {
-    /// Cut every region of `from` along `cut`, keeping both sides, and write
-    /// what falls out into `into`.
+    /// Cut every region of `cells` along `cut`, keeping both sides, and leave
+    /// what falls out in `cells`.
     ///
-    /// `into` is emptied first. What comes back is every region the cut leaves,
-    /// each wholly to one side of it — which is the property a boolean needs
-    /// before it can ask of any of them whether to keep it.
-    pub(super) fn split(
-        &mut self,
-        from: &Cells,
-        cut: Cut<'_>,
-        reading: Reading<'_>,
-        into: &mut Cells,
-    ) -> bool {
-        into.clear();
-        let mut written = true;
-        for at in 0..from.len() {
-            // **One walk of the regions and not one per side.** A cut divides
-            // almost none of what it is handed — a hundred and twenty-eight
-            // walls leave a block's face in as many slices and the next wall
-            // crosses two — so what the walk costs is the regions it merely
-            // carries over, and walking them once each is half of walking them
-            // once per side.
-            if !cut.reaches(from.fills(at)) {
-                aside(from.cell(at), into);
+    /// What it comes to holding is every region the cut leaves, each wholly to
+    /// one side of it — which is the property a boolean needs before it can ask
+    /// of any of them whether to keep it. Which side each fell on is not
+    /// recorded: both go into the one store and the sifting asks its own.
+    ///
+    /// **Cut in place**, for the reason [`Cells`] gives.
+    pub(super) fn split(&mut self, cells: &mut Cells, cut: Cut<'_>, reading: Reading<'_>) -> bool {
+        // **One walk of the regions, and what the cut misses keeps its
+        // corners.** A cut divides almost none of what it is handed — a hundred
+        // and twenty-eight walls leave a block's face in as many slices and the
+        // next wall crosses two — so what the walk costs is the regions it
+        // merely carries over, and all that carries is a range and a box.
+        self.divided.clear();
+        let mut kept = 0;
+        for at in 0..cells.len() {
+            if cut.reaches(cells.fills(at)) {
+                self.divided.add(|write| {
+                    for walk in cells.cell(at) {
+                        write.push(walk);
+                    }
+                });
                 continue;
             }
+            cells.carry(at, kept);
+            kept += 1;
+        }
+        cells.truncate(kept);
+        // Taken out so the cut may write its pieces back into the store it read
+        // them from. Neither move touches the heap.
+        let divided = std::mem::take(&mut self.divided);
+        let mut written = true;
+        for at in 0..divided.len() {
             // Both sides walked whatever the first came to: the two write into
             // one list, and stopping halfway would leave it holding one side of
             // the cut as though that were the whole of it.
-            written &= self.region(from.cell(at), cut, reading, into);
-            written &= self.region(from.cell(at), cut.turned(), reading, into);
+            written &= self.region(divided.cell(at), cut, reading, cells);
+            written &= self.region(divided.cell(at), cut.turned(), reading, cells);
         }
+        self.divided = divided;
         written
     }
 
@@ -779,6 +771,24 @@ impl Splitting {
 mod internals {
     use super::*;
 
+    /// What a cut that reaches no part of `region` leaves of it: the region.
+    ///
+    /// Production never copies one — see [`Splitting::split`], which leaves the
+    /// regions a cut misses where they were written. What wants a copy is
+    /// [`Splitting::halve`], which reads one store and writes another.
+    fn aside<'a>(region: impl Iterator<Item = &'a [Corner]>, into: &mut Cells) {
+        let mut walks = region;
+        let Some(outline) = walks.next() else {
+            return;
+        };
+        into.add(|write| {
+            write.push(outline);
+            for walk in walks {
+                write.push(walk);
+            }
+        });
+    }
+
     impl Splitting {
         /// Cut every region of `from` along `cut`, keeping the left of it, and
         /// write what survives into `into`.
@@ -802,8 +812,8 @@ mod internals {
                     continue;
                 }
                 // Which side a region the cut misses fell on, which production
-                // never asks — see [`aside`], where both sides go into one list
-                // and the sifting sorts them.
+                // never asks — see [`Splitting::split`], where both sides stay
+                // in the one store and the sifting sorts them.
                 let Some(outline) = from.cell(at).next() else {
                     continue;
                 };

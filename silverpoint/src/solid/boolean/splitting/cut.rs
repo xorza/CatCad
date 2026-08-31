@@ -261,9 +261,10 @@ impl<'a> Cut<'a> {
     /// is walked again by each cut after the first, and most of those cuts come
     /// nowhere near most of those regions — a hundred and twenty-eight walls
     /// against a block's face leave a hundred and twenty-eight slices, and the
-    /// next wall crosses two of them. A region no cut of it reaches is whole on
-    /// one side and absent from the other, which four comparisons settle where
-    /// a walk of its corners settled it before.
+    /// next wall crosses two of them. A region no cut of it reaches is whole to
+    /// one side of it, so it survives the cut as it stands and keeps the corners
+    /// it was written with — which four comparisons settle where a walk of them
+    /// settled it before.
     ///
     /// **Sound because the boxes decide containment as well as crossing.** A
     /// closed cut lying wholly inside a region, or a region swallowed whole by

@@ -458,8 +458,8 @@ fn a_circle_clipping_an_edge_between_two_corners_divides_it() {
     // a hole clear of it — and between them the square they came from.
     assert_eq!(inside.cell(0).count(), 1);
     assert_eq!(outside.cell(0).count(), 1);
-    let mut both = Cells::default();
-    assert!(splitting.split(&square(), cut, flat(), &mut both));
+    let mut both = square();
+    assert!(splitting.split(&mut both, cut, flat()));
     assert!((total(&both) - 1.0).abs() < 1e-12, "{}", total(&both));
 }
 
@@ -622,8 +622,8 @@ fn a_wave_cuts_a_region_into_what_stands_over_it_and_under() {
 
     // And both sides at once are the patch they came from, to the last bit —
     // the chording each gives up is the chording the other takes on.
-    let mut both = Cells::default();
-    assert!(splitting.split(&patch, cut, flat(), &mut both));
+    let mut both = patch;
+    assert!(splitting.split(&mut both, cut, flat()));
     assert_eq!(both.len(), 2);
     assert!((total(&both) - 4.0 * PI).abs() < 1e-12, "{}", total(&both));
 }
