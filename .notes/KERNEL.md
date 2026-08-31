@@ -600,15 +600,27 @@ comes in *pieces*, and one place on each is what a walk cannot find for itself.
 A grid finds a small piece by luck and not otherwise: a loop `0.137` across —
 which is what a plane a twentieth inside a ring's outer equator cuts — wants a
 quarter of a million samples once it is moved half a cell off a node. Nothing
-here samples.
+here hunts one over a surface.
 
-**Seeding is per pair and in closed form**, which is the bargain the reducible
-table strikes one shelf up. What the pairs share is the *shape* of the answer
-rather than its arithmetic: where the two surfaces meet is a run against a
-sinusoid, whose stretches alternate round the tube, and the ends of those
-stretches are the seeds. A pair with no reading written for it is refused, which
-is a different answer from a pair that misses — a boolean asking has already
-been told the two meet somewhere.
+**Seeding is per pair and solved rather than searched**, which is the bargain
+the reducible table strikes one shelf up. What the pairs share is the *shape* of
+the answer rather than its arithmetic: standing on the other surface is one
+equation in the ring's two angles, and the stretches of the tube it is met over
+carry the seeds. A plane and a drill that runs parallel come to a single
+sinusoid, which one `acos` answers. A drill that *leans* carries a second
+harmonic — its own axial term squared — and comes to a quartic on a half-angle
+chart, up to four angles at one `v` where a sinusoid offers two. A pair with no
+reading written for it is refused, which is a different answer from a pair that
+misses — a boolean asking has already been told the two meet somewhere.
+
+**The one scan left is over the tube's own angle, and a degree bounds it.** A
+leaning drill's stretches end where the count of those four angles moves, and
+that count moves only at the zeros of the equation's own discriminant — a
+trigonometric polynomial of degree twelve, so twenty-four places at most.
+Cutting the tube into cells and bisecting where the count moves is root
+isolation in one variable against a bound, which is not the hunt above: that one
+is a small loop adrift over a whole surface, with nothing saying how small it
+can be.
 
 **Walking corrects onto both surfaces at once and steps along the cross of
 their normals.** A place off the curve is off two surfaces, which is two numbers
@@ -829,8 +841,7 @@ that does it. What follows is what is not, in the order to take it in.
 
 **The order is §10's first rule applied.** A case a document can already reach
 comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written. Step 1 is a refusal two
-features reach.
+meets is worse than a routine nobody has written.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -838,66 +849,7 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 Step 1 — seeding a drill that leans
-
-**A drill through a ring is answered both ways round** — see
-`a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back`. A
-drill that *leans* is not: `meeting::seeding::Against` covers a plane at any
-lean and a cylinder parallel to the torus axis and nothing else, so
-`Reading::of` hands back nothing and the march is never seeded.
-
-What follows is measured rather than reasoned, on a spike outside the workspace
-— §10's second rule.
-
-**One form covers all three pairs.** Standing on the other surface is
-`A₀(v) + A₁(v)·cos u + B₁(v)·sin u + A₂(v)·cos 2u + B₂(v)·sin 2u = 0`, and the
-two pairs written are that with the second harmonic nought. A leaning cylinder
-is what carries it: `((p − c)·w)²` puts `out(v)²·W²·cos²(u − φ)` into the
-equation, where `W` is how much of the drill's direction stands square to the
-torus axis — nought exactly when the axes are parallel, which is why the written
-arm never meets it. Every root of a leaning plane, a parallel cylinder, two
-leaning drills, one off the plane the axes share and one straight across the
-ring lands on both surfaces to `2e-14`. Two steeper leans answer nothing, the
-drill missing the ring altogether.
-
-**Solve it on the unit circle, not in `tan(u/2)`.** `z²F` is a quartic in
-`z = e^{iu}` whose coefficients `[(A₂ − iB₂)/2, (A₁ − iB₁)/2, A₀, …]` read back
-conjugate, so a leaning pair has up to *four* branches where `Reading::at(v,
-far)` offers two.
-
-The half-angle chart cannot name `u = π`, and that is not a corner case: a drill
-straight across the ring crosses it. It begins and ends its stretches four times
-over a turn of `v`, confirmed against the equation on a fine grid, and the
-half-angle quartic's discriminant changes sign at only two of them — its leading
-coefficient `A₀ − A₁ + A₂` is the equation read at `u = π`, and it falls through
-`4e-4` there where the leaning drill's holds `[32, 59]`. A discriminant taken at
-the nominal degree goes blind as the quartic falls to a cubic.
-
-**In `z` the ends come out whole.** That discriminant caught *every* end of five
-leaning pairs — two, two, two, four and six, none missed. It vanishes at each to
-`5e-15` of its own scale over eight ends, so both its parts vanish and a sign
-change of either finds it. Both parts are degree twelve in `v` — five
-coefficients of degree two, and a quartic's discriminant is degree six in its
-coefficients — with the thirteenth harmonic fifteen orders down.
-
-Its own leading coefficient is nought exactly where the second harmonic is,
-which is the plane and the parallel cylinder. So the degeneracy that sinks the
-other chart never meets this one.
-
-**What to build: a third arm, not a rewrite.** The two written pairs solve
-`A·cos(u − phase) = B` with one `acos`, exact and cheap where a quartic on the
-unit circle is neither, and they keep it. The arm carries the five harmonics,
-reads `at` off the roots of `z²F` on the unit circle, and takes `ends` from the
-zeros in `v` of that discriminant — isolated rather than solved. What the
-seeding owes is one place on *every* piece, and a companion-matrix solve at
-degree twenty-four can lose two roots to conditioning and swallow a seed without
-saying so, where Sturm or interval subdivision cannot. Extra ends cost nothing:
-the seeding already takes "as many as the ends allow rather than as many as the
-geometry gives". The objection this module raises to sampling does not carry
-over — that one is about hunting a small loop over a *surface*, where this is
-root isolation on one variable with computable bounds.
-
-### 9.2 Step 2 — M7, fillet, chamfer, STEP
+### 9.1 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-

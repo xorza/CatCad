@@ -795,7 +795,11 @@ mod tests {
         let Surface::Fitted(Fitted::Torus(torus)) = round else {
             panic!("the ring is a torus");
         };
-        let seeds = seeding::seeded(other, &torus).expect("the pair has a reading");
+        let mut seeds = Vec::new();
+        assert!(
+            seeding::seeded(other, &torus, &mut seeds),
+            "the pair has a reading"
+        );
         let mut marching = Marching::default();
         let mut walked = Walked {
             carried: Carried::default(),
@@ -803,7 +807,7 @@ mod tests {
             sampled: Vec::new(),
             taken: Vec::new(),
         };
-        for &seed in seeds.all() {
+        for &seed in &seeds {
             let strayed = marching
                 .walk(&round, other, seed, 1e-4)
                 .expect("the walk did not close");

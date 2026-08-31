@@ -15,6 +15,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
 use crate::solid::named::{Named, Step};
@@ -1584,6 +1585,17 @@ fn a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back() {
                 2.0 * (1.0 - off * off).sqrt() * out
             })
         });
+    // **What the integration itself is held to.** The drill's disc covers
+    // `π/4`, and the ring standing over its middle column is exactly `2`: that
+    // column runs through the tube's own centre, and the ring's section in the
+    // plane the two axes share is a unit circle, every line through the middle
+    // of which is a diameter. The columns around it stand over a little less,
+    // so the bore is a shade under `π/2` — `1.5205` against `1.5708`.
+    let disc = PI / 2.0;
+    assert!(
+        bore < disc && bore > disc * 0.95,
+        "a bore of {bore} against a disc of {disc}"
+    );
     let want = 6.0 * PI * PI - bore;
 
     // Two givings-up, and the mesh's is the larger. The march's is its own
@@ -1607,6 +1619,119 @@ fn a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back() {
     // from both sides — the bore's wall is a hole in one and a slug in the
     // other, so its own giving-up falls out of the sum and only the ring's
     // round wall is left in the slack.
+    let whole = bored + slug - 6.0 * PI * PI;
+    assert!(
+        whole.abs() < slack,
+        "the bore and its slug are {whole} off the ring",
+    );
+}
+
+/// **A ring drilled at a lean**, which is the pair `meeting::seeding` grew its
+/// third arm for and the first drill anywhere here that stands neither
+/// parallel to the ring's axis nor square across it.
+///
+/// A drill that runs parallel meets the ring where `A·cos(u − phase) = B`, one
+/// wave and one `acos` — see the test above. Lean it and the drill's own axial
+/// term carries a *second* harmonic into the equation, which is four angles at
+/// a `v` where the wave answers two. Nothing was written for that, so before
+/// this the seeding handed back nothing and the boolean refused the pair.
+///
+/// **The arithmetic, read off the ring rather than off the answer.** What the
+/// drill takes is its own cross-section swept along its axis, so the bore is
+/// the drill's disc integrated against how much ring stands over each column of
+/// it — and how much stands over one column is where that column's line crosses
+/// the torus, which [`Torus::met_by`] solves in closed form and the boolean has
+/// no part in.
+///
+/// **And the slug is asked for too**, for the reason the parallel drill's is:
+/// what a cut leaves and what an intersection keeps are complements, so they
+/// add back to `6π²` however hard the piece between them is to write down.
+#[test]
+fn a_ring_drilled_at_a_lean_takes_the_bore_the_ring_says_it_should() {
+    let torus = Torus {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        major: 3.0,
+        minor: 1.0,
+    };
+    let ring = Body::ring(torus.major, torus.minor);
+    // Through the tube's own centre circle, leaning about a sixth of a turn
+    // off the ring's axis and in the plane the two axes share.
+    let (radius, way) = (0.5, DVec3::new(0.3, 1.0, 0.0).normalize());
+    let middle = DVec3::X * torus.major;
+    let axis = Axis::about(middle - way * 4.0, way);
+    let drill = rod(axis.plane(), DVec2::ZERO, radius, 8.0, TOOL);
+
+    let mut boolean = Boolean::default();
+    let (mut into, mut plug) = (Body::default(), Body::default());
+    assert!(boolean.combine(&ring, &drill.body, Operation::Cut, &mut into));
+    assert!(boolean.combine(&ring, &drill.body, Operation::Intersect, &mut plug));
+
+    // The torus and the bore's wall, and two handles: the ring has one and the
+    // slanted bore through its wall is the other. The slug it took is the same
+    // two walls with no handle at all.
+    assert_eq!(into.names().count(), 2);
+    assert_eq!(into.reckoning().genus, 2, "{:?}", into.reckoning());
+    assert_eq!(plug.names().count(), 2);
+    assert_eq!(plug.reckoning().genus, 0, "{:?}", plug.reckoning());
+    for body in [&into, &plug] {
+        assert!(!body.exact(), "a marched bore came back exact");
+        let strays = body.strays();
+        assert!(strays > 0.0 && strays < CHORDED, "a bore strays {strays}");
+    }
+    let strayed = into.strays().max(plug.strays());
+
+    // How much ring one column of the drill stands over: the crossings of that
+    // column's own line, taken in pairs. Every column of this drill crosses the
+    // tube once going in and once coming out, so there is one pair.
+    let over = |at: DVec3| {
+        let met = torus.met_by(at, way);
+        met.all()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| pair[1] - pair[0])
+            .sum::<f64>()
+    };
+    let steps = 32;
+    let simpson = |from: f64, to: f64, of: &dyn Fn(f64) -> f64| {
+        let step = (to - from) / steps as f64;
+        (0..=steps)
+            .map(|at| {
+                let weight = match at {
+                    0 => 1.0,
+                    _ if at == steps => 1.0,
+                    _ if at % 2 == 1 => 4.0,
+                    _ => 2.0,
+                };
+                weight * of(from + step * at as f64)
+            })
+            .sum::<f64>()
+            * step
+            / 3.0
+    };
+    // The drill's own disc in polar coordinates, `out` from its axis and
+    // `phase` round it. Half a turn doubled: the whole arrangement is mirrored
+    // in the plane the two axes share.
+    let bore = 2.0
+        * simpson(0.0, PI, &|phase: f64| {
+            simpson(0.0, radius, &|out: f64| {
+                over(axis.origin + axis.radial(phase) * out) * out
+            })
+        });
+    let want = 6.0 * PI * PI - bore;
+
+    // Two givings-up, as for the parallel drill: the march's own stray over the
+    // wall it laid down, which no sagitta can mend, and the mesh's two thirds
+    // of a sagitta over the ring's whole round surface, `4π² · 3 · 1`. The bore
+    // wall is the drill's circumference `π` by the `2.1` of tube it crosses,
+    // and eight stands over that.
+    let sagitta = 1e-3;
+    let slack = strayed * 8.0 + (2.0 / 3.0) * sagitta * 4.0 * PI * PI * 3.0;
+    let mut mesher = Mesher::default();
+    let (bored, slug) = (mesher.volume(&into, sagitta), mesher.volume(&plug, sagitta));
+    let off = bored - want;
+    assert!(off.abs() < slack, "the drilled ring is {off} off {want}");
+
     let whole = bored + slug - 6.0 * PI * PI;
     assert!(
         whole.abs() < slack,

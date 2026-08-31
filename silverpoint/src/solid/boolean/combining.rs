@@ -169,6 +169,10 @@ struct Scratch {
     /// of those, saying which edge put each place there.
     traced: Vec<DVec3>,
     marks: Vec<Came>,
+    /// The places one meeting's walks are started from, which are at least one
+    /// on every piece of it and for a leaning drill are more — see
+    /// [`seeding::seeded`].
+    seeds: Vec<DVec3>,
     /// Every place every piece of one meeting was sampled at, each piece naming
     /// the stretch that is its — see [`Combining::trace`].
     sampled: Vec<Sampled>,
@@ -444,7 +448,29 @@ impl Combining {
             | (surface, Surface::Fitted(Fitted::Torus(torus))) => (surface, *torus),
             _ => return None,
         };
-        for seed in seeding::seeded(surface, &torus)? {
+        if !seeding::seeded(surface, &torus, &mut self.scratch.seeds) {
+            return None;
+        }
+        for step in 0..self.scratch.seeds.len() {
+            let seed = self.scratch.seeds[step];
+            // **A piece already walked is not walked again.** A leaning drill
+            // is offered a place for every turn of every stretch of the tube
+            // its curve holds one over, and one piece of it spans several — see
+            // [`seeding::seeded`]. A run stands within its own sagitta of the
+            // curve it was walked on, so a seed on that curve stands within the
+            // same of the run, and two pieces that came that close would be a
+            // tangency this walk could not tell apart either.
+            let laid = self.curves[from as usize..].iter().any(|curve| {
+                let Curve::Marched(had) = curve else {
+                    return false;
+                };
+                let runs = &self.carried.marched;
+                let near = runs.at(had.run, runs.along(had.run, seed));
+                near.distance(seed) <= CHORDED
+            });
+            if laid {
+                continue;
+            }
             // **Walked at the classification tolerance**, which is as fine as a
             // marched edge can be drawn: nothing downstream can lay a run down
             // again, so the sagitta here is the one the edge carries — see

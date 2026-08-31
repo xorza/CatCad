@@ -55,6 +55,53 @@ pub(crate) fn roots(a: f64, b: f64, c: f64, d: f64, e: f64) -> Inline<f64, 4> {
     found
 }
 
+/// How many real roots a quartic has, which is four, two or none.
+///
+/// **Read off three numbers rather than found.** Every one of them is a
+/// polynomial in the coefficients, so this costs a handful of multiplies where
+/// [`roots`] costs a cubic and four bracketed bisections — and a caller that
+/// only wants to know *whether* the count moved is asking a much smaller
+/// question than where the roots are.
+///
+/// The discriminant separates two real roots from four or none, and `P` and
+/// `D` tell those two apart. Nothing comes back for a leading coefficient of
+/// nought, which is not a quartic. A repeated root is counted by whichever side
+/// of nought the discriminant landed on, the same graze policy [`roots`] states
+/// read one shelf up.
+pub(crate) fn counted(a: f64, b: f64, c: f64, d: f64, e: f64) -> usize {
+    if a == 0.0 {
+        return 0;
+    }
+    if discriminant(a, b, c, d, e) < 0.0 {
+        return 2;
+    }
+    let square = 8.0 * a * c - 3.0 * b * b;
+    let quartered = 64.0 * a * a * a * e - 16.0 * a * a * c * c + 16.0 * a * b * b * c
+        - 16.0 * a * a * b * d
+        - 3.0 * b * b * b * b;
+    match square < 0.0 && quartered < 0.0 {
+        true => 4,
+        false => 0,
+    }
+}
+
+/// Whether a quartic has two of its roots falling together, and how far it
+/// stands from that.
+///
+/// **Nought exactly where a root is repeated**, positive where all four roots
+/// are real or none of them is, and negative where exactly two are.
+fn discriminant(a: f64, b: f64, c: f64, d: f64, e: f64) -> f64 {
+    let (aa, bb, cc, dd, ee) = (a * a, b * b, c * c, d * d, e * e);
+    aa * (256.0 * a * e * ee - 192.0 * b * d * ee - 128.0 * cc * ee + 144.0 * c * dd * e
+        - 27.0 * dd * dd)
+        + a * (144.0 * bb * c * ee - 6.0 * bb * dd * e - 80.0 * b * cc * d * e
+            + 18.0 * b * c * d * dd
+            + 16.0 * cc * cc * e
+            - 4.0 * cc * c * dd)
+        + bb * (-27.0 * bb * ee + 18.0 * b * c * d * e - 4.0 * b * d * dd - 4.0 * cc * c * e
+            + cc * dd)
+}
+
 /// Where a cubic is nought, in no order.
 ///
 /// **Every real root, a repeated one counted once.** What asks is
@@ -173,5 +220,38 @@ mod tests {
 
         // Not a quartic at all.
         assert!(roots(0.0, 1.0, 0.0, -1.0, 0.0).all().is_empty());
+    }
+
+    /// **The count read off the coefficients is the count the roots come to**,
+    /// over the same quartics.
+    ///
+    /// [`counted`] answers from the discriminant and two more polynomials where
+    /// [`roots`] bisects, so the two are separate routes to one number and a
+    /// disagreement is a fault in whichever is asked. The graze is the case
+    /// they could most easily part over — a repeated root is one root and no
+    /// crossing — and both call it none.
+    #[test]
+    fn the_count_of_real_roots_is_read_off_the_coefficients() {
+        for (what, of, want) in [
+            ("four separate", [1.0, -10.0, 35.0, -50.0, 24.0], 4),
+            ("two either side", [1.0, 0.0, -5.0, 0.0, 4.0], 4),
+            ("two real and two not", [1.0, -1.0, -5.0, -1.0, -6.0], 2),
+            ("none at all", [1.0, 0.0, 5.0, 0.0, 4.0], 0),
+            ("a graze at one", [1.0, -2.0, 2.0, -2.0, 1.0], 0),
+            (
+                "the first, trebled and turned over",
+                [-3.0, 30.0, -105.0, 150.0, -72.0],
+                4,
+            ),
+            ("not a quartic at all", [0.0, 1.0, 0.0, -1.0, 0.0], 0),
+        ] {
+            let [a, b, c, d, e] = of;
+            let got = counted(a, b, c, d, e);
+            assert_eq!(got, want, "{what}: {got} rather than {want}");
+            assert_eq!(roots(a, b, c, d, e).all().len(), want, "{what}");
+        }
+
+        let far = 1e6;
+        assert_eq!(counted(1.0, 0.0, 1.0 - far * far, 0.0, -far * far), 2);
     }
 }
