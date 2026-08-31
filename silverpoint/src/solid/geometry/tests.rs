@@ -2328,9 +2328,14 @@ fn a_branch_walks_the_projective_line_from_end_to_end() {
 /// name. Two of the three stretches were one. See [`Quartic::real`].
 ///
 /// **A 45° cone drilled by a wider tube standing off its axis.** The drill's
-/// radius of `2.5` is more than the `2` its axis stands out, so its wall
+/// radius of `2` is more than the `1.5` its axis stands out, so its wall
 /// reaches round the cone's own axis — and the curve they meet in has an arc
 /// that runs off the chart one way and back the other.
+///
+/// **Where the arcs fall is the chosen member's**, not the pair's: the search
+/// takes the first member of the pencil whose chart a walk resolves — see
+/// `Filed::resolves` — so a change there is expected to move these numbers,
+/// and this fixture is one of several that wrap.
 #[test]
 fn an_arc_through_the_charts_edge_is_one_arc() {
     let cone = Quadric::of(&Natural::Cone(Cone {
@@ -2338,8 +2343,8 @@ fn an_arc_through_the_charts_edge_is_one_arc() {
         half_angle: FRAC_PI_4,
     }));
     let drill = Quadric::of(&Natural::Cylinder(Cylinder {
-        axis: Axis::new(DVec3::new(2.0, 0.0, 0.0), DVec3::Y, DVec3::X),
-        radius: 2.5,
+        axis: Axis::new(DVec3::new(1.5, 0.0, 0.0), DVec3::Y, DVec3::X),
+        radius: 2.0,
     }));
     let curve = Quartic::of(cone, drill).expect("a cone drilled by a wider tube");
 
@@ -2381,9 +2386,9 @@ fn an_arc_through_the_charts_edge_is_one_arc() {
                     (at.x * at.x + at.z * at.z - at.y * at.y).abs() < READ,
                     "{at:?} is off the cone",
                 );
-                let out = at.x - 2.0;
+                let out = at.x - 1.5;
                 assert!(
-                    (out * out + at.z * at.z - 6.25).abs() < READ,
+                    (out * out + at.z * at.z - 4.0).abs() < READ,
                     "{at:?} is off the drill",
                 );
             }

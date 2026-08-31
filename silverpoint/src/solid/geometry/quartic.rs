@@ -193,13 +193,24 @@ impl Quartic {
             });
             let raised: [Quadratic<Rational>; 4] = Quadric::raised(place).map(|of| lift(&of));
             let ruled = Ruled::of(&member, &raised, &along, &lift)?;
-            Some(Self {
+            let curve = Self {
                 read: ruled.read(),
                 ruled,
                 against: against.clone(),
                 field,
-            })
+            };
+            curve.resolved().then_some(curve)
         })
+    }
+
+    /// Whether a walk of the parameter says what this curve is, on every
+    /// component of it — see [`Filed::resolves`], which is what the search
+    /// above turns a member away for.
+    fn resolved(&self) -> bool {
+        self.components()
+            .all()
+            .iter()
+            .all(|of| Filed::of(self.clone(), of.arc, of.closing).resolves())
     }
 
     /// Where the ruling at `u` meets the other quadric, or `None` where it
@@ -580,14 +591,22 @@ pub(crate) struct Quartics {
 /// than the tightest circle through three of its places.
 const MEASURED: usize = 32;
 
-/// The angle the `at`th of [`MEASURED`] steps round a loop stands at.
+/// The angle the `at`th of `of` steps round a loop stands at.
 ///
-/// Stated once because the two measurements below both want it and a slip in
-/// one would be a measurement quietly taken somewhere else. `stepped(1)` is the interval
+/// Stated once because every walk below wants it and a slip in one would be a
+/// measurement quietly taken somewhere else. `stepped(1, of)` is the interval
 /// itself, a step being what one of them is.
-fn stepped(at: usize) -> f64 {
-    TAU * at as f64 / MEASURED as f64
+fn stepped(at: usize, of: usize) -> f64 {
+    TAU * at as f64 / of as f64
 }
+
+/// How many places the coarsest of [`Filed::resolves`]'s three walks takes.
+///
+/// **Coarse on purpose**, the test being about what a *sample* misses: a walk
+/// fine enough to resolve any chart would tell nothing apart. Sixteen is under
+/// a percent of a circle's own length, so the three walks together cost about
+/// as much as one measurement of a bend.
+const RESOLVING: usize = 16;
 
 /// How many times a search over the parameter halves what it is looking in.
 ///
@@ -626,17 +645,7 @@ impl Quartics {
     /// asked on every walk over it, and working either out from the
     /// construction each time would be a walk inside a walk.
     pub(crate) fn add(&mut self, curve: Quartic, arc: Stretch, closing: Closing) -> u32 {
-        let mut filed = Filed {
-            curve,
-            arc,
-            closing,
-            holds: [0.0, 1.0],
-            bending: 0.0,
-            reach: 0.0,
-        };
-        // In that order: a measurement outside what reads would be a
-        // measurement of nothing.
-        filed.holds = filed.trimmed();
+        let mut filed = Filed::of(curve, arc, closing);
         filed.bending = filed.bending();
         filed.reach = filed.reaching();
         let at = self.len();
@@ -684,6 +693,65 @@ impl Quartics {
 }
 
 impl Filed {
+    /// One component, trimmed to the part of its arc that reads.
+    ///
+    /// **Trimmed here and measured by the caller**, which is the order the two
+    /// have to come in: a bend or a reach taken outside what reads would be a
+    /// measurement of nothing. [`Quartics::add`] takes both after this, and
+    /// [`Quartic::resolved`] takes neither — a chart being tried wants the trim
+    /// and nothing after it.
+    fn of(curve: Quartic, arc: Stretch, closing: Closing) -> Self {
+        let mut filed = Self {
+            curve,
+            arc,
+            closing,
+            holds: [0.0, 1.0],
+            bending: 0.0,
+            reach: 0.0,
+        };
+        filed.holds = filed.trimmed();
+        filed
+    }
+
+    /// Whether walking the parameter says what this component is.
+    ///
+    /// **A projective chart is a bijection and a walk of it need not be.** The
+    /// parameter is the ruling of whichever member of the pencil the search
+    /// landed on, and nothing about that member says the curve is spread
+    /// evenly over it. Two rods meeting at a lean put nine tenths of each loop
+    /// inside a thousandth of the parameter: a walk steps clean over the nine
+    /// tenths, [`Filed::bending`] measures a bend the curve does not have, and
+    /// what comes of it is an edge chorded once across half a loop. The face
+    /// built on that folds over itself.
+    ///
+    /// **So the walk is refined and what it gains is watched.** Chording a
+    /// smooth loop at `n` places falls short of its length by `O(1/n²)`, so
+    /// doubling `n` leaves a quarter of what was missing — a walk that resolves
+    /// its curve gains less each time it is refined. One that does not gains
+    /// *more*, each refinement reaching parts of the curve the last stepped
+    /// over. Half the last gain is the bound: twice the quarter a smooth loop
+    /// owes, and nowhere near the growth a chart that misses one shows.
+    ///
+    /// Sampled, and it has to be: what is asked is whether a *sample* of this
+    /// chart stands for the curve, which no closed form about the curve
+    /// answers.
+    fn resolves(&self) -> bool {
+        let walked = |count: usize| {
+            let mut walk = 0.0;
+            let mut last = self.place(0.0);
+            for at in 1..=count {
+                let here = self.place(stepped(at, count));
+                if let (Some(here), Some(was)) = (here, last) {
+                    walk += here.distance(was);
+                }
+                last = here;
+            }
+            walk
+        };
+        let [coarse, fine, finer] = [RESOLVING, RESOLVING * 2, RESOLVING * 4].map(walked);
+        finer - fine <= (fine - coarse) / 2.0
+    }
+
     /// Where the parameter `t` lands, or `None` where it names no real place.
     ///
     /// **The one walk of a component**, which is what the two measurements
@@ -756,9 +824,9 @@ impl Filed {
     /// Measured rather than worked out: a quartic has no closed form for it the
     /// way a saddle does, and the construction is evaluable everywhere.
     fn bending(&self) -> f64 {
-        let step = stepped(1);
+        let step = stepped(1, MEASURED);
         (0..MEASURED).fold(0.0f64, |most, at| {
-            let t = stepped(at);
+            let t = stepped(at, MEASURED);
             let (Some(back), Some(here), Some(on)) =
                 (self.place(t - step), self.place(t), self.place(t + step))
             else {
@@ -770,7 +838,7 @@ impl Filed {
 
     /// How far from the origin the component reaches.
     fn reaching(&self) -> f64 {
-        (0..MEASURED).fold(0.0f64, |most, at| match self.place(stepped(at)) {
+        (0..MEASURED).fold(0.0f64, |most, at| match self.place(stepped(at, MEASURED)) {
             Some(place) => most.max(place.length()),
             None => most,
         })

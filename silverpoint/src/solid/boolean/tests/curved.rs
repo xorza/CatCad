@@ -1,12 +1,12 @@
-//! Which curved pairs the kernel puts together, in one sweep.
+//! Which curved pairs the kernel puts together.
 //!
-//! **Every pair the kernel answers, in one place.** Which curved pairs it can
-//! put together is a fact about the kernel rather than about any one test, and
-//! it moves whenever a routine is written or a reduction is found. So the
-//! answered ones are written down once, here, and a pair that stops working is
-//! a diff in a table rather than a test nobody linked to another. The refused
-//! side of the same frontier is measured where it lives, on `Meeting` itself —
-//! see `meeting::tests`.
+//! **Every pair it answers, in one place.** Which curved pairs the kernel can
+//! put together is a fact about it rather than about any one test, and it moves
+//! whenever a routine is written or a reduction is found. So the answered ones
+//! are written down here, in two tables, and a pair that stops working is a
+//! diff in a table rather than a test nobody linked to another. What is refused
+//! is in `.notes/ISSUES.md`, and `.notes/KERNEL.md` §9.4 is where the frontier
+//! is argued.
 //!
 //! **An answered row is checked rather than counted.** What a cut leaves and
 //! what an intersection keeps are complements, so the two add back to the body
@@ -54,7 +54,7 @@ const SAGITTA: f64 = 4e-3;
 /// largest row and would then say nothing about the smallest.
 ///
 /// **And it goes as [`SAGITTA`], measured rather than derived.** The widest row
-/// reads `5.6e-4` here, and `1.3e-4`, `1.3e-5` and `1.3e-6` at a quarter of
+/// reads `5.8e-4` here, and `1.3e-4`, `1.3e-5` and `1.3e-6` at a quarter of
 /// this sagitta and each tenth below that — proportional over three decades,
 /// which is what says the reading is the chording and not a body that fails to
 /// close.
@@ -65,7 +65,7 @@ fn facing(origin: DVec3, normal: DVec3) -> Plane {
     Axis::about(origin, normal.normalize()).plane()
 }
 
-/// The four-by-four-by-four block the first few rows are taken against.
+/// The four-by-four-by-four block the plane rows are taken against.
 fn cube() -> Body {
     block(
         Plane::GROUND,
@@ -135,17 +135,12 @@ fn answers(boolean: &mut Boolean, mesher: &mut Mesher, one: &Body, two: &Body, w
     true
 }
 
-/// **Every curved pair the kernel puts together, held to its own complement.**
-///
-/// What is not here is refused, and refused for one reason: the two surfaces
-/// meet in a true quartic that §7.3's second routine is for — see
-/// `.notes/KERNEL.md` §9.4, and `meeting::tests`, where the refused pairs are
-/// named.
+/// **A plane against each of the other four**, which is the row of §7.3's table
+/// with no gap left in it.
 #[test]
-fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
+fn a_plane_against_each_curved_surface_adds_back_to_the_whole() {
     let up = DVec3::Y;
-    let cases: [(&str, Body, Body); 8] = [
-        // A plane against each of the four, which is the row with no gap in it.
+    let cases: [(&str, Body, Body); 4] = [
         (
             "a rod bored through a block",
             cube(),
@@ -171,12 +166,55 @@ fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
                 SECOND,
             ),
         ),
-        // Two rods, whose meeting is the one quartic written down and the
-        // one place a coaxial pair never meets at all.
+    ];
+    held(cases);
+}
+
+/// **Every pair of curved surfaces the kernel puts together, held to its own
+/// complement.**
+///
+/// What is not here is refused, and for one of two reasons: the pencil search
+/// finds no ruled member at all, or it finds one and something after it turns
+/// the pair away. Both are in `.notes/ISSUES.md`.
+#[test]
+fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
+    let up = DVec3::Y;
+    let cases: [(&str, Body, Body); 8] = [
+        (
+            // Stopping short of the apex, which a hole taken right up to one
+            // would end in a knife edge at.
+            "a rod bored up a cone's axis",
+            cone(DVec3::ZERO, up, 2.0, 4.0, FIRST),
+            shaft(DVec3::new(0.0, -1.0, 0.0), up, 0.5, 3.0, SECOND),
+        ),
+        // A rod against a rod, which is three quartics and the one placement
+        // where two of them never meet at all.
         (
             "two rods crossing square, nested",
             shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
             shaft(DVec3::new(0.0, -4.0, 0.0), up, 1.0, 8.0, SECOND),
+        ),
+        (
+            // Unequal radii on axes that meet at a lean, whose meeting is the
+            // quartic that turned the member search away from a chart it could
+            // not walk — see `Filed::resolves`.
+            "two rods meeting at a lean",
+            shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
+            shaft(
+                DVec3::new(-2.0, -3.46, 0.0),
+                DVec3::new(0.5, 0.866, 0.0),
+                1.0,
+                8.0,
+                SECOND,
+            ),
+        ),
+        (
+            // Cross-sections that overlap rather than nest, whose meeting is
+            // one loop doubling back where a nested pair's is two — and no
+            // graph over either cylinder's angle holds it.
+            "two rods crossing square, overlapping",
+            shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
+            shaft(DVec3::new(0.0, -4.0, 1.5), up, 1.0, 8.0, SECOND),
         ),
         (
             "a rod bored coaxially through a rod",
@@ -189,11 +227,22 @@ fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
             ball(DVec3::new(0.0, 2.0, 0.0), 1.5, SECOND),
         ),
         (
+            "a ball off a cone's axis",
+            cone(DVec3::ZERO, up, 2.0, 4.0, FIRST),
+            ball(DVec3::new(1.0, 2.0, 0.0), 1.5, SECOND),
+        ),
+        (
             "a ball on a rod's axis",
             shaft(DVec3::new(0.0, -4.0, 0.0), up, 2.0, 8.0, FIRST),
             ball(DVec3::ZERO, 3.0, SECOND),
         ),
     ];
+    held(cases);
+}
+
+/// Put every row of `cases` together both ways round, and hold each to its own
+/// complement.
+fn held<const ROWS: usize>(cases: [(&str, Body, Body); ROWS]) {
     let (mut boolean, mut mesher) = (Boolean::default(), Mesher::default());
     for (what, one, two) in cases {
         assert!(

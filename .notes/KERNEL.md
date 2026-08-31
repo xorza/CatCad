@@ -576,6 +576,18 @@ routines, in this order:
    parameterized as `X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all
    degeneracies handled, near-optimal in square roots.
 
+   **And the member the search lands on has to be one a walk can read.** The
+   parameter is the ruling of whichever member of the pencil is found first,
+   and nothing about a member says the curve is spread evenly over its ruling:
+   two rods meeting at a lean gave a member putting nine tenths of each loop
+   inside a thousandth of the parameter. A walk stepped clean over the nine
+   tenths, the bend measured at even steps read almost nothing, and the boolean
+   built a face whose loop folded over itself. So a candidate is tried by
+   refining a walk of it and watching what the refinement gains — a chart that
+   resolves its curve gains less each time, one that misses part of it gains
+   more. See `Filed::resolves`. The next candidate answered the same pair
+   exactly, and three pairs the kernel used to turn away now build.
+
 **Cylinder∩cylinder is therefore not a marching problem.** Two cross-drilled
 holes of equal diameter with meeting axes fall in the reducible table and come
 out as two exact ellipses; unequal diameters give an exact quartic.
@@ -852,12 +864,12 @@ comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
 
 **§9.1 through §9.4 are done**, and the plane row of §7.3's table now has no
-gap in it. What is left below either needs the algebraic route of §7.3 — see
-§9.4, where the pairs that want it are measured — or is M7, which is another
-project. Two refusals stand outside both and are in `.notes/ISSUES.md`: a
-bitangent plane on a torus, whose two circles cross at both places it touches,
-and a cone bored coaxially, which is turned away where the same bore of a
-frustum is answered.
+gap in it. What is left below is M7, which is another project. Three refusals
+stand outside it and are in `.notes/ISSUES.md`: a bitangent plane on a torus,
+whose two circles cross at both places it touches; a cylinder against a ball its
+axis misses, for which the pencil finds no ruled member; and a cone against a
+cylinder on crossing axes, whose curve the pencil writes down and which is
+turned away after that.
 
 Verification per house rule, one `-p` per crate touched:
 
@@ -1160,17 +1172,19 @@ circle's own diameter — three edges, meeting at the apex the body already had
 (§9.1). Both halves are genus 0, one lump, exact, walked nowhere, and the two
 volumes sum to `πr²h/3`.
 
-**What is left after it needs the algebraic route** — §7.3's second routine, and
-nothing smaller. `boolean::tests::curved` sweeps the answered side and holds
-every row to its own complement; what is not in that table is refused. Measured
-over the pairs a document can build: two rods whose
-cross-sections overlap rather than nest, two rods on axes that meet at anything
-but a right angle, a rod against a ball its axis misses, and a cone against
-anything curved it is not coaxial with. Each of those is a true quartic. The
-nested rod pair is written down because its branch points are complex; move the
-axes apart and they become real, the two loops join into one, and every
-parameter a graph could use turns vertical where they join. That is an elliptic
-curve, and `X₁(u) ± X₂(u)·√Δ(u)` is what writes one down.
+**What is left after it is the algebraic route's own frontier**, not the
+geometric table's. §7.3's second routine is in the tree, and
+`boolean::tests::curved` sweeps what the two routines answer between them,
+holding every row to its own complement. Two rods whose cross-sections overlap
+rather than nest, two rods on axes meeting at a lean, and a ball off a cone's
+axis are all answered there. Each is a true quartic, and each is one the pencil
+writes down — the three came in together when the member search learned to turn
+away a chart it cannot walk, which §7.3 records.
+
+**Two pairs are not, and both are in `.notes/ISSUES.md`**: a cylinder against a
+ball its axis misses, for which the pencil search finds no ruled member at all,
+and a cone against a cylinder on crossing axes, whose curve the pencil does
+write down and which is turned away somewhere after that.
 
 ### 9.5 M7 — fillet, chamfer, STEP
 

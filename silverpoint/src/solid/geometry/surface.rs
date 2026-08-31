@@ -63,16 +63,14 @@ impl Surface {
         matches!(self, Self::Natural(_))
     }
 
-    /// The key several of these are filed under — see
-    /// [`Buckets`](crate::solid::buckets::Buckets).
     /// This as the exact zero set of a symmetric 4×4, or `None` where it is
     /// not one.
     ///
     /// **The exact tier is quadrics and the fitted tier is not**, which is the
-    /// whole of the answer: a natural surface *is* a quadric — see
-    /// [`Quadric`] — and a torus is a quartic that no
-    /// matrix holds. So a pair with a fitted half in it is marched rather than
-    /// written down, and this is where that is asked.
+    /// whole of the answer: a natural surface *is* a quadric — see [`Quadric`]
+    /// — and a torus is a quartic that no matrix holds. So a pair with a fitted
+    /// half in it is marched rather than written down, and this is where that
+    /// is asked.
     pub(crate) fn quadric(&self) -> Option<Quadric> {
         match self {
             Self::Natural(natural) => Some(Quadric::of(natural)),
@@ -80,6 +78,8 @@ impl Surface {
         }
     }
 
+    /// The key several of these are filed under — see
+    /// [`Buckets`](crate::solid::buckets::Buckets).
     pub(crate) fn key(&self) -> u64 {
         match self {
             Self::Natural(of) => of.key(),
