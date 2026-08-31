@@ -811,7 +811,13 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
     // the two halves of the wedge above and below cancelling exactly — three
     // here, so `3π`. The wall the chording spans is that circumference along
     // that height.
-    closes(&into, 3.0 * PI, TAU * 3.0, &[1e-2, 1e-3, 1e-4], "the mitre");
+    closes(
+        &[&into],
+        3.0 * PI,
+        TAU * 3.0,
+        &[1e-2, 1e-3, 1e-4],
+        "the mitre",
+    );
 }
 
 /// The volume two cylinders of unequal radius on square axes have in common,
@@ -1942,7 +1948,7 @@ fn a_ball_and_a_cone_are_cut_through_the_places_their_parameters_run_out() {
     // the disc the slab leaves is `π(r² − h²)` across.
     let walls = TAU * 3.0 * 4.0 + PI * 8.0;
     closes(
-        &into,
+        &[&into],
         80.0 * PI / 3.0,
         walls,
         &[1e-2, 1e-3],
@@ -1961,7 +1967,7 @@ fn a_ball_and_a_cone_are_cut_through_the_places_their_parameters_run_out() {
     // and the rod's far disc.
     let walls = PI * 2.0 * 20.0_f64.sqrt() + TAU * 2.0 + PI * 3.0 + PI;
     closes(
-        &into,
+        &[&into],
         22.0 * PI / 3.0,
         walls,
         &[1e-2, 1e-3],
@@ -2019,7 +2025,7 @@ fn a_ball_halved_by_a_leaning_plane_keeps_the_circle_it_was_cut_by() {
     assert_eq!(widest, 3.0, "the rim is the ball's own great circle");
     // Half the ball's own `4πr²`, and the great disc the plane leaves.
     closes(
-        &into,
+        &[&into],
         18.0 * PI,
         TAU * 9.0 + PI * 9.0,
         &[1e-2, 1e-3],
@@ -2066,7 +2072,7 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
     // discs it stands between.
     let walls = PI * 3.5 * 1.25_f64.sqrt() + PI * 4.0 + PI * 2.25;
     closes(
-        &into,
+        &[&into],
         PI * (4.0 + 3.0 + 2.25) / 3.0,
         walls,
         &[1e-2, 1e-3],
@@ -2083,8 +2089,8 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
 /// **A plane that genuinely crosses a cone.** Milling a flat down a taper is
 /// that: the wall runs parallel to the axis and passes through the cone, so no
 /// cull can drop it and the hyperbola has to be written down. Which is what
-/// `Curve` does not hold — see `.notes/KERNEL.md` §9.1, where the two ways in
-/// are weighed.
+/// `Curve` does not hold — see `.notes/KERNEL.md` §9.2, which is the milestone
+/// that writes them down.
 ///
 /// **And Villarceau's circles.** A plane through a ring's middle at the
 /// bitangent lean cuts two circles of the major radius, and they *cross* — at
@@ -2141,6 +2147,88 @@ fn a_meeting_no_face_can_carry_is_refused_rather_than_answered_wrongly() {
     assert!(into.is_empty(), "a refusal left half a body behind");
 }
 
+/// **A taper sliced by a leaning slab is cut along the ellipse its two rulings
+/// set**, which is the first conic here that is neither a circle nor a section
+/// of a cylinder.
+///
+/// A plane leaning across a cone cuts an ellipse where it clears one nappe, and
+/// the two rulings of the principal plane are where that section reaches
+/// furthest — see [`Meeting::of`](crate::solid::meeting::Meeting). The cone is
+/// [`taper`], apex at `(0, 4, 0)` and one across for every two down, so the
+/// radius at height `y` is `(4 − y)/2`. The slab's near plane is `x + 2y = 4`.
+///
+/// **The ellipse, hand-computed.** In the `z = 0` plane the two meet where
+/// `|4 − 2y| = (4 − y)/2`, which is `y = 4/3` on the near side and `y = 12/5`
+/// on the far — so the ends are `(4/3, 4/3, 0)` and `(−4/5, 12/5, 0)`, the
+/// centre is `(4/15, 28/15, 0)` and the major half is `|(32, −16, 0)|/30 =
+/// 8√5/15`. The minor half comes off the cone: for a centre `q` off the apex,
+/// `(q·a)² = cos²α(|q|² + b²)`, which for `q = (4, −32, 0)/15` and `cos²α = 4/5`
+/// gives `b² = 16/15`.
+///
+/// **And the two sides sum to the cone**, which is the cross-check no closed
+/// form is needed for: what the slab keeps and what it takes away are the whole
+/// of `πr²h/3 = 16π/3` between them.
+///
+/// **Exact, both of them.** A cone and a plane are of the exact tier, so the
+/// rim is the ellipse the meeting gave rather than the polygon the
+/// classification walked, and neither body carries a sagitta.
+#[test]
+fn a_taper_sliced_by_a_leaning_slab_is_cut_along_the_ellipse_its_rulings_set() {
+    // Faced along `(1, 2, 0)/√5` through `(0, 2, 0)`, so the plane is
+    // `x + 2y = 4`. Three across and three deep, which stands its walls clear
+    // of the cone — a wall runs parallel to the axis and cuts a hyperbola,
+    // which is a curve nothing here writes down.
+    let leaning = block(
+        Plane {
+            origin: DVec3::new(0.0, 2.0, 0.0),
+            x: DVec3::Z,
+            y: DVec3::new(2.0, -1.0, 0.0).normalize(),
+        },
+        &[(-3.0, -3.0), (3.0, -3.0), (3.0, 3.0), (-3.0, 3.0)],
+        3.0,
+        CUBE,
+    );
+    let mut boolean = Boolean::default();
+    let (mut kept, mut lost) = (Body::default(), Body::default());
+    assert!(
+        boolean.combine(&taper(), &leaning, Operation::Intersect, &mut kept),
+        "the far side of a leaning slab was turned away",
+    );
+    assert!(
+        boolean.combine(&taper(), &leaning, Operation::Cut, &mut lost),
+        "the near side of a leaning slab was turned away",
+    );
+
+    let (major, minor) = (8.0 * 5.0_f64.sqrt() / 15.0, (16.0_f64 / 15.0).sqrt());
+    for (named, body, faces) in [("the far side", &kept, 4), ("the near side", &lost, 7)] {
+        assert_eq!(body.reckoning().genus, 0, "{named} is a ball");
+        assert_eq!(body.topology().faces().count(), faces, "{named}");
+        assert!(body.exact(), "{named}: a cone and a plane are both exact");
+        assert_eq!(body.strays(), 0.0, "{named}: nothing here was walked");
+        let mut rims = 0;
+        for (_, edge) in body.topology().edges() {
+            let Curve::Ellipse(oval) = edge.curve else {
+                continue;
+            };
+            rims += 1;
+            assert!((oval.major - major).abs() < 1e-12, "{named}: {oval:?}");
+            assert!((oval.minor - minor).abs() < 1e-12, "{named}: {oval:?}");
+        }
+        assert!(rims > 0, "{named} has no elliptical rim");
+    }
+
+    // The cone's own `πrl` for a slant of `√20`, its base disc, and the
+    // elliptical flat each side leaves.
+    let walls = PI * 2.0 * 20.0_f64.sqrt() + PI * 4.0 + 2.0 * PI * major * minor;
+    closes(
+        &[&kept, &lost],
+        16.0 * PI / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the two sides of the taper",
+    );
+}
+
 /// A cone of base two and height four, apex up the world's `+y`, spun from a
 /// right triangle.
 fn taper() -> Body {
@@ -2159,24 +2247,30 @@ fn taper() -> Body {
     .body()
 }
 
-/// Hold `body` against the volume `want` at each of `sagittas`, in turn.
+/// Hold what `bodies` shut in between them against the volume `want`, at each
+/// of `sagittas` in turn.
 ///
 /// **Under and closing**, which is what a mesh of an exact body owes: every
 /// chord lies inside the surface it cuts across, so the figure reads short and
 /// the shortfall falls as the sagitta does. A test that only bounded the error
 /// would pass on a body that meshed the same wrong shape every time.
 ///
+/// **Several bodies, because the two sides of one cut are a sum.** What a
+/// boolean leaves on each side of a plane has no closed form apiece where the
+/// two together plainly do — a cone sliced obliquely is that.
+///
 /// **`walls` is how much face the chording spans**, which is what turns the
 /// sagitta into a volume: what a chord cuts off goes as two thirds of the
 /// sagitta times the area it reaches over. A bound on what the mesh gives up
 /// rather than a prediction of it, and the same one every measured test in this
 /// file is held to.
-fn closes(body: &Body, want: f64, walls: f64, sagittas: &[f64], named: &str) {
+fn closes(bodies: &[&Body], want: f64, walls: f64, sagittas: &[f64], named: &str) {
     let mut mesher = Mesher::default();
     let mut last = f64::INFINITY;
     for &sagitta in sagittas {
         let slack = (2.0 / 3.0) * sagitta * walls;
-        let off = want - mesher.volume(body, sagitta);
+        let shut: f64 = bodies.iter().map(|body| mesher.volume(body, sagitta)).sum();
+        let off = want - shut;
         assert!(off > 0.0, "{named} read over the true {want} at {sagitta}");
         assert!(off < slack, "{named} read {off} off {want} at {sagitta}");
         assert!(off < last, "{named} read no nearer at {sagitta}: {off}");

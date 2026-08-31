@@ -615,9 +615,68 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
         Meeting::Touching(DVec3::ZERO)
     );
 
-    // A plane that leans cuts a conic no reducible row writes down.
+    // A plane through the apex cuts rulings rather than a conic, and a cone's
+    // own parameters have no arm for one — see `.notes/KERNEL.md` §9.2.
     let leaning = facing(DVec3::ZERO, DVec3::new(0.0, 1.0, 1.0));
     assert_eq!(Meeting::of(&leaning, &cone), Meeting::Algebraic);
+}
+
+/// **A plane leaning across a cone cuts the ellipse its two rulings set**, and
+/// the parabola and the hyperbola either side of that are refused.
+///
+/// **The principal plane is the whole construction.** It holds the axis and the
+/// steepest direction of the cut, and the two rulings in it are where the
+/// section reaches furthest — so the two places they meet the plane are the
+/// ends of the major axis, and the signs of the two divisions that found them
+/// say which conic it is.
+///
+/// **Hand-computed.** The cone is [`taper`], `r = |y|` about the origin; the
+/// plane is `2y − x = 4`, whose normal is `(−1, 2, 0)/√5`. Its two rulings in
+/// the `xy` plane are `(∓1, 1, 0)/√2`, and they meet the plane at
+/// `(−4/3, 4/3, 0)` and `(4, 4, 0)` — each on `r = |y|` and each on the plane,
+/// which is two lines of arithmetic apiece. So the centre is `(4/3, 8/3, 0)`
+/// and the major half is `|(16, 8, 0)/3|/2 = 4√5/3`.
+///
+/// The minor half comes off the cone: a step `b` square to the principal plane
+/// from a centre `out` off the apex is on the cone where
+/// `(out·a)² = cos²α(|out|² + b²)`, so `b² = (8/3)²·2 − 80/9 = 48/9` and the
+/// minor half is `4√3/3`.
+///
+/// **And the two it will not carry.** A plane parallel to the axis meets the
+/// two rulings on opposite sides of the apex, which is a hyperbola; one
+/// parallel to a ruling meets that one nowhere at all, which is a parabola.
+/// `Curve` holds neither.
+#[test]
+fn a_plane_leaning_across_a_cone_cuts_the_ellipse_its_two_rulings_set() {
+    let cone = taper();
+
+    let leaning = facing(DVec3::Y * 2.0, DVec3::new(-1.0, 2.0, 0.0));
+    let meeting = Meeting::of(&leaning, &cone);
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Ellipse(oval)] = along.all() else {
+        panic!("{:?} is not one ellipse", along.all());
+    };
+    let want = DVec3::new(4.0 / 3.0, 8.0 / 3.0, 0.0);
+    assert!(oval.axis.origin.distance(want) < NEAR, "{oval:?}");
+    assert!(
+        (oval.major - 4.0 * 5.0_f64.sqrt() / 3.0).abs() < NEAR,
+        "{oval:?}",
+    );
+    assert!(
+        (oval.minor - 4.0 * 3.0_f64.sqrt() / 3.0).abs() < NEAR,
+        "{oval:?}",
+    );
+    lies_on(meeting, &leaning, &cone, "leaning across a cone");
+
+    // Parallel to the axis, so the two rulings are met either side of the apex.
+    let alongside = facing(DVec3::X, DVec3::X);
+    assert_eq!(Meeting::of(&alongside, &cone), Meeting::Algebraic);
+
+    // Parallel to the ruling `(1, 1, 0)/√2`, which it therefore never meets.
+    let sloped = facing(DVec3::Y * 2.0, DVec3::new(1.0, -1.0, 0.0));
+    assert_eq!(Meeting::of(&sloped, &cone), Meeting::Algebraic);
 }
 
 /// **A cone meets a coaxial surface in circles the half angle sets**, which is

@@ -47,8 +47,10 @@ impl Boolean {
     ///
     /// `false`, with `into` emptied, where it will not — and a refusal is an
     /// answer rather than a failure. Seven things are refused: a meeting
-    /// nothing here writes down, which is a plane leaning across a cone — the
-    /// conic it cuts is a parabola or a hyperbola, and [`Curve`] holds neither;
+    /// nothing here writes down, which is a plane across a cone that clears
+    /// neither nappe — parallel to the axis it cuts a hyperbola and parallel to
+    /// a ruling a parabola, and [`Curve`] holds neither; one leaning any other
+    /// way cuts an ellipse and is carried;
     /// a meeting whose pieces *cross*, which is Villarceau's pair of circles on
     /// a torus, meeting at both places their plane touches the tube, where a
     /// walked cut orders places along each piece in turn and two pieces sharing

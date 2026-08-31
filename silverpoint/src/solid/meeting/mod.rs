@@ -430,25 +430,96 @@ impl Meeting {
         ))
     }
 
-    /// A plane square across a cone cuts a circle, or catches the apex alone.
+    /// A plane cuts a cone in a conic: a circle square across it, an ellipse
+    /// where it clears one nappe, and a parabola, a hyperbola or a pair of
+    /// rulings otherwise.
     ///
-    /// The one reducible case taken here. A plane through the apex cuts
-    /// straight rulings and one anywhere else cuts a conic, both of which are
-    /// as tractable as the rest — and both wait for something that can make a
-    /// cone. See [`Meeting::of`].
+    /// **The two closed ones are taken here**, and the rest are
+    /// [`Meeting::Algebraic`] — a parabola and a hyperbola are curves
+    /// [`Curve`] does not hold, and a plane through the apex cuts straight
+    /// rulings a cone's own parameters have no arm for. See
+    /// `.notes/KERNEL.md` §9.2, which is the milestone that writes them down.
+    ///
+    /// **The principal plane decides everything.** It is the plane through the
+    /// apex holding the axis and the steepest direction of the cut, and the
+    /// two rulings lying in it are where the section reaches furthest. Each is
+    /// a ray from the apex, so where each meets the cutting plane is one
+    /// division — and the *signs* of those two divisions are the whole
+    /// classification: alike is one nappe and an ellipse, unlike is both
+    /// nappes and a hyperbola, and a division by nought is the parabola
+    /// between them.
+    ///
+    /// **The minor half comes off the cone rather than off the ellipse.** The
+    /// two ends give the centre and the major half outright. The minor
+    /// direction stands square to the principal plane, so a step `b` along it
+    /// from the centre `out` off the apex is on the cone where
+    /// `(out·a)² = cos²α·(|out|² + b²)`, the step adding nothing to either dot
+    /// product it is square to. Held at nought under the root, which is armour
+    /// against a rounding: a section that closes to nothing is a plane touching
+    /// along a ruling, and that one is a parabola and has left already.
     fn plane_cone(plane: &Plane, cone: &Cone) -> Self {
         let normal = plane.normal();
-        if !predicate::parallel(normal, cone.axis.direction) {
+        let axis = cone.axis;
+        if predicate::parallel(normal, axis.direction) {
+            let centre = Self::pierced(plane, axis);
+            let radius = axis.along(centre).abs() * cone.half_angle.tan();
+            if predicate::touching(radius, PLACED) {
+                return Self::Touching(centre);
+            }
+            return Self::Along(Curves::one(Curve::Circle(Circle {
+                axis: Axis::new(centre, axis.direction, axis.reference),
+                radius,
+            })));
+        }
+        // Through the apex, where the section is rulings rather than a conic
+        // and both divisions below come to nought.
+        let apart = (plane.origin - axis.origin).dot(normal);
+        if predicate::touching(apart.abs(), PLACED) {
             return Self::Algebraic;
         }
-        let centre = Self::pierced(plane, cone.axis);
-        let radius = cone.axis.along(centre).abs() * cone.half_angle.tan();
-        if predicate::touching(radius, PLACED) {
-            return Self::Touching(centre);
+        // The principal plane: `across` stands square to the axis and to the
+        // normal both, and `up` is the steepest way out of the axis within it —
+        // unit without normalizing, being the cross of two square unit
+        // directions.
+        let across = normal.cross(axis.direction).normalize();
+        let up = axis.direction.cross(across);
+        let (sine, cosine) = cone.half_angle.sin_cos();
+        let met = |way: DVec3| (!predicate::square(normal, way)).then(|| apart / normal.dot(way));
+        let rulings = [
+            axis.direction * cosine + up * sine,
+            axis.direction * cosine - up * sine,
+        ];
+        // A parabola where one ruling runs along the plane, and a hyperbola
+        // where the two are met on opposite sides of the apex.
+        let (Some(near), Some(far)) = (met(rulings[0]), met(rulings[1])) else {
+            return Self::Algebraic;
+        };
+        if near.is_sign_negative() != far.is_sign_negative() {
+            return Self::Algebraic;
         }
-        Self::Along(Curves::one(Curve::Circle(Circle {
-            axis: Axis::new(centre, cone.axis.direction, cone.axis.reference),
-            radius,
+        let ends = [
+            axis.origin + rulings[0] * near,
+            axis.origin + rulings[1] * far,
+        ];
+        let centre = (ends[0] + ends[1]) / 2.0;
+        let out = centre - axis.origin;
+        let reach = ends[0].distance(ends[1]) / 2.0;
+        let width = ((out.dot(axis.direction) / cosine).powi(2) - out.length_squared())
+            .max(0.0)
+            .sqrt();
+        // **Which half is the longer is read rather than assumed.** It is the
+        // one in the principal plane by the section's own geometry, but a plane
+        // a hair off square leaves the two closer together than a float tells
+        // apart — and `Ellipse` is written with the longer along its reference.
+        let (major, minor, reference) = if reach >= width {
+            (reach, width, (ends[0] - centre).normalize())
+        } else {
+            (width, reach, across)
+        };
+        Self::Along(Curves::one(Curve::Ellipse(Ellipse {
+            axis: Axis::new(centre, normal, reference),
+            major,
+            minor,
         })))
     }
 

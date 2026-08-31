@@ -901,27 +901,76 @@ with a rim of radius three to the last bit.
 - **A plane that genuinely crosses a cone**, which is milling a flat down a
   taper. The conic is a parabola or a hyperbola and `Curve` holds neither, so
   the pair is turned away where the *meeting* is worked out and never reaches a
-  cut at all. What answers it is writing the two conics down: new curves, new
-  open cut shapes in a plane's own parameters, and everything downstream of an
-  edge. A milestone of its own.
+  cut at all. §9.2 is the milestone that writes them down.
 
-  **Slicing a taper is not that, and it works.** A block's walls run parallel to
-  a taper's axis, so a plain slice reached the same refusal for a cut that would
-  have divided nothing — the wall standing nine units off the cone. `Surface::reaches`
-  read one distance at the box's middle against the box's own half diagonal,
-  which is a ball far larger than a long thin box and so never culls an
-  unbounded surface. It now answers a plane and a sphere in closed form, and
-  halves the box four times for the rest: each half is nearer its own middle,
-  and one halving settles the wall. Cutting a straight-walled tool out of a
-  block is unmoved by it — a hundred and twenty-eight sides measures 72 ms
-  either way, within the noise — because a block is planes, and a plane went
-  from a ball round the box to an exact answer.
+  **Slicing a taper is not that, and it works.** A plane leaning across a cone
+  cuts an *ellipse* wherever it clears one nappe, and `Curve` has held one all
+  along — so `Meeting::plane_cone` writes it down, the plane's own parameters
+  take it as the oval they take every ellipse as, and the cone's own take it by
+  walking the curve. The two sides of a slab through a taper come back exact,
+  with a rim that is the ellipse the meeting gave, and their volumes sum to the
+  cone's.
+
+  **What made that reachable was the cull**, not the arm. A block's walls run
+  parallel to a taper's axis, so every slice used to reach the hyperbola for a
+  cut that would have divided nothing — the wall standing clear of the cone.
+  `Surface::reaches` read one distance at the box's middle against the box's own
+  half diagonal, which is a ball far larger than a long thin box and so never
+  culled an unbounded surface. It now answers a plane and a sphere in closed
+  form, and halves the box four times for the rest: each half is nearer its own
+  middle, and one halving settles a wall three units clear. Cutting a
+  straight-walled tool out of a block is unmoved by it — a hundred and
+  twenty-eight sides measures 72 ms either way, within the noise — because a
+  block is planes, and a plane went from a ball round the box to an exact
+  answer.
 - **Villarceau's circles.** The traced cut carries every piece of one meeting
   together and orders places along each piece in turn, and these two *cross*, at
   both places their plane touches the tube. Two pieces sharing a place have no
   such order.
 
-### 9.2 M6b — merging what one cut split
+### 9.2 M6c — the two conics a cone still refuses
+
+**Milling a flat down a taper**, which is the last refusal a document can reach.
+A plane parallel to a cone's axis cuts a hyperbola and one parallel to a ruling
+cuts a parabola, and `Curve` holds neither. Cutting further than necessary is
+what puts the case in reach at all: a wall that crosses the taper cannot be
+culled, so the shape has to be written down.
+
+**No cull can stand in for it, and that is settled rather than assumed.** A
+surface reaches past the faces standing on it — a cone is a double cone whether
+or not anything stands on the far nappe — so refusing a surface where the other
+body's *faces* are nowhere near looks like the answer and is not: the decision
+is per face and the cut is by the whole surface, so a wall culled against one
+face and kept against the one beside it leaves a vertex on one side of the edge
+they share. Measured: five tests of the suite break, and §7.4 is where the
+argument already was.
+
+**What it wants, in the order it wants it.**
+
+- **`Curve::Parabola` and `Curve::Hyperbola`.** A parabola is a vertex, a focal
+  length and a frame, read `x = f·t², y = 2f·t`; a hyperbola *branch* is a
+  vertex, two halves and a frame, read `x = a·cosh t, y = b·sinh t`. Two
+  branches are two curves of one meeting, which `Curves` already holds. What
+  each owes beyond that is `along`, `key`, `reach` and how finely to chord a
+  stretch of it — and chording is the one that is not the circle's rule, the
+  curvature running from `b²/a` at the vertex away to nothing.
+- **A cut in a plane's own parameters.** Both are a graph over one axis about
+  the vertex — `x = y²/4f` and `x = a(hypot(1, y/b) − 1)` — so one shape carries
+  the pair, and it is `Ripple` next door with the cosine replaced. It is the
+  better shape of the two as well: a straight run meets a conic where a
+  *quadratic* has roots, which is exact, where a run against a wave has to be
+  bisected.
+- **A cut in the cone's own parameters, which is one shape for every plane.**
+  A cone reads `v` along its axis and scales the radius by `v·tan α`, so a plane
+  `n·(x − o) = 0` is `v·(C + T·R cos(u − φ)) = δ` for `C = n·a`, `T = tan α`,
+  `R = hypot(n·e, n·q)` and `φ = atan2(n·q, n·e)`. Which is a graph over the
+  angle with two poles in it — the asymptote directions — and the side is read
+  as `δ − v·f(u)`, linear in `v` and so signed correctly across the whole plane
+  including where `f` comes to nought. One arm covers the circle, the ellipse,
+  the parabola and the hyperbola, and it replaces the walked cut the ellipse
+  takes today.
+
+### 9.3 M6b — merging what one cut split
 
 The boolean raises a face per kept region, and a face cut by *n* surfaces comes
 back in *n* or more regions of which nearly all are kept. They lie on one
@@ -996,7 +1045,7 @@ What has to hold, and each is a test that breaks a merged body one way:
 - **The name and the orientation are already equal**, both regions coming off
   one face, so nothing is chosen and §5's coincident-surface rule is untouched.
 
-### 9.3 M7 — fillet, chamfer, STEP
+### 9.4 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -1073,7 +1122,7 @@ of the four sides comes back in nine, all kept. They share a surface, a name and
 an orientation, and §5 already calls the set of them one face of the body, so
 nothing above the kernel can tell — but the kernel pays for every one.
 
-**And they cannot be merged away before the sewing**, which §9.2 measures: the
+**And they cannot be merged away before the sewing**, which §9.3 measures: the
 splits one boolean makes are what the next one's uniform cut leans on. So the
 count stands, and where the time goes is a question about the work done per
 face rather than about how many there are.
@@ -1109,10 +1158,10 @@ which §7.4 bounds from outside and which has room *inside* one face:
   whole on one side of itself and absent from the other — four comparisons where
   a walk of its corners stood before. 77 ms to 56, and not one face count moved.
 
-That is sound where §9.1's merge is not, and the difference is worth stating:
-this changes which regions are *looked at*, and §9.1 changed which edges the
-answer *has*. The first is one face's own business and the second is a contract
-with the next boolean.
+That is sound where a merge before the sewing is not, and the difference is
+worth stating: this changes which regions are *looked at*, and §9.3's merge
+changes which edges the answer *has*. The first is one face's own business and
+the second is a contract with the next boolean.
 
 Every arm of a cut now answers off its own shape: a line and an ellipse have a
 box, a wave and a bow a band in the height alone — being graphs over an angle

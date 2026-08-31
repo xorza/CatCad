@@ -24,8 +24,11 @@
 //! wall used to be, the wall standing nine units off it. How tightly
 //! [`Surface::reaches`](crate::solid::geometry::surface::Surface) answers is
 //! what decides how often that happens, and it is the whole of the mitigation
-//! there is: the surface is what divides a face, so the *faces* meeting is not
-//! a question that may be asked instead.
+//! there is. Refusing a surface whose *faces* stand nowhere near looks like a
+//! second one and is not: that decision is per face where the cut is by the
+//! whole surface, so a wall culled against one face and kept against the one
+//! beside it leaves a vertex on one side of the edge they share and none on the
+//! other — which is the same trap §7.4 states.
 
 use crate::loops::Loops;
 use crate::math::bounds::Bounds;
