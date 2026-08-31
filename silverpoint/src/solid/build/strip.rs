@@ -208,10 +208,15 @@ impl Strips {
                 into.push(half);
             }
         }
-        while into.len() >= 2 && into[0] == into[into.len() - 1].turned() {
+        // A spur that straddles the start can be as long as the loop, and
+        // taking its edges off the front one at a time would shift the whole of
+        // what is left once apiece.
+        let mut cancelled = 0;
+        while into.len() - cancelled >= 2 && into[cancelled] == into[into.len() - 1].turned() {
             into.pop();
-            into.remove(0);
+            cancelled += 1;
         }
+        into.drain(..cancelled);
     }
 
     /// Cut a whole turn in half, raising the corner between the two pieces.
@@ -248,5 +253,62 @@ impl Strips {
                 ..turn
             }),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn out(at: usize) -> Half {
+        Half {
+            edge: at,
+            forward: true,
+        }
+    }
+
+    /// **A spur cancels wherever it sits, and the start is the hard place.**
+    ///
+    /// The stack pass only ever looks at what it has just pushed, so a spur in
+    /// the middle of a walk unwinds as it goes and one straddling the start
+    /// does not — its two halves are the first edge and the last, with the
+    /// whole of the region's boundary between them. That is what the second
+    /// pass is for, and what says a walk's own starting place cannot change
+    /// the answer.
+    ///
+    /// Hand-computed. `0 1 [2 3] 1' 0'` is a boundary of two edges with a spur
+    /// two edges long wrapped round it, so what is left is `2 3`. Rotated so
+    /// the spur sits in the middle, `2 3 0 1 1' 0'` cancels in the stack pass
+    /// alone and has to leave the same two.
+    #[test]
+    fn a_spur_cancels_whether_it_straddles_the_start_or_not() {
+        let mut into = Vec::new();
+
+        let straddling = [
+            out(0),
+            out(1),
+            out(2),
+            out(3),
+            out(1).turned(),
+            out(0).turned(),
+        ];
+        Strips::regularized(&straddling, &mut into);
+        assert_eq!(into, [out(2), out(3)]);
+
+        let inside = [
+            out(2),
+            out(3),
+            out(0),
+            out(1),
+            out(1).turned(),
+            out(0).turned(),
+        ];
+        Strips::regularized(&inside, &mut into);
+        assert_eq!(into, [out(2), out(3)]);
+
+        // A loop that is nothing but a spur cancels away to nothing at all.
+        let bare = [out(0), out(1), out(1).turned(), out(0).turned()];
+        Strips::regularized(&bare, &mut into);
+        assert!(into.is_empty(), "a walk out and back bounded something");
     }
 }

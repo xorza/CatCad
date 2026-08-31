@@ -253,10 +253,16 @@ impl Constraint {
     ///
     /// Read off the same list the sketch writes a dimension through, so which
     /// variants carry a magnitude is stated once rather than in two lists free
-    /// to disagree.
-    pub fn value(&self) -> Option<f64> {
-        let mut copy = *self;
-        copy.value_mut().copied()
+    /// to disagree. Which is why there is no immutable `dimension` beside
+    /// [`Self::dimension_mut`]: a second match over the fourteen arms *is* the
+    /// second list, and the two would be free to disagree about one variant
+    /// without the compiler saying so.
+    ///
+    /// Taken by value because reaching that list wants a `&mut` of its own: a
+    /// constraint is [`Copy`], so a caller holding one spends nothing, and one
+    /// holding a reference makes the copy at its own call rather than here.
+    pub fn value(mut self) -> Option<f64> {
+        self.value_mut().copied()
     }
 
     /// The magnitude, to restate it at something else.

@@ -192,9 +192,7 @@ impl Builder {
             self.write_loops(raising, into);
             self.gather(raising, into);
         }
-        if cfg!(debug_assertions) {
-            self.checking.run(into);
-        }
+        self.check(into);
     }
 
     /// Spin `of` into `into`, emptying whatever was there.
@@ -209,14 +207,24 @@ impl Builder {
     /// the five that have none.
     pub fn revolve(&mut self, of: &Revolution<'_>, into: &mut Body) {
         let Self {
-            strips,
-            revolving,
-            checking,
-            ..
+            strips, revolving, ..
         } = self;
         revolving.raise(of, strips, into);
-        if cfg!(debug_assertions) && !into.is_empty() {
-            checking.run(into);
+        self.check(into);
+    }
+
+    /// Hold `into` against everything a body promises, in a debug build — see
+    /// [`Checking`].
+    ///
+    /// One spelling for both features above, so neither can come to check less
+    /// than the other. A body with nothing in it passes rather than being
+    /// spared: every check walks the faces or the lumps the body holds, and one
+    /// holding none of either breaks none of the promises made about them.
+    /// Which is what a feature with nothing to raise hands back — see
+    /// [`Builder::extrude`].
+    fn check(&mut self, into: &Body) {
+        if cfg!(debug_assertions) {
+            self.checking.run(into);
         }
     }
 
