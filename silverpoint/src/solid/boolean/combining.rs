@@ -4,7 +4,7 @@ use crate::loops::Loops;
 use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::chorded::Chorded;
-use crate::math::triangulate::{Cutter, Fill};
+use crate::math::inside::Inside;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::ALIGNED;
@@ -20,7 +20,7 @@ use crate::solid::boolean::splitting::cut::Cut;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
-use crate::solid::boolean::splitting::traced::{Laid, Piece, Traced};
+use crate::solid::boolean::splitting::traced::{Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
@@ -152,17 +152,11 @@ fn pairing(one: &Surface, two: &Surface) -> Key {
 struct Scratch {
     splitting: Splitting,
     sounding: Sounding,
-    cutter: Cutter,
-    fill: Fill,
     /// The regions one face has been cut into, and the ones it is being cut
     /// into next: swapped rather than replaced, plane after plane.
     cells: Cells,
     spare: Cells,
-    /// One region taken apart for the cutter, which wants an outline and its
-    /// holes separately where a region holds them together — and wants bare
-    /// places, having nothing to do with where a stretch came from.
-    outline: Vec<DVec2>,
-    holes: Loops<DVec2>,
+    inside: Inside,
     /// A face's boundary in the world, walked as chords: one loop of it on its
     /// way into that face's own parameters, or the whole of it on its way into
     /// the box the face fills. `marks` is in step with `traced` for the first
@@ -179,13 +173,13 @@ struct Scratch {
     walk: Vec<DVec2>,
     corners: Vec<Corner>,
     /// The stretch of its own parameters the face being cut was laid out in —
-    /// see [`Laid`], and [`imprinted`], which is the one thing that reads it.
+    /// see [`imprinted`], which is the one thing that reads it.
     ///
     /// A face may not wrap, so that stretch is less than a whole turn wide in
     /// each parameter and at most one turn of a wrapping cut falls inside it.
     /// Both parameters, a torus running round twice over. Meaningless for a
     /// plane, whose parameters do not wrap, and read by nothing for one.
-    laid: Laid,
+    laid: Bounds<DVec2>,
     /// The one walk a marched pair is laid down by — see [`Combining::march`],
     /// which keeps the room it works in the same way everything here does.
     marching: Marching,
@@ -223,7 +217,7 @@ struct Scratch {
 #[derive(Debug, Clone, Copy)]
 struct Boxed {
     face: FaceId,
-    fills: Bounds,
+    fills: Bounds<DVec3>,
 }
 
 impl Combining {
@@ -629,7 +623,7 @@ impl Combining {
     /// Off the boundary, which is enough for every surface but a sphere — see
     /// [`Surface::fills`], where that argument is written down and where the
     /// one it is not enough for is widened.
-    fn reach(&mut self, body: &Body, face: &Face) -> Bounds {
+    fn reach(&mut self, body: &Body, face: &Face) -> Bounds<DVec3> {
         let topology = body.topology();
         self.scratch.traced.clear();
         for coedge in topology.loops_of(face).flatten() {
@@ -655,7 +649,7 @@ impl Combining {
     /// `outward`, which is where it belongs.
     fn lay(&mut self, body: &Body, face: &Face) {
         let topology = body.topology();
-        let mut laid = Laid::default();
+        let mut laid = Bounds::default();
         let Self {
             scratch, imprints, ..
         } = self;
@@ -751,40 +745,11 @@ impl Combining {
     }
 
     /// A place well within the region at `at`, or `None` where it covers
-    /// nothing to be within.
-    ///
-    /// The middle of the widest triangle it cuts into, which is inside it
-    /// however the region bends — where the average of its corners is only
-    /// inside a region that happens to be convex, and a boolean makes plenty
-    /// that are not.
+    /// nothing to be within — see [`Inside::of`], which is the whole of the
+    /// rule.
     fn within(&mut self, at: usize) -> Option<DVec2> {
-        let Scratch {
-            cells,
-            cutter,
-            fill,
-            outline,
-            holes,
-            ..
-        } = &mut self.scratch;
-        outline.clear();
-        holes.clear();
-        let mut walks = cells.cell(at);
-        outline.extend(walks.next()?.iter().map(|corner| corner.at));
-        for walk in walks {
-            holes.add(|into| into.extend(walk.iter().map(|corner| corner.at)));
-        }
-        cutter.polygon(outline, holes, fill);
-        let widest = fill.triangles.iter().copied().max_by(|&a, &b| {
-            let area = |[x, y, z]: [u32; 3]| {
-                let corner = |at: u32| fill.corners[at as usize];
-                (corner(y) - corner(x))
-                    .perp_dot(corner(z) - corner(x))
-                    .abs()
-            };
-            area(a).partial_cmp(&area(b)).expect("a fill is finite")
-        })?;
-        let corner = |at: u32| fill.corners[at as usize];
-        Some((corner(widest[0]) + corner(widest[1]) + corner(widest[2])) / 3.0)
+        let Scratch { cells, inside, .. } = &mut self.scratch;
+        inside.of(cells.cell(at))
     }
 }
 
@@ -811,7 +776,12 @@ impl Combining {
 /// because it is a straight line — see [`Imprints`]. The round arms want one
 /// and the straight arms do not, which is exactly the two states of that
 /// argument.
-fn imprinted(on: Surface, along: Curve, run: Option<u32>, laid: Laid) -> Option<Cut<'static>> {
+fn imprinted(
+    on: Surface,
+    along: Curve,
+    run: Option<u32>,
+    laid: Bounds<DVec2>,
+) -> Option<Cut<'static>> {
     let about = laid.middle();
     match (on, along) {
         // A line on a plane is a line in its parameters.

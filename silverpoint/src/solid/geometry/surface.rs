@@ -172,7 +172,7 @@ impl Surface {
     }
 
     /// The box a face on this surface fills, given the box its boundary fills.
-    pub(crate) fn fills(&self, boundary: Bounds) -> Bounds {
+    pub(crate) fn fills(&self, boundary: Bounds<DVec3>) -> Bounds<DVec3> {
         match self {
             Self::Natural(of) => of.fills(boundary),
             Self::Fitted(of) => of.fills(),

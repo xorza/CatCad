@@ -10,6 +10,7 @@
 
 use crate::loops::Loops;
 use crate::math::bisect;
+use crate::math::bounds::Bounds;
 use crate::math::intersect::{self, Span};
 use crate::math::winding;
 use crate::number::tolerance::PLACED;
@@ -19,62 +20,6 @@ use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::surface::Surface;
 use glam::DVec2;
 use std::f64::consts::TAU;
-
-/// The stretch of its own parameters a face was laid out in.
-///
-/// **What tells a place of the face from a place past its edge**, which is the
-/// question a wrapping parameter makes worth asking: an inversion answers in
-/// one turn and a face stands in whichever turn its own loops were flattened
-/// into. Two things a cut needs of it, and both are that question — which turn
-/// a cut at a constant angle takes, and where a marched run leaves the face.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Laid {
-    low: DVec2,
-    high: DVec2,
-}
-
-/// Nothing laid out, which holds nowhere — the same inverted pair
-/// [`Bounds`](crate::math::bounds::Bounds) means by it one dimension up.
-impl Default for Laid {
-    fn default() -> Self {
-        Self {
-            low: DVec2::INFINITY,
-            high: DVec2::NEG_INFINITY,
-        }
-    }
-}
-
-impl Laid {
-    /// Widen it to hold `at`.
-    pub(crate) fn hold(&mut self, at: DVec2) {
-        self.low = self.low.min(at);
-        self.high = self.high.max(at);
-    }
-
-    /// The middle of it, which is the turn of each wrapping parameter the face
-    /// stands in.
-    ///
-    /// Named for what it answers rather than for what
-    /// [`Bounds::about`](crate::math::bounds::Bounds) does one dimension up,
-    /// which is to build a box about a place.
-    pub(crate) fn middle(self) -> DVec2 {
-        (self.low + self.high) / 2.0
-    }
-
-    /// Whether it holds `at`.
-    fn holds(self, at: DVec2) -> bool {
-        at.cmpge(self.low).all() && at.cmple(self.high).all()
-    }
-
-    /// Whether anything of `other` is in it.
-    ///
-    /// No slack, unlike [`Bounds::meets`](crate::math::bounds::Bounds): both
-    /// boxes are read off the same parameters rather than one off a walk and
-    /// one off a surface, so there is no chording between them to allow for.
-    fn meets(self, other: Self) -> bool {
-        other.low.cmple(self.high).all() && other.high.cmpge(self.low).all()
-    }
-}
 
 /// The longest stretch of a run that stands clear of the face, as it is walked.
 ///
@@ -150,11 +95,11 @@ pub(crate) struct Piece {
     /// was seeded in — and a run right round a torus's tube, walked the way the
     /// angle shrinks, comes out a whole turn *below* the face that holds it.
     /// So the whole run is moved to the turn its middle stands nearest the
-    /// face's in, which is the reading [`Laid`] was laid out for.
+    /// face's in, which is what the face's own box in these parameters says.
     shift: DVec2,
     /// The stretch of parameters it fills, which is what turns a graze into two
     /// comparisons for the boundary runs that reach nowhere near it.
-    fills: Laid,
+    fills: Bounds<DVec2>,
     /// Whether the run's parameter grows the way the cut runs, for the cut that
     /// keeps the inside of the other surface.
     ///
@@ -197,7 +142,7 @@ impl Piece {
         other: &Surface,
         sampled: &[Sampled],
         taken: [usize; 2],
-        laid: Laid,
+        laid: Bounds<DVec2>,
         curve: Curve,
         run: u32,
     ) -> Option<Self> {
@@ -252,7 +197,7 @@ impl Piece {
             first.1 + left.normalize_or_zero() * ahead.length(),
         ) > 0.0;
 
-        let mut fills = Laid::default();
+        let mut fills = Bounds::default();
         for (_, at) in flattened(on, sampled, from, about, DVec2::ZERO) {
             fills.hold(at);
         }
@@ -264,11 +209,8 @@ impl Piece {
             if wraps.x { turns.x } else { 0.0 },
             if wraps.y { turns.y } else { 0.0 },
         );
-        let fills = Laid {
-            low: fills.low + shift,
-            high: fills.high + shift,
-        };
-        if !laid.meets(fills) {
+        let fills = fills.moved(shift);
+        if !laid.meets(fills, 0.0) {
             return None;
         }
         let mut clear = Clear::default();
@@ -337,9 +279,9 @@ pub(crate) struct Traced<'a> {
     /// The places every piece was sampled at, one buffer for the lot — see
     /// [`Piece::taken`], which is how each names its own.
     sampled: &'a [Sampled],
-    /// The stretch of its own parameters the face was laid out in — see
-    /// [`Laid`], which both the carrying and the laying of corners read.
-    laid: Laid,
+    /// The stretch of its own parameters the face was laid out in, which both
+    /// the carrying and the laying of corners read.
+    laid: Bounds<DVec2>,
     /// The pieces of the meeting that reach this face, in the order they were
     /// walked — see [`Piece`], and [`Traced::down`], which orders along the cut
     /// by this order and then along each piece.
@@ -360,7 +302,7 @@ impl<'a> Traced<'a> {
         other: &'a Surface,
         carried: &'a Carried,
         sampled: &'a [Sampled],
-        laid: Laid,
+        laid: Bounds<DVec2>,
         pieces: &'a [Piece],
     ) -> Self {
         Self {
@@ -499,12 +441,12 @@ impl<'a> Traced<'a> {
         let span = Span { from, to };
         let mut met: [f64; 2] = [0.0; 2];
         let mut count = 0;
-        let mut run = Laid::default();
+        let mut run = Bounds::default();
         run.hold(from);
         run.hold(to);
         let mut last: Option<DVec2> = None;
         for piece in self.pieces {
-            if !piece.fills.meets(run) {
+            if !piece.fills.meets(run, 0.0) {
                 continue;
             }
             let mut walked = self.flattened(*piece);
@@ -782,8 +724,8 @@ mod tests {
 
     /// A whole turn of each parameter, which holds every piece below and asks
     /// nothing of where the face was laid out.
-    fn laid() -> Laid {
-        let mut laid = Laid::default();
+    fn laid() -> Bounds<DVec2> {
+        let mut laid = Bounds::default();
         laid.hold(DVec2::ZERO);
         laid.hold(DVec2::splat(TAU));
         laid

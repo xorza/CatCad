@@ -1,7 +1,6 @@
 //! A run across a wave of an angle that wraps.
 
 use crate::inline::Inline;
-use glam::DVec2;
 use std::f64::consts::TAU;
 
 /// The two angles where `round·cos ψ + up·sin ψ` comes to `to`, in no order.
@@ -26,8 +25,8 @@ pub(crate) fn angles(round: f64, up: f64, to: f64) -> Inline<f64, 2> {
     found
 }
 
-/// Where along the run from `from` to `to` the sine of `x − phase` comes to
-/// `sine`, in no order.
+/// Where along the run from the angle `from` to the angle `to` the sine of the
+/// angle less `phase` comes to `sine`, in no order.
 ///
 /// **Two answers at most, and the turn is the whole of the difficulty.** A sine
 /// takes a value twice a turn — see [`angles`], which is the solve — and each of
@@ -43,17 +42,21 @@ pub(crate) fn angles(round: f64, up: f64, to: f64) -> Inline<f64, 2> {
 /// Nothing for a run that stands at one angle, which has no span to hold a turn
 /// in, and nothing for a value no sine reaches. Half open in how far along, so
 /// a run's own far end is left to the run that starts there.
-pub(crate) fn met(sine: f64, phase: f64, from: DVec2, to: DVec2) -> Inline<f64, 2> {
+///
+/// **The angle alone**, where a caller holds a run of a surface's two
+/// parameters: only the one the sine is taken of decides, so the other would be
+/// a number handed over and never read.
+pub(crate) fn met(sine: f64, phase: f64, from: f64, to: f64) -> Inline<f64, 2> {
     let mut found = Inline::none();
-    let run = to.x - from.x;
+    let run = to - from;
     if run == 0.0 {
         return found;
     }
-    let (lo, hi) = (from.x.min(to.x), from.x.max(to.x));
+    let (lo, hi) = (from.min(to), from.max(to));
     for turn in angles(0.0, 1.0, sine) {
         let over = ((lo - phase - turn) / TAU).ceil();
         let angle = phase + turn + TAU * over;
-        let along = (angle - from.x) / run;
+        let along = (angle - from) / run;
         if angle < hi && (0.0..1.0).contains(&along) {
             found.push(along);
         }

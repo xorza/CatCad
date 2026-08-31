@@ -2,6 +2,7 @@
 
 use crate::inline::Inline;
 use crate::math::arc;
+use crate::math::bisect;
 use crate::math::sinusoid;
 use crate::solid::boolean::splitting::cut::ROUNDED;
 use glam::DVec2;
@@ -83,7 +84,10 @@ impl Ripple {
     ///
     /// Converged rather than tolerated, which is the distinction that matters:
     /// what comes back is the root to the precision the numbers hold, not a
-    /// place within some bound of it.
+    /// place within some bound of it. Through [`bisect::crossed`], which is
+    /// where both that and the graze policy are stated — an end that comes to
+    /// nought is a turning place touching the wave rather than crossing it, and
+    /// `Bow` next door is fenced and bisected the same way.
     pub(crate) fn crested(self, from: DVec2, to: DVec2) -> Crested {
         let run = to - from;
         let at = |along: f64| {
@@ -96,47 +100,17 @@ impl Ripple {
         // turn — and which way round it runs says nothing about that, which is
         // why the span is taken as a range rather than walked from one end.
         let mut turns: Inline<f64, 4> = Inline::two(0.0, 1.0);
-        for turn in sinusoid::met(-run.y / (self.swing * run.x), self.phase, from, to) {
+        for turn in sinusoid::met(-run.y / (self.swing * run.x), self.phase, from.x, to.x) {
             turns.push(turn);
         }
         let turns = turns.all_mut();
-        turns.sort_by(|one, two| one.partial_cmp(two).expect("a run is finite"));
+        turns.sort_by(f64::total_cmp);
         let mut crested = Crested::none();
-        for step in 1..turns.len() {
-            let (lo, hi) = (turns[step - 1], turns[step]);
-            let (here, there) = (at(lo), at(hi));
-            if here == 0.0 {
-                continue;
+        for pair in turns.windows(2) {
+            if let Some(root) = bisect::crossed(pair[0], pair[1], at) {
+                crested.push(root);
             }
-            if (here > 0.0) == (there > 0.0) {
-                continue;
-            }
-            crested.push(halved(lo, hi, at));
         }
         crested
-    }
-}
-
-/// The place between `lo` and `hi` where `at` changes sign, found by halving.
-///
-/// Not `Cut::between`, which walks a cut's own corners — this is the one
-/// piece of arithmetic in the kernel with no closed form to reach for.
-///
-/// The two have to bracket one, which every caller has just shown. Halved until
-/// the middle is one of the two ends, which is the last bit an `f64` holds
-/// between them — about fifty rounds, and no tolerance anywhere in it.
-fn halved(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> f64 {
-    let (mut lo, mut hi) = (lo, hi);
-    let rising = at(hi) > 0.0;
-    loop {
-        let middle = 0.5 * (lo + hi);
-        if middle <= lo || middle >= hi {
-            return middle;
-        }
-        if (at(middle) > 0.0) == rising {
-            hi = middle;
-        } else {
-            lo = middle;
-        }
     }
 }

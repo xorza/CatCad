@@ -318,7 +318,7 @@ impl Natural {
     /// A sphere has no such parameter and the argument fails on it — the top of
     /// a dome is interior, and the box of the rim below misses it entirely. So a
     /// face on one is given the whole sphere, which is coarse and is not wrong.
-    pub(crate) fn fills(&self, boundary: Bounds) -> Bounds {
+    pub(crate) fn fills(&self, boundary: Bounds<DVec3>) -> Bounds<DVec3> {
         match self {
             Self::Plane(_) | Self::Cylinder(_) | Self::Cone(_) => boundary,
             Self::Sphere(sphere) => Bounds::about(sphere.centre(), sphere.radius),

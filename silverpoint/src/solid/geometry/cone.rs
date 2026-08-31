@@ -70,10 +70,7 @@ impl Cone {
         } else {
             at - self.axis.origin
         };
-        let angle = out
-            .dot(self.axis.quarter())
-            .atan2(out.dot(self.axis.reference));
-        DVec2::new(angle, along)
+        DVec2::new(self.axis.bearing(out), along)
     }
 
     /// Which way the surface faces at `uv` — the direction its own parameters

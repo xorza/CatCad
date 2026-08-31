@@ -216,7 +216,7 @@ fn visible(corners: &[DVec2], contour: &[u32], from: DVec2) -> Option<usize> {
             corners[contour[at] as usize],
             corners[contour[(at + 1) % contour.len()] as usize],
         );
-        let Some(across) = intersect::rightward(Span { from: a, to: b }, from) else {
+        let Some(across) = intersect::rightward(Span { from: a, to: b }, from.y) else {
             continue;
         };
         if across >= from.x - PLACED && across < nearest {

@@ -658,7 +658,7 @@ fn a_ray_finds_the_edge_in_its_way_however_the_crossing_reads() {
         let at = DVec2::new(K + 3.0 * up / 7.0, K + up);
         let want = truly(at);
         assert_eq!(blocks(run, at), want, "the ray answered wrongly at {at:?}");
-        if rightward(run, at).is_some_and(|x| x > at.x) != want {
+        if rightward(run, at.y).is_some_and(|x| x > at.x) != want {
             fooled += 1;
         }
     }

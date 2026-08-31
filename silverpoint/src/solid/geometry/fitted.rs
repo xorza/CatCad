@@ -142,7 +142,7 @@ impl Fitted {
     /// a torus has no parameter every world coordinate runs monotonically
     /// along, so the top of a bulge is interior and the box of the rim below
     /// misses it. Coarse, and not wrong.
-    pub(crate) fn fills(&self) -> Bounds {
+    pub(crate) fn fills(&self) -> Bounds<DVec3> {
         match self {
             Self::Torus(torus) => Bounds::about(torus.axis.origin, torus.major + torus.minor),
         }

@@ -24,6 +24,7 @@
 //! before asking whether the surfaces do is the answer, and it is not written.
 
 use crate::loops::Loops;
+use crate::math::bounds::Bounds;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::{ENCLOSED, PLACED};
@@ -154,32 +155,21 @@ struct Shut {
     /// The true area rather than the shoelace's own doubling of it, so what it
     /// is held against is a bound on an area and reads as one.
     area: f64,
-    low: DVec2,
-    high: DVec2,
+    /// A loop with nothing in it fills the inverted box, which holds nowhere.
+    /// Which is the answer wanted rather than an accident.
+    fills: Bounds<DVec2>,
 }
 
 impl Shut {
     fn of(walk: &[Corner]) -> Self {
-        let mut low = DVec2::splat(f64::INFINITY);
-        let mut high = DVec2::splat(f64::NEG_INFINITY);
+        let mut fills = Bounds::default();
         for corner in walk {
-            low = low.min(corner.at);
-            high = high.max(corner.at);
+            fills.hold(corner.at);
         }
         Self {
             area: winding::swept(walk) / 2.0,
-            low,
-            high,
+            fills,
         }
-    }
-
-    /// Whether the box holds `at`, which anything inside the loop does.
-    ///
-    /// A loop with nothing in it holds nowhere, its box having come out
-    /// inverted — which is what [`Bounds`](crate::math::bounds::Bounds) means
-    /// by the same pair one dimension up.
-    fn holds(self, at: DVec2) -> bool {
-        at.cmpge(self.low).all() && at.cmple(self.high).all()
     }
 }
 
@@ -690,7 +680,9 @@ impl Splitting {
             // regions one cut leaves are disjoint, so there is no tighter
             // container to prefer and nothing to go on looking for.
             let mut inside = shut.iter().enumerate().filter(|&(by, outline)| {
-                outline.area > ENCLOSED && outline.holds(at) && winding::holds(closed.get(by), at)
+                outline.area > ENCLOSED
+                    && outline.fills.holds(at)
+                    && winding::holds(closed.get(by), at)
             });
             if let Some((by, _)) = inside.next() {
                 debug_assert!(inside.next().is_none(), "two outlines hold one hole");

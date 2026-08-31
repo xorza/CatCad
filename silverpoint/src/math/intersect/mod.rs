@@ -760,7 +760,7 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
 /// determinant of the three places and [`swept`] answers it. A place exactly on
 /// the span answers no, which is what the strict comparison it replaces did.
 pub(crate) fn blocks(span: Span, at: DVec2) -> bool {
-    if !straddles(span, at) {
+    if !straddles(span, at.y) {
         return false;
     }
     let (from, to) = (span.from, span.to);
@@ -775,7 +775,7 @@ pub(crate) fn blocks(span: Span, at: DVec2) -> bool {
     }
 }
 
-/// Whether `span` reaches across the level line through `at`.
+/// Whether `span` reaches across the line at `level`.
 ///
 /// **Half-open in y: an end sitting exactly on the line counts as below it.**
 /// That is what a ray running through a corner needs — the two edges meeting
@@ -785,24 +785,27 @@ pub(crate) fn blocks(span: Span, at: DVec2) -> bool {
 ///
 /// Written once because it is a *convention* and not a computation, and two
 /// copies of a convention are two conventions.
-fn straddles(span: Span, at: DVec2) -> bool {
-    (span.from.y > at.y) != (span.to.y > at.y)
+fn straddles(span: Span, level: f64) -> bool {
+    (span.from.y > level) != (span.to.y > level)
 }
 
-/// Where `span` crosses the level line through `at` — the x it crosses at, or
-/// `None` where it stays on one side of that line.
+/// Where `span` crosses the line at `level` — the x it crosses at, or `None`
+/// where it stays on one side of that line.
 ///
-/// **A measurement, where [`blocks`] is a decision**, and the only caller is the
-/// one that wants to know which of several edges a ray runs into *first*.
-/// Nothing turns on the last bit of it: a bridge is laid to a corner of
-/// whichever edge is nearest, and two edges a rounding apart in the way are two
-/// bridges that both work.
-pub(crate) fn rightward(span: Span, at: DVec2) -> Option<f64> {
-    if !straddles(span, at) {
+/// **A measurement, where [`blocks`] is a decision.** One caller wants to know
+/// which of several edges a ray runs into *first*, and the other wants the ends
+/// of the stretch a line cuts out of a region. Nothing turns on the last bit of
+/// it: a bridge is laid to a corner of whichever edge is nearest, and two edges
+/// a rounding apart in the way are two bridges that both work.
+///
+/// **A level and not a place**, because only the level decides. A caller that
+/// handed over a whole place would be handing over an x this never reads.
+pub(crate) fn rightward(span: Span, level: f64) -> Option<f64> {
+    if !straddles(span, level) {
         return None;
     }
     let (from, to) = (span.from, span.to);
-    Some(from.x + (at.y - from.y) / (to.y - from.y) * (to.x - from.x))
+    Some(from.x + (level - from.y) / (to.y - from.y) * (to.x - from.x))
 }
 
 /// Whether a curve parameter lands on the curve, `slack` past either end.

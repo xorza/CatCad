@@ -341,7 +341,7 @@ impl Bow {
             run.y * run.y / (run.x * run.x) + self.reach * self.reach,
         );
         for sine in quadratic::roots(a, b, c).into_iter().flatten() {
-            for turn in sinusoid::met(sine, self.phase, from, to) {
+            for turn in sinusoid::met(sine, self.phase, from.x, to.x) {
                 found.push(turn);
             }
         }
