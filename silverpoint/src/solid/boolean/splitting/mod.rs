@@ -46,6 +46,7 @@ pub(super) mod bow;
 pub(super) mod cells;
 pub(super) mod corner;
 pub(super) mod cut;
+pub(super) mod flare;
 pub(super) mod oval;
 pub(super) mod reading;
 pub(super) mod ripple;
@@ -147,7 +148,12 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>) -> bool {
         },
         // None of these is closed, so a region every corner of which lies on
         // one has no width and bounds nothing on either side of it.
-        Cut::Straight { .. } | Cut::Wave(_) | Cut::Bow(_) | Cut::Bough(_) | Cut::Traced(_) => false,
+        Cut::Straight { .. }
+        | Cut::Wave(_)
+        | Cut::Bow(_)
+        | Cut::Bough(_)
+        | Cut::Flare(_)
+        | Cut::Traced(_) => false,
     }
 }
 

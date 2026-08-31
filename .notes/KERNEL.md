@@ -975,32 +975,46 @@ argument already was.
   has to be bisected. The far branch is dropped by keeping only the roots on the
   vertex's own side.
 
-**What is left is the cut in the cone's own parameters**, and it is one shape
-for every plane. A cone reads `v` along its axis and scales the radius by
-`v·tan α`, so a plane `n·(x − o) = 0` is `v·f(u) = δ` for
-`f(u) = C + T·R cos(u − φ)`, `C = n·a`, `T = tan α`, `R = hypot(n·e, n·q)` and
-`φ = atan2(n·q, n·e)`. A graph over the angle with two poles in it — the
-asymptote directions — and the side reads `δ − v·f(u)`, linear in `v` and so
-signed correctly across the whole plane including where `f` comes to nought.
-Within one face it is a single arc: a face lies on one nappe, and `f` holds one
-sign over a single interval of the angle. One arm would cover the circle, the
-ellipse, the parabola and the hyperbola, and replace the walked cut the ellipse
-takes today.
+**And the cut in the cone's own parameters**, which is one shape for every
+plane. A cone reads `v` along its axis and scales the radius by `v·tan α`, so a
+plane `n·(x − o) = 0` carries one `v` in every term: what is left is
+`v·(level + swing·cos(θ − phase)) = apart` for `level = n·a` and
+`swing = tan α·|n − a(n·a)|`. `Flare` carries it, and the four sections differ
+in `level` against `swing` and in nothing else — where `level` is the larger the
+reading never comes to nought and the cut is a graph over every angle, and where
+`swing` is it runs away at the two angles the plane lies parallel to a ruling.
+One arc to a face: a face lies on one nappe, so `v` holds one sign and the
+angles the cut reaches it at are the angles `f` holds one sign over.
 
-**The hard part of it is `met`, and `Bow` is the precedent.** Where a straight
-run crosses `v·f(u) = δ` is a line times a sinusoid against a constant, and
-neither it nor its derivative has a closed-form root. `Bow` next door is fenced
-twice — at the closed-form roots of the *second* derivative, then at the
-bisected roots of the first — and is rigorous for it; here the linear factor
-spoils the second derivative too, so the fencing has to come from somewhere
-else. `Traced::grazes` is the other precedent: it tests a run against the chords
-the cut lays down rather than against the reading, which is what a bisection
-cannot be given a bracket for.
+**Its side is exact and its crossings are not.** `apart − v·f(θ)` is linear in
+`v`, so it changes sign exactly across the cut wherever `f` is not nought and
+holds the apex's own sign where it is — the whole column past a zero standing on
+one side, which is the right answer rather than an accident. Where the run
+crosses is a line times a cosine against a constant, and neither its roots nor
+its derivative's are closed form. `Bow` next door is fenced twice for that — at
+the closed-form roots of its second derivative, then at the bisected roots of
+its first — and this one cannot be, the linear factor staying in the second
+derivative. So a crossing is bisected on the side, as a traced cut's is, and a
+*dip* is found against the chords the cut lays down, as `Traced::grazes` finds
+one. A circle keeps its straight arm: square across the axis it is the line
+`v = that`, which is exact where this one chords.
 
-**Until it lands the pair is refused rather than walked.** A traced cut samples
-a whole turn of its curve's own parameter and orders places by how far round
-they stand, and an open curve has neither — so `Curve::closed` says which, and
-`Combining::walked` turns those away.
+**What is left is a seam.** Cutting a flat down a taper now writes every
+crossing down and cuts every face by it. What refuses is the sewing, and the
+cause is older than this milestone: a revolve builds a disc in three sectors and
+a cone in three lunes, so one *surface* carries several faces with artificial
+seams between them — and where a cut crosses a seam, the face holding the seam
+breaks its edge there and the face across the cut does not. Measured on the
+flat: six edges claimed once, three of them the chord the wall leaves in the
+base disc and three the hyperbola arc across the lune seam.
+
+**Half of that is `Sewing::pin` reaching further.** A place one face puts on a
+crossing is put on it by every face that shares it, which is what a *run*
+buys — and a plane cutting a plane leaves a line that carries none. Numbering
+those closes the chord half of the gap, measured, and costs a run per plane
+pair: the reservation `Imprints::reserve` makes is over curved edges alone, and
+the allocation test caught the growth on the frame it happens in. So what it
+wants is a bound on the crossings as well, and that is the next thing to write.
 
 ### 9.3 M6b — merging what one cut split
 

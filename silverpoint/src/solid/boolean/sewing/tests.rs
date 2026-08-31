@@ -4,6 +4,8 @@ use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::{Combining, Operation};
 use crate::solid::build::builder::Extrusion;
+use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::circle::Circle;
 use crate::solid::grown::Grown;
 use crate::solid::named::{Named, Step};
 
@@ -217,4 +219,79 @@ fn the_pinned_places_come_out_by_curve_and_along_it_with_the_repeats_dropped() {
     assert_eq!(along(1), [0.0, 2.0]);
     assert_eq!(along(2), [] as [f64; 0], "a curve nothing pinned");
     assert_eq!(sewing.scratch.pinned.len(), 3, "a repeat survived");
+}
+
+/// **A place is carried onto the stretch's own turn only where the parameter is
+/// an angle**, which is what tells a circle from a line.
+///
+/// [`Sewing::broken`] splits an edge where another face already put a vertex on
+/// the curve it runs along, and the two faces read that curve from different
+/// parameters — so a place has to be brought onto the turn the stretch was
+/// measured in before it can be held against its ends. A circle answers in a
+/// half turn either side of its reference and wants that; a line answers a
+/// *distance*, which no whole turn may be added to.
+///
+/// Hand-computed. A place four along a line, held against the stretch from ten
+/// to twenty, stands outside it — and lifted by a turn it would read `4 + 2τ =
+/// 16.57` and be taken for a place inside. A place half a radian round a
+/// circle, held against the stretch from `τ` to `τ + 1`, is the same place a
+/// turn on and belongs.
+#[test]
+fn a_pinned_place_is_carried_onto_a_turn_only_where_the_parameter_is_one() {
+    let mut imprints = Imprints::default();
+    let line = Curve::Line(Line {
+        origin: DVec3::ZERO,
+        direction: DVec3::X,
+    });
+    let circle = Curve::Circle(Circle {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        radius: 1.0,
+    });
+    let (along, round) = (imprints.crossing(line), imprints.crossing(circle));
+
+    let carried = Carried::default();
+    let mut sewing = Sewing::default();
+    for (run, at) in [(along, DVec3::X * 4.0), (round, circle.at(0.5, &carried))] {
+        sewing.scratch.pinned.push(Pinned {
+            curve: imprints.on(run),
+            at,
+            along: if run == along { 4.0 } else { 0.5 },
+        });
+    }
+    sewing.scratch.pinned.sort_by_key(|pinned| pinned.curve);
+
+    // Outside the stretch, and a turn added would put it inside.
+    sewing.broken(
+        along,
+        &imprints,
+        [10.0, 20.0],
+        [DVec3::ZERO, DVec3::X * 30.0],
+    );
+    assert!(
+        sewing.scratch.around.is_empty(),
+        "a distance was carried onto a turn: {:?}",
+        sewing.scratch.around,
+    );
+    // And inside it, where nothing has to be carried at all.
+    sewing.broken(
+        along,
+        &imprints,
+        [0.0, 10.0],
+        [DVec3::ZERO, DVec3::X * 30.0],
+    );
+    assert_eq!(
+        sewing.scratch.around.len(),
+        1,
+        "a place on the stretch was lost"
+    );
+
+    // The angle, which is the same place a turn on and does want carrying.
+    let ends = [circle.at(0.0, &carried), circle.at(2.0, &carried)];
+    sewing.broken(round, &imprints, [TAU, TAU + 1.0], ends);
+    assert_eq!(sewing.scratch.around.len(), 1, "an angle was not carried");
+    let onto = sewing.scratch.around[0].along;
+    assert!(
+        (onto - (TAU + 0.5)).abs() < 1e-12,
+        "{onto} is not a turn on"
+    );
 }

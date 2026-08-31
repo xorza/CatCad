@@ -9,6 +9,7 @@ use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::bough::Bough;
 use crate::solid::boolean::splitting::bow::{Bow, Bowed};
 use crate::solid::boolean::splitting::corner::{Came, Corner};
+use crate::solid::boolean::splitting::flare::Flare;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
@@ -33,7 +34,7 @@ pub(super) const ROUNDED: f64 = 1e-3;
 /// The side kept is always the *left* of the way the cut runs, which is what
 /// makes cutting both ways one operation asked twice — see [`Cut::turned`].
 ///
-/// Six shapes, and what they have in common is that each divides the whole of
+/// Seven shapes, and what they have in common is that each divides the whole of
 /// a face rather than a stretch of one. What a cut is *not* is a segment —
 /// every stage downstream needs each region to be wholly one thing or the
 /// other, and a cut that stopped part way would leave a region straddling it.
@@ -75,6 +76,9 @@ pub(crate) enum Cut<'a> {
     /// `above` says — see [`Bough`], which carries the parabola and the
     /// hyperbola alike.
     Bough(Bough),
+    /// A cut along a plane's own section of a cone, which is every one of them
+    /// — see [`Flare`].
+    Flare(Flare),
     /// A cut traced from a curve's own places, which is what any curve with no
     /// closed form above gets — see [`Traced`]. A marched run and a general
     /// quartic both land here.
@@ -106,6 +110,10 @@ impl<'a> Cut<'a> {
                 above: !bough.above,
                 ..bough
             }),
+            Self::Flare(flare) => Self::Flare(Flare {
+                under: !flare.under,
+                ..flare
+            }),
             Self::Traced(traced) => Self::Traced(traced.turned()),
         }
     }
@@ -131,7 +139,8 @@ impl<'a> Cut<'a> {
             | Self::Round(Oval { run, .. })
             | Self::Wave(Ripple { run, .. })
             | Self::Bow(Bow { run, .. })
-            | Self::Bough(Bough { run, .. }) => Came::Arc(run),
+            | Self::Bough(Bough { run, .. })
+            | Self::Flare(Flare { run, .. }) => Came::Arc(run),
             Self::Traced(traced) => traced.came(at),
             Self::Straight { run: None, .. } => Came::Edge,
         }
@@ -157,7 +166,7 @@ impl<'a> Cut<'a> {
             Self::Round(_) => true,
             Self::Bow(bow) => bow.closed(),
             Self::Traced(traced) => traced.closed(),
-            Self::Straight { .. } | Self::Wave(_) | Self::Bough(_) => false,
+            Self::Straight { .. } | Self::Wave(_) | Self::Bough(_) | Self::Flare(_) => false,
         }
     }
 
@@ -189,6 +198,10 @@ impl<'a> Cut<'a> {
             // The wave above read in a frame that leans — see [`Bough::side`],
             // where the same overstatement is argued.
             Self::Bough(bough) => bough.side(point),
+            // Linear in the distance along the cone's axis, and scaled by how
+            // flat the plane lies against the ruling there — see
+            // [`Flare::side`].
+            Self::Flare(flare) => flare.side(point),
             // The true distance to the *other surface*, which is the one shape
             // here that has one to give — see [`Traced::side`].
             Self::Traced(traced) => traced.side(point),
@@ -234,6 +247,8 @@ impl<'a> Cut<'a> {
             // The branch's own first parameter, which is a length rather than
             // an angle — see [`Bough::down`].
             Self::Bough(bough) => bough.down(point),
+            // The cone's own angle, which the cut is a graph over.
+            Self::Flare(flare) => flare.down(point),
             // How far round the run it was walked as, measured from a place
             // the face does not hold — see [`Traced::down`].
             Self::Traced(traced) => traced.down(point),
@@ -298,6 +313,9 @@ impl<'a> Cut<'a> {
             // Its own frame rather than a band, a branch being a graph over a
             // *length* that does not wrap — see [`Bough::reaches`].
             Self::Bough(bough) => bough.reaches(fills),
+            // Half a band, a flare running away from the apex without bound on
+            // the one nappe — see [`Flare::reaches`].
+            Self::Flare(flare) => flare.reaches(fills),
             Self::Traced(traced) => traced.reaches(fills),
         }
     }
@@ -403,6 +421,9 @@ impl<'a> Cut<'a> {
         if let Self::Traced(traced) = self {
             return traced.crossing(from, to);
         }
+        if let Self::Flare(flare) = self {
+            return flare.crossing(from, to);
+        }
         let along = self
             .met(from, to)
             .into_iter()
@@ -423,6 +444,12 @@ impl<'a> Cut<'a> {
     pub(super) fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
         if let Self::Traced(traced) = self {
             return traced.grazes(from, to);
+        }
+        // Against the chords it lays down rather than against the reading,
+        // which is what a traced cut does and for the same reason — see
+        // [`Flare::grazes`].
+        if let Self::Flare(flare) = self {
+            return flare.grazes(from, to);
         }
         // **Two, or the run went across rather than dipping.** One crossing is
         // a boundary that ends on the far side and the walk has it already;
@@ -476,6 +503,17 @@ impl<'a> Cut<'a> {
                 let came = self.came(bough.at(from));
                 into.extend((1..count).map(|step| Corner {
                     at: bough.at(from + sweep * step as f64 / count as f64),
+                    came,
+                }));
+            }
+            // Nor is a flare, which is a graph over an angle a face covers less
+            // than a turn of.
+            Self::Flare(flare) => {
+                let sweep = to - from;
+                let count = flare.steps(sweep);
+                let came = self.came(flare.at(from));
+                into.extend((1..count).map(|step| Corner {
+                    at: flare.at(from + sweep * step as f64 / count as f64),
                     came,
                 }));
             }
@@ -535,7 +573,11 @@ impl<'a> Cut<'a> {
             // **Several loops rather than one**, a marched meeting coming in
             // pieces — see [`Traced`].
             Self::Traced(traced) => traced.walk(into),
-            Self::Straight { .. } | Self::Wave(_) | Self::Bow(_) | Self::Bough(_) => {}
+            Self::Straight { .. }
+            | Self::Wave(_)
+            | Self::Bow(_)
+            | Self::Bough(_)
+            | Self::Flare(_) => {}
         }
     }
 
@@ -546,13 +588,13 @@ impl<'a> Cut<'a> {
     /// this is for — a boundary that crosses the cut and comes back — a line
     /// does not have.
     ///
-    /// And nothing for a marched one, which is met more times than an inline
-    /// answer holds: both of its callers reach [`Traced`] before they reach
-    /// here.
+    /// And nothing for a marched one or for a flare, neither of which has a
+    /// closed form to solve: both of the callers reach [`Traced`] and
+    /// [`Flare`] before they reach here.
     fn met(self, from: DVec2, to: DVec2) -> Bowed {
         let mut met = Bowed::none();
         match self {
-            Self::Straight { .. } | Self::Traced(_) => {}
+            Self::Straight { .. } | Self::Traced(_) | Self::Flare(_) => {}
             Self::Round(oval) => {
                 // In the frame the ellipse is the unit circle in, where the run
                 // is still a straight run and the meeting is still a quadratic.

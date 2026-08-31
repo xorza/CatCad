@@ -19,11 +19,13 @@ use crate::solid::boolean::splitting::bow::Bow;
 use crate::solid::boolean::splitting::cells::Cells;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::boolean::splitting::cut::Cut;
+use crate::solid::boolean::splitting::flare::Flare;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Piece, Traced};
 use crate::solid::buckets::{Buckets, Key};
+use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::{Curve, Sampled};
@@ -949,6 +951,23 @@ fn imprinted(
                 run,
             })
         }
+        // **Every section of a cone is one shape in its own parameters** — see
+        // [`flared`], where that is derived. Which conic it is decides nothing
+        // here: what the cut reads is the plane, and each of the three carries
+        // the plane's own frame in its axis.
+        //
+        // A *circle* is the one section left out, and on purpose: square across
+        // the axis it is the line `v = that`, which the arm above writes down
+        // exactly where this one would chord it.
+        (Surface::Natural(Natural::Cone(cone)), Curve::Ellipse(of)) => {
+            Some(flared(cone, of.axis, laid, run))
+        }
+        (Surface::Natural(Natural::Cone(cone)), Curve::Parabola(of)) => {
+            Some(flared(cone, of.axis, laid, run))
+        }
+        (Surface::Natural(Natural::Cone(cone)), Curve::Hyperbola(of)) => {
+            Some(flared(cone, of.axis, laid, run))
+        }
         // **An open conic on a plane is a graph about its own vertex** — see
         // [`boughed`], which is where the pair of them come to one shape. A
         // parabola's vertex is its own origin and it has no eccentricity to
@@ -1053,7 +1072,6 @@ fn imprinted(
         // line answers above: the angle wraps and a face may not, so the turn
         // taken is the one nearest the middle the face was laid out about.
         (Surface::Natural(Natural::Cylinder(tube)), Curve::Saddle(saddle)) => {
-            let run = run.expect("a saddle is numbered");
             let axis = tube.axis;
             // Where the two axes come nearest, read along whichever of them
             // this face stands on — which is the same reading either way, the
@@ -1074,7 +1092,7 @@ fn imprinted(
                     // The loop is both branches, so there is no branch to pick.
                     upper: true,
                     inward: true,
-                    run,
+                    run: run.expect("a saddle is numbered"),
                 }));
             }
             // The narrower cylinder reads the same numbers the other way round:
@@ -1090,7 +1108,7 @@ fn imprinted(
                 level,
                 upper,
                 inward: true,
-                run,
+                run: run.expect("a saddle is numbered"),
             }))
         }
         // **A circle on a torus is a straight cut in its own parameters**, and
@@ -1128,11 +1146,41 @@ fn imprinted(
     }
 }
 
-/// What the cutting left, read a piece at a time.
+/// The cut a plane makes on a cone, read off the plane's own frame.
 ///
-/// Nothing production reads it that way: [`Combining::sewn`] hands the whole of
-/// it over in one borrow, which is what the runs changing hands asks for. Taking
-/// one piece is a test holding the cutting to what it should have produced.
+/// `on` is the frame the section carries — every conic here holds the plane's
+/// normal as its direction and a place of the plane as its origin — and `laid`
+/// is the stretch of the cone's parameters the face covers.
+///
+/// **Derived rather than fitted.** A place of a cone is
+/// `apex + v·a + v·tan α·radial(θ)`, so `n·(x − o) = 0` carries one `v` in
+/// every term: what is left is `v·(level + swing·cos(θ − phase)) = apart` for
+/// `level = n·a`, `swing = tan α·|n − a(n·a)|` and a phase where the normal
+/// leans out. See [`Flare`], which is that reading and nothing else.
+///
+/// **Which way the normal points decides nothing**, and that is worth checking
+/// rather than assuming: turning it over flips `apart`, `level` and the phase
+/// by half a turn together, so the reading turns over — and so does which side
+/// of the cut the apex is on, which turns it back.
+///
+/// **The face says which nappe and how far**, both off `laid`: a face lies on
+/// one nappe, so the end of its own `v` that stands furthest from the apex says
+/// which sign it has and how large the cut is against.
+fn flared(cone: Cone, on: Axis, laid: Bounds<DVec2>, run: Option<u32>) -> Cut<'static> {
+    let normal = on.direction;
+    let out = normal - cone.axis.direction * normal.dot(cone.axis.direction);
+    Cut::Flare(Flare {
+        level: normal.dot(cone.axis.direction),
+        swing: cone.half_angle.tan() * out.length(),
+        phase: cone.axis.bearing(out),
+        apart: (on.origin - cone.axis.origin).dot(normal),
+        upward: laid.high.y.abs() >= laid.low.y.abs(),
+        under: true,
+        reach: laid.low.y.abs().max(laid.high.y.abs()),
+        run: run.expect("a section of a cone is numbered"),
+    })
+}
+
 /// The cut an open conic makes on the plane holding it, about the vertex it
 /// stands at and the direction it opens along.
 ///
@@ -1168,6 +1216,11 @@ fn boughed(
     })
 }
 
+/// What the cutting left, read a piece at a time.
+///
+/// Nothing production reads it that way: [`Combining::sewn`] hands the whole of
+/// it over in one borrow, which is what the runs changing hands asks for. Taking
+/// one piece is a test holding the cutting to what it should have produced.
 #[cfg(test)]
 pub(crate) mod internals {
     use super::*;
@@ -1186,7 +1239,6 @@ pub(crate) mod internals {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::solid::geometry::axis::Axis;
     use crate::solid::geometry::circle::Circle;
     use crate::solid::geometry::sphere::Sphere;
     use std::f64::consts::FRAC_PI_6;

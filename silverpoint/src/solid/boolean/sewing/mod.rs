@@ -458,9 +458,15 @@ impl Sewing {
             }
             // Onto the turn the run was measured in, an inversion answering in
             // a half turn either side of the reference and the run being free
-            // to run anywhere.
-            let place = pinned.along + TAU * ((lo - pinned.along) / TAU).ceil();
-            if place < hi {
+            // to run anywhere. **Only where the parameter is an angle**: a
+            // line, a parabola and a hyperbola read a distance along
+            // themselves, which no whole turn may be added to — see
+            // [`Curve::closed`].
+            let place = match imprints.curve(run).closed() {
+                true => pinned.along + TAU * ((lo - pinned.along) / TAU).ceil(),
+                false => pinned.along,
+            };
+            if lo <= place && place < hi {
                 around.push(Pinned {
                     along: place,
                     ..*pinned
