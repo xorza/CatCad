@@ -860,17 +860,31 @@ cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- 
 
 The boolean raises a face per kept region, and a face cut by *n* surfaces comes
 back in *n* or more regions of which nearly all are kept. They lie on one
-surface, carry one name and face one way, so the body they make is right and
-sixty-eight times larger than it needs to be — §11 is the measurement, and half
-the boolean's time is downstream of the count.
+surface, carry one name and face one way, so §5 already calls the set of them
+one face of the body and nothing above the kernel can tell — but the body holds
+sixty-eight times the faces the shape has, and the mesher and the painter carry
+every one. §11 is the measurement.
 
-**Merge before raising, not after sewing.** §4.4 offers the merge to display and
-export, which pays for the faces first and then throws them away; the same merge
-taken in `Combining::sift`, where the regions are still loops of `Corner`s in
-one face's own parameters, is the only place it costs nothing. Two kept regions
-of one face that share a stretch of boundary are one region: the shared stretch
-carries one imprint run walked opposite ways, which is what says the two are
-adjacent.
+**It belongs at output**, where a body is drawn or exported and nothing will cut
+it again — which is where §4.4 put it, and this section spent a milestone
+finding out why that was right.
+
+**Not before the sewing, which was measured.** On `(A ∪ B) ∪ C`: during
+`A ∪ B`, `B`'s wall is cut by `A`'s wall and comes back as two faces meeting
+along that line; merged, it is one face spanning it, and the line is no longer
+an edge. `C` then cuts the pair, and §7.4's uniform cut gives `C`'s own face a
+corner where `A`'s wall *surface* crosses it — a surface the merged body still
+has — while the merged wall has none. One edge is claimed by one face and the
+sewing refuses. Every boolean that *ends* with a merged body is fine: the whole
+suite passes bar a face count, the merge taking a milled flat from seventeen
+faces to eleven with its genus and its volume unmoved. It is the next boolean
+over that body that breaks.
+
+**The rule it breaks, stated:** the splits one boolean makes are part of the
+answer's contract for the next, because cutting by whole surfaces means a
+surface of a body divides the *other* body wherever it reaches — including where
+this body's own faces no longer end. A merge that removes an edge removes half
+of a place the next uniform cut will put back on one side only.
 
 **The loop algebra is settled, and it is a cancellation rather than a boolean.**
 Every region keeps its material on its left, so two regions sharing a stretch
@@ -887,54 +901,28 @@ A spike outside the workspace holds that over two cells side by side, a ring of
 eight round a missing middle, a region that already had a hole, an L, a pinch,
 two cells on a diagonal and a square in sixty-four slices.
 
-**And corners stay where they are.** A cut that met the face's own boundary left
-a corner there, and the merge cannot drop it: whether it can go turns on the
-face *across* that boundary dropping it too, which is not a question one face
-can answer. This takes away faces, not vertices.
+**And corners stay where they are.** A cut that met a face's own boundary left a
+corner there, and the merge cannot drop it: whether it can go turns on the face
+*across* that boundary dropping it too, which is not a question one face can
+answer. This takes away faces, not vertices.
 
-**The first thing that blocked it is done.** A cut is taken twice over the
-region it divides, once keeping each side, and the two halves of the stretch it
-leaves are walked opposite ways — so a later cut met them as `from → to` and as
-`to → from`, and `from + t·(to − from)` is not the place `to + (1 − t)·(from −
+**The pairing wants the two walks of one stretch to carry the same two places,
+and that is done.** A cut is taken twice over the region it divides, once
+keeping each side, so a later cut met the two halves as `from → to` and as
+`to → from` — and `from + t·(to − from)` is not the place `to + (1 − t)·(from −
 to)` is. The corner where two cuts met came back as `3.0` from one side and
 `3.0000000000000004` from the other, the stretches failed to pair, and a face
-cut into a three by three grid cancelled eight of its twelve interior pairs and
-came back in two loops. `Cut::met_across` now puts its two ends in one order
-before it measures anything, so a crossing is the same place from either side of
-the stretch it fell on. That is exact and costs a comparison.
-
-**And it cannot be taken before the sewing, which is what the measurement
-settled.** On `(A ∪ B) ∪ C`: during `A ∪ B`, `B`'s wall is cut by `A`'s wall and
-comes back as two faces meeting along that line; merged, it is one face spanning
-it, and the line is no longer an edge. `C` then cuts the pair, and §7.4's
-uniform cut gives `C`'s own face a corner where `A`'s wall *surface* crosses it
-— a surface the merged body still has — while the merged wall has none. One edge
-is claimed by one face and the sewing refuses. Every boolean that *ends* with a
-merged body is fine: the whole suite passes bar a face count, the merge taking a
-milled flat from seventeen faces to eleven with its genus and its volume
-unmoved. It is the next boolean over that body that breaks.
-
-**The rule it breaks, stated:** the splits one boolean makes are part of the
-answer's contract for the next, because cutting by whole surfaces means a
-surface of a body divides the *other* body wherever it reaches — including where
-this body's own faces no longer end. A merge that removes an edge removes half
-of a place the next uniform cut will put back on one side only.
-
-So §4.4 had it right and this section had it wrong. The merge belongs at output,
-where a body is drawn or exported and nothing will cut it again — which is worth
-having for the mesher and the painter, and buys none of §11 back, the count
-being paid for in the sewing before output is reached.
-
-**What §11 costs is therefore not the face count**, and where it does go is
-below.
+cut into a three by three grid cancelled eight of its twelve interior pairs.
+`Cut::met_across` now puts its two ends in one order before it measures
+anything. Exact, and it costs a comparison.
 
 What has to hold, and each is a test that breaks a merged body one way:
 
 - **The merged loop is the symmetric difference**, so an edge with the same face
   on both sides is removed rather than left as a seam — §4.4 forbids seams, and
   a merge that made one would trade a large valid body for a small invalid one.
-  A partial cancellation makes exactly that, which is how the gap above was
-  found.
+  A partial cancellation makes exactly that, which is how the pairing gap above
+  was found.
 - **A merge crosses no boundary the other body still needs.** The cancellation
   gives this rather than asking it: a stretch whose other side was dropped has
   no twin and stays, which is what keeps a pocket's own rim.
@@ -1068,22 +1056,46 @@ bounded for the rule's sake rather than for a measurement: on the fixture that
 would have shown them working they buy nothing, because that fixture's cost is
 not there at all.
 
-**Which is the finding to carry forward.** A rod of radius two bored across by
-rods of radius a half, each cut taking the answer of the last, costs 3.5 ms for
-one bore, 8.9 ms for two and 61 ms for three — a ten-faced body, against a frame
-of 8.3 ms, growing far faster than the pair count does. A fifth of that is
-`bisect::crossed` walking a bow down to the last bit an `f64` holds, and two
-fifths again is the `sin`, `asin` and `atan2` under it. So the curved path is a
-harder problem than the straight-walled one this section has measured all along,
-and it is *bought* rather than wasted: §7.4 converges a bow rather than
-tolerating it, and precision over performance is the order §1 sets. What is not
-yet known is whether the fences can be fewer, or the bisection warm-started from
-the answer the cut before it gave.
+**The curved path is the dearer one, and most of what it seemed to cost was a
+bug.** A rod of radius two bored across by rods of radius a half, each cut
+taking the answer of the last, was measured at 3.5 ms for one bore, 8.9 for two
+and 61 for three. The 61 was a mesher reading a face whose holes had been
+scaled a second time and had run outside their own outline — see the two fixes
+in `Face::flatten` and `Mesher`. Fixed, the same fixture costs 3.3 ms, 4.7, 7.7,
+11.6, 15.2 and 20.5 for one through six bores: about 3.4 ms a boolean, rising
+slowly with the body. That is still fifty times a four-sided straight cut, and
+it is where a curved boolean's time honestly goes.
 
-**Neither is the growth explained.** Each bore adds two faces and one surface,
-so the face-against-surface pairs grow as the square — and the times grow by
-2.5 and then by 6.9. Something else is scaling, and finding what is the next
-measurement rather than the next change.
+**A fifth of it is `bisect::crossed` walking a bow down**, and two fifths again
+is the `sin`, `asin` and `atan2` under it. `Bow::bowed` fences a run at the
+derivative's roots, bisects for those, then bisects the difference over each —
+a dozen walks of fifty-odd readings apiece for one straight run of one region.
+It is *bought* rather than wasted: §7.4 converges a bow rather than tolerating
+it, and precision over performance is the order §1 sets.
+
+**A line through the two readings was tried, and it is worse.** False position
+meets nought nearer the root than the middle does, but what ends the walk is the
+*bracket* closing to one place, and it moves one end and leaves the other — so
+the bracket stays wide and the halvings still have to be paid. Over a line, a
+parabola, a cubic, a sine, an exponential and `x⁵`, plain halving cost 57, 56,
+56, 54, 111 and 1079 readings; Illinois cost 57, 54, 55, 51, 113 and 1948, and
+Illinois with a halving every other step cost 57, 34, 43, 94, 96 and 1213. None
+beat halving. Ending on the *estimate* rather than on the bracket would, and it
+is a weaker promise than §7.4's.
+
+**What those figures do show is a spike, and it is closed.** A root at nought
+cost 1079 readings where one of ordinary size cost 56 — the last bit there being
+a subnormal, so the walk has to step down through every exponent. The floats run
+in the order the integers their bits spell run in, so halving the *count of
+places* between the ends rather than their width settles any bracket in the
+sixty-four an `i64` holds: the same six now cost 65, 64, 56, 54, 65 and 64. The
+common case pays about ten readings for it, which the timings above cannot see,
+and the worst case stops being twenty times the ordinary one. Which is what
+uniform frame time asks for.
+
+**The growth itself is ordinary.** Each bore adds two faces and one surface and
+costs about one more boolean's worth; there is no super-linear term left to
+explain once the meshing bug is out of the figures.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the
