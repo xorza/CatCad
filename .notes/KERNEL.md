@@ -656,11 +656,18 @@ twice. Cutting by whole surfaces makes every region wholly inside or wholly
 outside, so classifying is one question per region. The cut must also be
 **uniform**: one that divides a face and not the face beside it leaves a vertex
 on one side of the shared edge and none on the other, and the sewing then finds
-three edges where it wanted two. So only a surface whose faces reach no part of
-the other body is dropped — and cutting further than necessary costs nothing in
-the *answer*, §4.4's smooth-edge flag and §5's naming already handling a face in
-several patches. What it costs in time is §11, and it is the whole of what a
-boolean spends.
+three edges where it wanted two.
+
+**So a surface is dropped only where it reaches nothing to divide**, and that is
+asked twice: of the body, where a surface whose own faces come nowhere near the
+other body goes altogether, and of each face, where a surface that misses that
+face's own box divides nothing there. The second stays uniform because a surface
+reaching an edge reaches a place on the box of *both* faces that edge bounds —
+`Surface::reaches` is a ball round the box against the surface's own distance to
+its middle, coarse in the direction that only costs work. Cutting further than
+necessary costs nothing in the *answer*, §4.4's smooth-edge flag and §5's naming
+already handling a face in several patches. What it costs in time is §11, and it
+is the whole of what a boolean spends.
 
 **The polyline classifies and the curve builds.** `Cells` holds points in a
 surface's parameters and a closed cut is flattened at `ROUNDED`, a thousandth of
@@ -849,7 +856,39 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### 9.1 M7 — fillet, chamfer, STEP
+### 9.1 M6a — merging what one cut split
+
+The boolean raises a face per kept region, and a face cut by *n* surfaces comes
+back in *n* or more regions of which nearly all are kept. They lie on one
+surface, carry one name and face one way, so the body they make is right and
+sixty-eight times larger than it needs to be — §11 is the measurement, and half
+the boolean's time is downstream of the count.
+
+**Merge before raising, not after sewing.** §4.4 offers the merge to display and
+export, which pays for the faces first and then throws them away; the same merge
+taken in `Combining::sift`, where the regions are still loops of `Corner`s in
+one face's own parameters, is the only place it costs nothing. Two kept regions
+of one face that share a stretch of boundary are one region: the shared stretch
+carries one imprint run walked opposite ways, which is what says the two are
+adjacent and which corners to drop.
+
+What has to hold, and each is a test that breaks a merged body one way:
+
+- **The merged loop is the symmetric difference**, so an edge with the same face
+  on both sides is removed rather than left as a seam — §4.4 forbids seams, and
+  a merge that made one would trade a large valid body for a small invalid one.
+- **A merge crosses no boundary the other body still needs.** A stretch is
+  droppable only where both regions were kept *and* the cut that made it bounds
+  nothing on the other body there.
+- **Holes survive.** Two regions can meet along a stretch and still leave a hole
+  between them, which is one loop of the answer and not two.
+- **The name and the orientation are already equal**, both regions coming off
+  one face, so nothing is chosen and §5's coincident-surface rule is untouched.
+
+**Prototype first** — §10 rule 2. The loop algebra is the part whose shape is not
+yet known.
+
+### 9.2 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -900,8 +939,8 @@ nobody has made yet.
 
 **What is measured is the boolean, and it grows faster than the body does.**
 Cutting one straight-walled tool out of a six-faced block, release, on a
-13980HX: 0.05 ms for a four-sided tool, 0.61 ms for sixteen, 3.3 ms for
-thirty-two, 21.8 ms for sixty-four, 159 ms for a hundred and twenty-eight. Each
+13980HX: 0.05 ms for a four-sided tool, 0.7 ms for sixteen, 3.4 ms for
+thirty-two, 21 ms for sixty-four, 150 ms for a hundred and twenty-eight. Each
 doubling of the tool's faces costs between three and seven times the last, so
 the growth is between quadratic and cubic. Raising the same tools costs 0.4 µs
 to 13 µs and is linear throughout; meshing the answer at the paint sagitta costs
@@ -910,12 +949,25 @@ that scales badly.
 
 Against an 8.3 ms frame that draws the line at about thirty faces. A bore, a
 pocket, a boss and a milled flat are each a fraction of one; a profile traced
-round a curve is several. Where to look is §7.4's decision to cut by whole
-surfaces: every surface of one body cuts every face of the other, and each cut
-leaves regions the next one walks again. That decision buys a uniform cut and
-one classification per region, and it is worth what it buys — but "cuts further
-than necessary and that costs nothing" is a claim about the *answer*, and this
-is what it costs in time.
+round a curve is several.
+
+**And the answer is the cost.** Those five cuts hand back 32, 204, 668, 2428 and
+9140 faces, where the *shapes* have 10, 22, 38, 70 and 134 — sixty-eight times
+too many at the top, and the count is what everything after the cutting is
+proportional to. Half the hundred and fifty milliseconds is the sewing alone,
+which finds a vertex by where it stands and an edge by its ends, once per corner
+of every loop of every face it raises.
+
+**Where they come from is one region per piece a cut left.** A sixteen-sided
+tool leaves the block's top face in 77 regions and keeps 76 of them — every
+piece of one plane outside the pocket, each raised as a face of its own. Each
+of the four sides comes back in nine, all kept. They share a surface, a name and
+an orientation, and §5 already calls the set of them one face of the body, so
+nothing above the kernel can tell — but the kernel pays for every one.
+
+So the merge §4.4 puts off to output is the wrong place for it: adjacent regions
+of one surface should never become separate faces at all. That is §9.1, and it
+is the whole of the gap between 9140 and 134.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the

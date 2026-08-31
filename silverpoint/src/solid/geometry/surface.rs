@@ -128,6 +128,34 @@ impl Surface {
         }
     }
 
+    /// Whether any of this surface passes within `slack` of the box `fills`.
+    ///
+    /// **What decides which faces a cut has to be taken across.** A body is
+    /// divided by the other's *surfaces* rather than by its faces, and a
+    /// surface is unbounded where the faces standing on it are not — so a wall
+    /// at the far end of a model is cut by a surface whose own faces are
+    /// nowhere near it. What it must never be cut by is a surface that misses
+    /// it, and this is the question that says so.
+    ///
+    /// **A ball round the box, held against the surface's own distance to its
+    /// middle.** [`Surface::off`] never overstates how far a place stands from
+    /// the surface, so a middle standing further off than the box's own half
+    /// diagonal is a surface no corner of the box reaches. Coarse — a plane
+    /// clipping one corner of a long thin box answers yes wherever it crosses
+    /// the ball — and not wrong, which is the whole of what a cull owes: it
+    /// drops work and never an answer.
+    ///
+    /// **Sound across a shared edge**, which is what a uniform cut needs: a
+    /// surface reaching an edge of this face reaches a place on the box of
+    /// every face that edge bounds, so a surface refused here is refused by the
+    /// face beside it too. Nothing is divided on one side of an edge and left
+    /// whole on the other — see `.notes/KERNEL.md` §7.4.
+    pub(crate) fn reaches(&self, fills: Bounds<DVec3>, slack: f64) -> bool {
+        let across = fills.high - fills.low;
+        debug_assert!(across.is_finite(), "an empty box holds no ball to reach");
+        self.off(fills.middle()) <= across.length() / 2.0 + slack
+    }
+
     /// Whether the parameterization says nothing at `at` — one place that
     /// every angle names.
     pub(crate) fn singular(&self, at: DVec3) -> bool {

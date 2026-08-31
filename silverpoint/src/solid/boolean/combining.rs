@@ -318,7 +318,7 @@ impl Combining {
             (split, 0..self.scratch.between)
         };
         let mut reach = Bounds::default();
-        for at in here {
+        for at in here.clone() {
             reach.swallow(self.scratch.boxed[at].fills);
         }
         self.scratch.met.clear();
@@ -346,14 +346,25 @@ impl Combining {
             debug_assert_eq!(slot as usize, self.scratch.met.len(), "the index lost step");
             self.scratch.met.push(other.surface);
         }
-        for (_, face) in mine.topology().faces() {
+        for at in here {
+            let Boxed { face: id, fills } = self.scratch.boxed[at];
+            let face = mine.topology().face(id);
             self.lay(mine, face);
             // Copied out of the two lists rather than borrowed from them, so
             // that a cut standing on the pair may borrow the surfaces while the
             // splitter beside it is taken mutably.
             let on = face.surface;
-            for at in 0..self.scratch.met.len() {
-                let other = self.scratch.met[at];
+            for which in 0..self.scratch.met.len() {
+                let other = self.scratch.met[which];
+                // **And only the surfaces that reach this face.** A surface
+                // whose faces reach the body was kept above; one that comes
+                // nowhere near *this* face of it divides nothing here, and
+                // taking the cut anyway leaves a region the next cut walks
+                // again — see [`Surface::reaches`], which is also why refusing
+                // one keeps the cut uniform.
+                if !other.reaches(fills, CHORDED) {
+                    continue;
+                }
                 let along = match Meeting::of(&on, &other) {
                     // Nothing that divides anything. Apart, the same surface —
                     // two faces on one are told apart by where each region

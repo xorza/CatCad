@@ -486,6 +486,69 @@ fn a_boundary_bounds_its_face_on_everything_but_a_sphere() {
     assert!(widened.high.y >= 2.0 && rim.high.y < 2.0);
 }
 
+/// **A surface reaches the box it passes through and refuses the one it
+/// misses**, which is what decides the faces a cut has to be taken across.
+///
+/// Hand-computed against a ball round each box. The plane is the world's
+/// `y = 0` and the cylinder is radius two about the world's `+y` through the
+/// origin, so both answer a distance in closed form and every figure below is
+/// one subtraction.
+///
+/// A unit box from `(0, 3, 0)` to `(1, 4, 1)` has its middle at
+/// `(0.5, 3.5, 0.5)` and a half diagonal of `√3/2 ≈ 0.866`. It stands `3.5`
+/// off the plane, so the plane misses it; from the cylinder's axis it stands
+/// `√(0.25 + 0.25) ≈ 0.707`, which is `1.29` inside the radius, so the cylinder
+/// misses it too.
+///
+/// A box from `(0, -1, 0)` to `(1, 1, 1)` straddles the plane, standing nought
+/// off it. And a box from `(1.5, 0, 0)` to `(2.5, 1, 0)` has its middle
+/// `2` from the axis, which is exactly the radius — so it straddles the
+/// cylinder however small it is.
+///
+/// **The slack is what a chorded box owes**, and it moves the answer: the first
+/// box misses the plane by `3.5 − 0.866 = 2.634`, so a slack of `2.6` leaves
+/// them apart and one of `2.7` brings them together.
+#[test]
+fn a_surface_reaches_the_box_it_crosses_and_no_other() {
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
+    let tube = Surface::Natural(Natural::Cylinder(Cylinder {
+        axis: upright(),
+        radius: 2.0,
+    }));
+
+    let away = Bounds {
+        low: DVec3::new(0.0, 3.0, 0.0),
+        high: DVec3::new(1.0, 4.0, 1.0),
+    };
+    assert!(!flat.reaches(away, 0.0));
+    assert!(!tube.reaches(away, 0.0));
+    assert!(!flat.reaches(away, 2.6), "2.6 of slack bridged 2.634");
+    assert!(flat.reaches(away, 2.7));
+
+    let straddling = Bounds {
+        low: DVec3::new(0.0, -1.0, 0.0),
+        high: DVec3::new(1.0, 1.0, 1.0),
+    };
+    assert!(flat.reaches(straddling, 0.0));
+
+    // Flat in `z`, so its middle is exactly on the cylinder and its own size
+    // decides nothing.
+    let across = Bounds {
+        low: DVec3::new(1.5, 0.0, 0.0),
+        high: DVec3::new(2.5, 1.0, 0.0),
+    };
+    assert!(tube.reaches(across, 0.0));
+
+    // A box of no size at all leaves the ball with no radius, so the surface's
+    // own distance decides alone.
+    let point = Bounds {
+        low: DVec3::new(2.0, 5.0, 0.0),
+        high: DVec3::new(2.0, 5.0, 0.0),
+    };
+    assert!(tube.reaches(point, 0.0));
+    assert!(!flat.reaches(point, 0.0));
+}
+
 /// **A curve's parameter reads back the way it was written**, which for an
 /// ellipse is not the bearing it stands at.
 ///
