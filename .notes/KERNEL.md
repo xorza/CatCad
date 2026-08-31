@@ -870,23 +870,64 @@ taken in `Combining::sift`, where the regions are still loops of `Corner`s in
 one face's own parameters, is the only place it costs nothing. Two kept regions
 of one face that share a stretch of boundary are one region: the shared stretch
 carries one imprint run walked opposite ways, which is what says the two are
-adjacent and which corners to drop.
+adjacent.
+
+**The loop algebra is settled, and it is a cancellation rather than a boolean.**
+Every region keeps its material on its left, so two regions sharing a stretch
+walk it opposite ways — and both being kept, the answer holds material either
+side of it and it bounds nothing. Drop the pairs; chain what is left. The chain
+needs no angular sort, where an arrangement's walk does: the regions tile the
+neighbourhood of every corner, so the stretch after a cancelled one is the
+cancelled twin's own next, and hopping across it lands in the region round the
+corner. Two kept regions meeting at nothing but a corner share no stretch, so
+nothing cancels there and each keeps its own loop. `Splitting::gather` then
+sorts outlines from holes exactly as it already does for a cut.
+
+A spike outside the workspace holds that over two cells side by side, a ring of
+eight round a missing middle, a region that already had a hole, an L, a pinch,
+two cells on a diagonal and a square in sixty-four slices.
+
+**And corners stay where they are.** A cut that met the face's own boundary left
+a corner there, and the merge cannot drop it: whether it can go turns on the
+face *across* that boundary dropping it too, which is not a question one face
+can answer. This takes away faces, not vertices.
+
+**What blocks it is that a shared stretch has no exact identity.** The pairing
+above wants the two walks of one stretch to carry the same two places, and they
+do not: a cut crossing regions either side of an *earlier* cut works its
+crossing out once per region, so the corner where two cuts meet comes back as
+`3.0` from one and `3.0000000000000004` from the other. The stretches along that
+cut then fail to pair, the cancellation is partial, and a face comes back in two
+loops where it should come back in one — measured on a block's face cut into a
+three by three grid, where eight of the twelve interior pairs cancel and four do
+not.
+
+So the merge is the second of two steps, and this is the first:
+
+**A crossing is worked out once and shared.** Where a cut crosses a stretch of
+boundary that lies on another cut, the place is the crossing of two *curves*
+this crate already holds, not of a cut and a chord of one — so it can be
+interned by the pair of runs that made it, the way `Imprints` already interns a
+curve by value. That is exact and needs no tolerance. Pairing within `PLACED`
+instead would be a third spelling of a rule the crate keeps in two places
+already and wants in one: `Sewing::vertex` files a place-ball in cells to decide
+that two corners of a body are one vertex, and an `Arrangement` folds crossings
+the same way one dimension down (§4.1).
 
 What has to hold, and each is a test that breaks a merged body one way:
 
 - **The merged loop is the symmetric difference**, so an edge with the same face
   on both sides is removed rather than left as a seam — §4.4 forbids seams, and
   a merge that made one would trade a large valid body for a small invalid one.
-- **A merge crosses no boundary the other body still needs.** A stretch is
-  droppable only where both regions were kept *and* the cut that made it bounds
-  nothing on the other body there.
+  A partial cancellation makes exactly that, which is how the gap above was
+  found.
+- **A merge crosses no boundary the other body still needs.** The cancellation
+  gives this rather than asking it: a stretch whose other side was dropped has
+  no twin and stays, which is what keeps a pocket's own rim.
 - **Holes survive.** Two regions can meet along a stretch and still leave a hole
   between them, which is one loop of the answer and not two.
 - **The name and the orientation are already equal**, both regions coming off
   one face, so nothing is chosen and §5's coincident-surface rule is untouched.
-
-**Prototype first** — §10 rule 2. The loop algebra is the part whose shape is not
-yet known.
 
 ### 9.2 M7 — fillet, chamfer, STEP
 
