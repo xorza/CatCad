@@ -18,15 +18,10 @@ use glam::{BVec2, DVec2, DVec3};
 /// a tolerance has to name the arm that did it.
 ///
 /// **One member so far.** NURBS arrive with fillets and vertex blends, which is
-/// M7; the torus is what a revolve makes and what a plane-cylinder fillet is.
+/// M7. The torus is what a revolve makes of an arc swept about a line it does
+/// not touch, and what a plane-cylinder fillet will be.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
-    /// **No feature builds one yet.** A revolve makes a torus and so does a
-    /// plane-cylinder fillet, and neither is written — the same standing the
-    /// cone and the sphere have next door, and the whole of what the allow
-    /// says. A test builds one by hand: see
-    /// [`Body::ring`](crate::solid::topology::body::Body).
-    #[allow(dead_code)]
     Torus(Torus),
 }
 

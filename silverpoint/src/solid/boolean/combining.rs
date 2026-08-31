@@ -230,7 +230,8 @@ impl Combining {
     /// Cut both bodies against each other and keep what `doing` asks for.
     ///
     /// `false` where a crossing turns up that nothing here can write down in a
-    /// face's own parameters, which is [`imprinted`]. See `.notes/KERNEL.md`
+    /// face's own parameters, which is [`imprinted`], or where the sounder
+    /// cannot place a region — see [`Combining::sift`]. See `.notes/KERNEL.md`
     /// §8's `Built::Refused`.
     pub(super) fn combine(&mut self, one: &Body, two: &Body, doing: Operation) -> bool {
         self.loops.clear();
@@ -281,6 +282,10 @@ impl Combining {
     /// refusal like any other here: what is kept would be a region quietly
     /// missing a bite of itself.
     fn against(&mut self, mine: &Body, theirs: &Body, doing: Operation, first: bool) -> bool {
+        // Every region of every face of `mine` is sounded against this one
+        // body, and the layout is the whole of what does not depend on which
+        // region — see [`Sounding::about`].
+        self.scratch.sounding.about(theirs);
         // **The other body's surfaces, not its faces.** A face may not wrap, so
         // a whole cylinder is *two* faces of one surface — see
         // `.notes/KERNEL.md` §4.4 — and cutting once per face would imprint the
@@ -419,7 +424,9 @@ impl Combining {
                     std::mem::swap(&mut self.scratch.cells, &mut self.scratch.spare);
                 }
             }
-            self.sift(face, theirs, doing, first);
+            if !self.sift(face, theirs, doing, first) {
+                return false;
+            }
         }
         true
     }
@@ -710,15 +717,22 @@ impl Combining {
     }
 
     /// Ask every region where it stands and keep the ones `doing` wants.
-    fn sift(&mut self, face: &Face, theirs: &Body, doing: Operation, first: bool) {
+    ///
+    /// `false` where the sounder could not place a region at all, which is a
+    /// refusal like any other here: keeping the region or dropping it would
+    /// both be a guess, and one of the two leaves material where there is none.
+    fn sift(&mut self, face: &Face, theirs: &Body, doing: Operation, first: bool) -> bool {
         for at in 0..self.scratch.cells.len() {
             let Some(within) = self.within(at) else {
                 continue;
             };
-            let standing = self
+            let Some(standing) = self
                 .scratch
                 .sounding
-                .standing(face.surface.at(within), theirs);
+                .standing(face.surface.at(within), theirs)
+            else {
+                return false;
+            };
             if !doing.keeps(standing, face.normal(within), first) {
                 continue;
             }
@@ -733,6 +747,7 @@ impl Combining {
                 loops: from..self.loops.len(),
             });
         }
+        true
     }
 
     /// A place well within the region at `at`, or `None` where it covers

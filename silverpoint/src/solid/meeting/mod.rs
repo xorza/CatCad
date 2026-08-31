@@ -17,12 +17,11 @@
 //! surfaces share; which stretch of it bounds a face is the boolean's to work
 //! out, and it needs the whole to work it out from.
 //!
-//! **The boolean is M4 and this is M3a**, so the curves have no reader yet. What
-//! does read this already is the one question it answers with no curve at all:
-//! whether two faces lie on the same surface, which is what says there is no
-//! crease between them. That is a better answer than comparing two surface
-//! descriptions, because two planes can be one plane and not be the same
-//! `Plane` — see [`Meeting::Same`].
+//! **The boolean reads every curve this hands back**, and it reads one answer
+//! that carries no curve at all: whether two faces lie on the same surface,
+//! which is what says there is no crease between them. That is a better answer
+//! than comparing two surface descriptions, because two planes can be one plane
+//! and not be the same `Plane` — see [`Meeting::Same`].
 
 use crate::inline::Inline;
 use crate::math::plane::Plane;

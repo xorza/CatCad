@@ -20,7 +20,11 @@ fn block(corners: &[(f64, f64)], deep: f64) -> Body {
 /// Where `at` stands in `body`, in the plane's own coordinates lifted by `up`.
 fn standing(body: &Body, at: (f64, f64), up: f64) -> Standing {
     let world = Plane::GROUND.point(DVec2::new(at.0, at.1)) + DVec3::Y * up;
-    Sounding::default().standing(world, body)
+    let mut sounding = Sounding::default();
+    sounding.about(body);
+    sounding
+        .standing(world, body)
+        .expect("every cast direction grazed the body")
 }
 
 /// Assert that `at`, lifted by `up`, is on `body` and that it faces `facing`
@@ -235,7 +239,13 @@ fn a_cylinder_holds_what_is_within_it() {
 fn a_ring_holds_its_tube_and_not_its_hole() {
     let (major, minor) = (3.0, 1.0);
     let body = Body::ring(major, minor);
-    let at = |x, y, z| Sounding::default().standing(DVec3::new(x, y, z), &body);
+    let mut sounding = Sounding::default();
+    sounding.about(&body);
+    let mut at = |x, y, z| {
+        sounding
+            .standing(DVec3::new(x, y, z), &body)
+            .expect("every cast direction grazed the body")
+    };
 
     // **Over a grid, and held against the closed form**, which is what keeps
     // this from passing by luck: a ring's four faces cover four quarters and a
@@ -262,7 +272,7 @@ fn a_ring_holds_its_tube_and_not_its_hole() {
                 } else {
                     Standing::Outside
                 };
-                let found = Sounding::default().standing(place, &body);
+                let found = at(place.x, place.y, place.z);
                 assert_eq!(
                     found, want,
                     "{place:?} stands {out} out from the tube's middle"

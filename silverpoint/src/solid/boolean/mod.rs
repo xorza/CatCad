@@ -44,14 +44,15 @@ impl Boolean {
     /// Put `one` and `two` together as `doing` says, into `into`.
     ///
     /// `false`, with `into` emptied, where it will not — and a refusal is an
-    /// answer rather than a failure. Four things are refused: a crossing no
+    /// answer rather than a failure. Five things are refused: a crossing no
     /// face's own parameters can carry, which today means an ellipse or a line
-    /// along a cylinder; a result whose regions leave an edge with one face or
-    /// three, which two solids meeting along nothing but an edge genuinely do;
-    /// one that closes into shells sharing a corner, which two meeting at
-    /// nothing but a point genuinely do; and a cavity with more than one lump
-    /// to hang it on. Guessing at any of them would hand back something that
-    /// reads as a solid and is not.
+    /// along a cylinder; a region the sounder cannot place, because every
+    /// direction it casts grazes the other body; a result whose regions leave
+    /// an edge with one face or three, which two solids meeting along nothing
+    /// but an edge genuinely do; one that closes into shells sharing a corner,
+    /// which two meeting at nothing but a point genuinely do; and a cavity with
+    /// more than one lump to hang it on. Guessing at any of them would hand
+    /// back something that reads as a solid and is not.
     pub fn combine(&mut self, one: &Body, two: &Body, doing: Operation, into: &mut Body) -> bool {
         if !self.combining.combine(one, two, doing) {
             into.clear();

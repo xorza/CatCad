@@ -80,8 +80,8 @@ const _: () = assert!(
 /// between the two, and as this falls toward nothing that trade-off tends to
 /// the point of the feasible set *nearest* what was asked. Which is the answer
 /// wanted. So the weight buys accuracy at the price of iterations, and it is
-/// set six decades under the constraints it argues with because iterations are
-/// the cheaper of the two.
+/// set two decades under the unit-scale residual the constraints answer with,
+/// because iterations are the cheaper of the two.
 const PULL: f64 = 1e-2;
 
 /// One parameter a drag is pulling, and where to.

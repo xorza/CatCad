@@ -24,7 +24,7 @@
 //! before asking whether the surfaces do is the answer, and it is not written.
 
 use crate::loops::Loops;
-use crate::math::winding::{self, holds};
+use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::{ENCLOSED, PLACED};
 use crate::solid::boolean::splitting::cells::Cells;
@@ -361,7 +361,8 @@ impl Splitting {
         let round = &self.round;
         let within = |walk: &[Corner]| {
             let somewhere = walk[0].at;
-            holds(outline, somewhere) && !holes.clone().any(|hole| holds(hole, somewhere))
+            winding::holds(outline, somewhere)
+                && !holes.clone().any(|hole| winding::holds(hole, somewhere))
         };
         if kept {
             // The region, with one more hole in it for each loop that fell
@@ -381,7 +382,11 @@ impl Splitting {
         for walk in round.iter().filter(|walk| within(walk)) {
             into.add(|write| {
                 write.push(walk);
-                for hole in held.clone().skip(1).filter(|hole| holds(walk, hole[0].at)) {
+                for hole in held
+                    .clone()
+                    .skip(1)
+                    .filter(|hole| winding::holds(walk, hole[0].at))
+                {
                     write.push(hole);
                 }
             });
@@ -685,7 +690,7 @@ impl Splitting {
             // regions one cut leaves are disjoint, so there is no tighter
             // container to prefer and nothing to go on looking for.
             let mut inside = shut.iter().enumerate().filter(|&(by, outline)| {
-                outline.area > ENCLOSED && outline.holds(at) && holds(closed.get(by), at)
+                outline.area > ENCLOSED && outline.holds(at) && winding::holds(closed.get(by), at)
             });
             if let Some((by, _)) = inside.next() {
                 debug_assert!(inside.next().is_none(), "two outlines hold one hole");

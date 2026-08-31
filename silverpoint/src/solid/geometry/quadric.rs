@@ -41,16 +41,6 @@ use glam::DVec3;
 /// `f64` routines beside it take the unit length on trust, which is the one
 /// place they and this can differ, and they differ by what a normalize left
 /// behind.
-/// The three coefficients a line substituted into a quadric leaves.
-///
-/// A satellite of [`Quadric::spanned`], which is the only thing that makes one.
-#[derive(Debug)]
-pub(crate) struct Spanned<T> {
-    pub(crate) alpha: T,
-    pub(crate) beta: T,
-    pub(crate) gamma: T,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Quadric {
     /// The upper triangle, row by row: `q₀₀ q₀₁ q₀₂ q₀₃ q₁₁ q₁₂ q₁₃ q₂₂ q₂₃
@@ -62,6 +52,16 @@ pub(crate) struct Quadric {
     /// [`Rational`] is a heap block apiece, so six fewer is worth having as
     /// well.
     held: [Rational; 10],
+}
+
+/// The three coefficients a line substituted into a quadric leaves.
+///
+/// A satellite of [`Quadric::spanned`], which is the only thing that makes one.
+#[derive(Debug)]
+pub(crate) struct Spanned<T> {
+    pub(crate) alpha: T,
+    pub(crate) beta: T,
+    pub(crate) gamma: T,
 }
 
 impl Quadric {

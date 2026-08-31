@@ -87,7 +87,7 @@ pub(crate) fn swept_over(places: impl Iterator<Item = DVec2>) -> f64 {
 /// a determinant rather than on a quotient.
 ///
 /// Says nothing useful about a place *on* the run. A caller that cares whether
-/// it is on one asks [`off`] first.
+/// it is on one asks [`within`], which answers both for one walk.
 pub(crate) fn holds(walk: &[impl Place], at: DVec2) -> bool {
     let crossings = walk
         .iter()
@@ -103,19 +103,42 @@ pub(crate) fn holds(walk: &[impl Place], at: DVec2) -> bool {
     crossings % 2 == 1
 }
 
-/// How far `at` stands from the closed run `walk` itself.
+/// Where `at` stands in relation to the closed run `walk`.
 ///
-/// What tells a place safely within a region from one sitting on its edge,
-/// which is the question a ray cast has to ask before it trusts its own count:
-/// a ray through a corner is counted twice or not at all, and either way the
-/// answer is not the one wanted.
+/// A satellite of [`within`], which is the only thing that makes one.
+#[derive(Debug)]
+pub(crate) struct Within {
+    /// How far `at` stands from the run itself.
+    ///
+    /// What tells a place safely within a region from one sitting on its edge,
+    /// which is the question a ray cast has to ask before it trusts its own
+    /// count: a ray through a corner is counted twice or not at all, and either
+    /// way the answer is not the one wanted.
+    ///
+    /// Zero for a run with nothing in it, because there is nothing to be far
+    /// from.
+    pub(crate) off: f64,
+    /// Whether the run holds `at`, on [`holds`]' terms.
+    pub(crate) holds: bool,
+}
+
+/// Read `walk` for both of [`Within`]'s answers, over one walk of its corners.
 ///
-/// Zero for a run with nothing in it, because there is nothing to be far from.
-pub(crate) fn off(walk: &[impl Place], at: DVec2) -> f64 {
+/// **For the caller that wants the pair**, which is any ray cast that has to
+/// know it did not graze what it counted: asking the two separately steps the
+/// same corners twice. A sounding asks this per loop, per crossing, per ray,
+/// per region of a rebuild. A caller that wants only the parity asks [`holds`],
+/// which is spared the distance it would not read.
+///
+/// The run is closed whether or not its last corner repeats its first — the
+/// walk wraps — so a caller need not decide which convention it is using.
+pub(crate) fn within(walk: &[impl Place], at: DVec2) -> Within {
     let mut nearest = f64::INFINITY;
+    let mut crossings = 0;
     for (step, &from) in walk.iter().enumerate() {
         let from = from.place();
         let to = walk[(step + 1) % walk.len()].place();
+        crossings += usize::from(intersect::blocks(Span { from, to }, at));
         let along = to - from;
         let reach = along.length_squared();
         // A run may double back on a corner; there is no direction in that and
@@ -125,14 +148,24 @@ pub(crate) fn off(walk: &[impl Place], at: DVec2) -> f64 {
         } else {
             from.lerp(to, ((at - from).dot(along) / reach).clamp(0.0, 1.0))
         };
-        nearest = nearest.min(nearby.distance(at));
+        // The nearest squared is nearest, and rooting here would be a root per
+        // corner of every loop this is asked about.
+        nearest = nearest.min(nearby.distance_squared(at));
     }
-    if nearest.is_finite() { nearest } else { 0.0 }
+    Within {
+        off: if nearest.is_finite() {
+            nearest.sqrt()
+        } else {
+            0.0
+        },
+        holds: crossings % 2 == 1,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts::SQRT_2;
 
     /// **A unit square a hundred million out shuts in what it shuts in.**
     ///
@@ -174,5 +207,74 @@ mod tests {
         // reach by not looping.
         let nowhere: [DVec2; 0] = [];
         assert_eq!(swept(&nowhere), 0.0);
+    }
+
+    /// **Both readings of one walk, against distances worked out by hand.**
+    ///
+    /// The run is the doubled unit square `(0,0) (2,0) (2,2) (0,2)`, whose
+    /// edges are four whole-number lines. So the middle stands `1` from each of
+    /// them, a place one out to the right stands `1` from the near edge, and a
+    /// place diagonally off a corner stands `√2` from that corner — which is
+    /// the arm the squared minimum has to root exactly rather than
+    /// approximately.
+    ///
+    /// **The parity does not care which way the walk runs**, where the sweep
+    /// beside it is the sign that does, so the same square reversed holds the
+    /// same places.
+    ///
+    /// **And the parity here is [`holds`]' parity**, which is what lets that
+    /// one stay the spelling for a caller that never reads a distance: the two
+    /// count the same crossings, so a grid stepped across the square and out
+    /// past it has to answer alike at every place.
+    #[test]
+    fn a_square_says_how_far_off_it_is_and_what_it_holds() {
+        const SQUARE: [DVec2; 4] = [
+            DVec2::new(0.0, 0.0),
+            DVec2::new(2.0, 0.0),
+            DVec2::new(2.0, 2.0),
+            DVec2::new(0.0, 2.0),
+        ];
+        let mut backwards = SQUARE;
+        backwards.reverse();
+
+        for walk in [SQUARE, backwards] {
+            let middle = within(&walk, DVec2::new(1.0, 1.0));
+            assert_eq!(middle.off, 1.0);
+            assert!(middle.holds);
+
+            let beside = within(&walk, DVec2::new(3.0, 1.0));
+            assert_eq!(beside.off, 1.0);
+            assert!(!beside.holds);
+
+            // Off a corner rather than an edge, where the nearest place on the
+            // run is the corner itself and the arm is the diagonal.
+            let cornered = within(&walk, DVec2::new(-1.0, -1.0));
+            assert_eq!(cornered.off, SQRT_2);
+            assert!(!cornered.holds);
+
+            // On the run, which is the reading a ray cast refuses to count
+            // from — an edge and a corner alike.
+            assert_eq!(within(&walk, DVec2::new(1.0, 0.0)).off, 0.0);
+            assert_eq!(within(&walk, DVec2::new(2.0, 2.0)).off, 0.0);
+
+            // Halfway between the whole numbers, so no place of the grid lands
+            // on the run and every one of them has an answer.
+            for x in -2..8 {
+                for y in -2..8 {
+                    let at = DVec2::new(x as f64, y as f64) / 2.0 + DVec2::splat(0.25);
+                    assert_eq!(
+                        within(&walk, at).holds,
+                        holds(&walk, at),
+                        "{at:?} is held by one reading and not the other"
+                    );
+                }
+            }
+        }
+
+        // Nothing to be far from and nothing to be held by.
+        let nowhere: [DVec2; 0] = [];
+        let empty = within(&nowhere, DVec2::ZERO);
+        assert_eq!(empty.off, 0.0);
+        assert!(!empty.holds);
     }
 }

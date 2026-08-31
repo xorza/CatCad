@@ -23,14 +23,15 @@
 //! [`filtered`] and [`expansion`], decides a tangency with [`rational`] through
 //! [`field`], and *places* a round crossing through both — the coefficients
 //! worked out in the exact tier and read back into the filter, which carries a
-//! bound through the square root the place has in it. So none of those carries
-//! a blanket allow and each goes on saying
-//! when something of theirs has stopped being called. [`quadratic`] and
-//! [`lazy`] are still waiting on the pencil route in M3b, and the arithmetic
-//! lands ahead of the route that needs it because the milestone it belongs to
-//! is the one whose whole point is not finding out late — see
-//! `.notes/KERNEL.md` M0. Those two excuse their own dead code where it stands,
-//! and the tests in each are what hold it up until there is a caller.
+//! bound through the square root the place has in it. [`quadratic`] carries the
+//! pencil route that landed with it: `solid::geometry::{roots, ruled, quartic}`
+//! work in `Quadratic<Rational>` and in the storey above it. So none of those
+//! carries a blanket allow, and each goes on saying when something of theirs
+//! has stopped being called.
+//!
+//! [`lazy`] is the one still without a caller. It excuses its own dead code
+//! where it stands, and its tests are what hold it up until a construction
+//! asks for a number that carries its own history.
 
 pub(crate) mod decides;
 pub(crate) mod expansion;

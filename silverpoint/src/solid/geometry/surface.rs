@@ -29,7 +29,6 @@ use glam::{BVec2, DVec2, DVec3};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Surface {
     Natural(Natural),
-    #[allow(dead_code)]
     Fitted(Fitted),
 }
 

@@ -27,20 +27,19 @@ use std::f64::consts::SQRT_2;
 /// exact geometry. See `.notes/KERNEL.md` §4.1 and the
 /// [`Fitted`](super::fitted::Fitted) half beside it.
 ///
-/// **Nothing builds a cone or a sphere yet.** An extrusion raises planes and
-/// cylinders, and the other two arrive with revolving. Every arm below already
-/// answers all four and [`Meeting`](crate::solid::meeting::Meeting) dispatches
-/// over the whole pair matrix, so what those variants want is a feature that
-/// makes one — which is the whole of what the allow on each of them says.
+/// **A feature builds every one of the four.** An extrusion raises planes and
+/// cylinders, and a revolve raises cones and spheres beside them — a line that
+/// leans on the axis sweeps a cone, and an arc centred on it sweeps a sphere.
+/// Every arm below answers all four and
+/// [`Meeting`](crate::solid::meeting::Meeting) dispatches over the whole pair
+/// matrix.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Natural {
     /// The same [`Plane`] a sketch is carried into the world by, which is what
     /// lets an extrusion's base face literally hold the drawing's own frame.
     Plane(Plane),
     Cylinder(Cylinder),
-    #[allow(dead_code)]
     Cone(Cone),
-    #[allow(dead_code)]
     Sphere(Sphere),
 }
 

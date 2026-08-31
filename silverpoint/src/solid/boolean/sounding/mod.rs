@@ -100,6 +100,10 @@ struct Covered {
     /// cannot be counted against. Two spellings of one tolerance is two chances
     /// for a place to be on a face for the first and off it for the second,
     /// which is a body that is solid to one question and hollow to the other.
+    ///
+    /// The one field here the place decides, which is why
+    /// [`Sounding::about`] leaves it false and [`Sounding::cover`] sets it per
+    /// question.
     on: bool,
 }
 
@@ -115,10 +119,11 @@ pub(super) struct Sounding {
     traced: Vec<DVec3>,
     /// Every face's boundary in its own parameters, loop after loop.
     ///
-    /// Laid out once per question rather than once per look, which is what
-    /// makes every look below a reading: a ray is cast four times at worst and
-    /// counted against every face each time, and re-flattening a face for each
-    /// of those would be the same walk over the same corners a dozen times.
+    /// Laid out once per body rather than once per look, which is what makes
+    /// every look below a reading: a ray is cast four times at worst and
+    /// counted against every face each time, and a place is sounded per region
+    /// of every face the operation kept — so re-flattening a face for each of
+    /// those would be the same walk over the same corners a few thousand times.
     walk: Vec<DVec2>,
     /// Where each of those loops begins, with a sentinel on the end.
     starts: Vec<usize>,
@@ -127,27 +132,36 @@ pub(super) struct Sounding {
 }
 
 impl Sounding {
-    /// Where `at` stands in relation to `body`.
-    pub(super) fn standing(&mut self, at: DVec3, body: &Body) -> Standing {
-        self.flatten(at, body);
+    /// Where `at` stands in relation to `body`, which [`Sounding::about`] must
+    /// have laid out first.
+    ///
+    /// `None` where every one of [`CASTS`] grazed the body and no count can be
+    /// trusted. Not impossible, only improbable: those four are chosen rather
+    /// than searched for, and a body can in principle be built to lie across
+    /// all of them at once. It refuses rather than guessing, on the same terms
+    /// as every other unanswerable case in the boolean — an even count and an
+    /// odd one are inside and outside, and there is no third reading to hand
+    /// back.
+    pub(super) fn standing(&mut self, at: DVec3, body: &Body) -> Option<Standing> {
+        debug_assert_eq!(
+            self.faces.len(),
+            body.topology().faces().count(),
+            "this was laid out for some other body"
+        );
+        self.cover(at, body);
         if let Some(facing) = self.facing(at, body) {
-            return Standing::On(facing);
+            return Some(Standing::On(facing));
         }
         for way in CASTS {
             if let Some(crossings) = self.count(at, way.normalize(), body) {
-                return if crossings % 2 == 1 {
+                return Some(if crossings % 2 == 1 {
                     Standing::Inside
                 } else {
                     Standing::Outside
-                };
+                });
             }
         }
-        // Every direction grazed something. Not impossible, only improbable:
-        // these four are chosen rather than searched for, and a body could in
-        // principle be built to lie across all of them at once. Reaching here
-        // means this needs more directions, not that anything above it is
-        // wrong — so it says so rather than blaming its caller.
-        panic!("every ray out of {at:?} grazed an edge of the body it was sounding");
+        None
     }
 
     /// Which way `body` faces where it passes through `at` — out of its
@@ -213,22 +227,22 @@ impl Sounding {
             anchor[0].map_or(uv.x, |to| branch::nearest(uv.x, to)),
             anchor[1].map_or(uv.y, |to| branch::nearest(uv.y, to)),
         );
-        let mut within = false;
+        let mut inside = false;
         for (at, run) in loops.clone().enumerate() {
             let loop_ = &self.walk[self.starts[run]..self.starts[run + 1]];
-            if winding::off(loop_, uv) <= PLACED {
+            let stands = winding::within(loop_, uv);
+            if stands.off <= PLACED {
                 return None;
             }
-            let held = winding::holds(loop_, uv);
             // The outline says whether the place is on the face at all; every
             // loop after it is a hole, and a hole holding it puts it back out.
             if at == 0 {
-                within = held;
-            } else if held {
+                inside = stands.holds;
+            } else if stands.holds {
                 return Some(false);
             }
         }
-        Some(within)
+        Some(inside)
     }
 
     /// Lay every face's boundary out in its own parameters, loop after loop.
@@ -238,10 +252,13 @@ impl Sounding {
     /// [`Topology::walk`](crate::solid::topology::Topology), which chords only
     /// what curves.
     ///
-    /// Takes the place being sounded as well as the body, for the one thing
-    /// about a face that both readers below need and neither should decide
-    /// twice — see [`Covered::on`].
-    fn flatten(&mut self, at: DVec3, body: &Body) {
+    /// **Once per body and not once per place.** Nothing here depends on what
+    /// is being sounded, and a boolean sounds a place per region of every face
+    /// it kept — so a layout per question would retrace and reflatten the whole
+    /// of the other body a few hundred times over, on the path a document is
+    /// rebuilt down sixty times a second. What the place does decide is
+    /// [`Covered::on`], and [`cover`](Sounding::cover) sets that per question.
+    pub(super) fn about(&mut self, body: &Body) {
         let topology = body.topology();
         self.walk.clear();
         self.starts.clear();
@@ -260,7 +277,7 @@ impl Sounding {
             }
             self.faces.push(Covered {
                 face: id,
-                on: predicate::touching(face.surface.off(at), PLACED),
+                on: false,
                 loops: from..self.starts.len() - 1,
                 // Somewhere on the boundary's own branch, which is any corner
                 // of it: the loops were laid out continuously, so they are all
@@ -272,6 +289,18 @@ impl Sounding {
                     })
                 },
             });
+        }
+    }
+
+    /// Say of every face whether `at` lies on the surface it stands on.
+    ///
+    /// The one thing about a face that both readers above need and neither
+    /// should decide twice — see [`Covered::on`].
+    fn cover(&mut self, at: DVec3, body: &Body) {
+        let topology = body.topology();
+        for covered in &mut self.faces {
+            let face = topology.face(covered.face);
+            covered.on = predicate::touching(face.surface.off(at), PLACED);
         }
     }
 }
