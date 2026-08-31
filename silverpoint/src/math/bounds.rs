@@ -19,6 +19,7 @@ pub(crate) trait Axial:
     + Add<f64, Output = Self>
     + Sub<f64, Output = Self>
     + Div<f64, Output = Self>
+    + Div<Self, Output = Self>
 {
     /// Further out than any place on every axis, which an empty box's low end
     /// starts at.
@@ -32,11 +33,30 @@ pub(crate) trait Axial:
     fn most(self, other: Self) -> Self;
     /// Whether this is at most `other` on every axis.
     fn under(self, other: Self) -> bool;
+
+    /// The least of its own axes.
+    ///
+    /// **A reading across the axes rather than between two places**, which is
+    /// what a ray asks: how far along it enters a box is the furthest of the
+    /// slabs give, and how far it leaves is the nearest. Both ignore a `NaN`,
+    /// which is the answer a slab gives where the ray runs along it — an axis
+    /// that does not constrain.
+    fn narrowest(self) -> f64;
+    /// The greatest of them, which is [`Axial::narrowest`] the other way up.
+    fn widest(self) -> f64;
 }
 
 impl Axial for DVec2 {
     const HIGHEST: Self = Self::INFINITY;
     const LOWEST: Self = Self::NEG_INFINITY;
+
+    fn narrowest(self) -> f64 {
+        self.min_element()
+    }
+
+    fn widest(self) -> f64 {
+        self.max_element()
+    }
 
     fn least(self, other: Self) -> Self {
         self.min(other)
@@ -54,6 +74,14 @@ impl Axial for DVec2 {
 impl Axial for DVec3 {
     const HIGHEST: Self = Self::INFINITY;
     const LOWEST: Self = Self::NEG_INFINITY;
+
+    fn narrowest(self) -> f64 {
+        self.min_element()
+    }
+
+    fn widest(self) -> f64 {
+        self.max_element()
+    }
 
     fn least(self, other: Self) -> Self {
         self.min(other)
@@ -169,6 +197,46 @@ impl<At: Axial> Bounds<At> {
     /// gives.
     pub(crate) fn meets(self, other: Self, slack: f64) -> bool {
         (self.low - slack).under(other.high) && (other.low - slack).under(self.high)
+    }
+
+    /// Whether a ray from `from` running `way` reaches it.
+    ///
+    /// **What spares a face the solve a ray would otherwise cost it.** A ray is
+    /// counted against every face of a body to say what a place stands inside
+    /// — see [`Sounding`](crate::solid::boolean::sounding::Sounding) — and a
+    /// body cut by a many-sided tool has hundreds of faces where a ray crosses
+    /// two. A box apiece answers the rest in six comparisons.
+    ///
+    /// **The slabs, and the ray is in the box between the last it entered and
+    /// the first it left.** Each axis gives the stretch of the ray inside its
+    /// own pair of walls, so the ray is inside every one of them over the
+    /// overlap — and it reaches the box where that overlap has anything at or
+    /// past its own beginning.
+    ///
+    /// An axis the ray runs along divides by nought and answers infinities,
+    /// which constrain nothing and are what is wanted. Where it also *starts*
+    /// on that axis's wall the division is `NaN`, and the two readings across
+    /// the axes drop one — see [`Axial::narrowest`], which is the same answer.
+    ///
+    /// Drops work and never an answer: a box holds the face drawn inside it, so
+    /// a ray missing the box misses the face.
+    ///
+    /// A box that holds nothing is reached by nothing, as it holds and meets
+    /// nothing — and said outright here, where the two above have it from their
+    /// inverted ends: the slabs of an inverted box are sorted back into order
+    /// by the readings across the axes and the inversion is lost.
+    pub(crate) fn met_by(self, from: At, way: At) -> bool {
+        debug_assert!(
+            way.widest() > 0.0 || way.narrowest() < 0.0,
+            "a ray with no direction reaches nowhere",
+        );
+        if !self.low.under(self.high) {
+            return false;
+        }
+        let (near, far) = ((self.low - from) / way, (self.high - from) / way);
+        let entered = near.least(far).widest();
+        let left = near.most(far).narrowest();
+        entered <= left && left >= 0.0
     }
 }
 
@@ -328,5 +396,46 @@ mod tests {
         let nothing = Bounds::default();
         assert!(!nothing.meets(grown, 1.0));
         assert!(!nothing.holds(DVec2::ZERO));
+    }
+
+    /// **A ray reaches a box where it enters before it leaves, and not
+    /// behind.**
+    ///
+    /// Every figure hand-written against the unit box about the origin, whose
+    /// walls stand at `±1`.
+    ///
+    /// - From `(-3, 0, 0)` along `+x` the slabs give `[2, 4]` on x and no
+    ///   constraint on the other two, so it enters at 2 and reaches.
+    /// - The same ray reversed leaves at `-2` and never gets there.
+    /// - From `(-3, 3, 0)` along `+x` the y slab is empty, so nothing it enters
+    ///   is before what it leaves.
+    /// - From the middle it is already inside, which enters at `-1`.
+    /// - Along `+x` at `y = 1` the ray runs *in* the wall: the y slab divides
+    ///   nought by nought and answers nothing either way, and the box is still
+    ///   reached.
+    /// - Along the diagonal from `(-2, -2, -2)` it enters every slab at 1 and
+    ///   leaves at 3.
+    #[test]
+    fn a_ray_reaches_a_box_where_it_enters_before_it_leaves() {
+        let box_ = Bounds::about(DVec3::ZERO, 1.0);
+        for (from, way, want, what) in [
+            (DVec3::new(-3.0, 0.0, 0.0), DVec3::X, true, "straight at it"),
+            (
+                DVec3::new(-3.0, 0.0, 0.0),
+                DVec3::NEG_X,
+                false,
+                "away from it",
+            ),
+            (DVec3::new(-3.0, 3.0, 0.0), DVec3::X, false, "past it"),
+            (DVec3::ZERO, DVec3::X, true, "out of it"),
+            (DVec3::new(-3.0, 1.0, 0.0), DVec3::X, true, "along a wall"),
+            (DVec3::splat(-2.0), DVec3::ONE, true, "up the diagonal"),
+            (DVec3::splat(-2.0), DVec3::NEG_ONE, false, "down it"),
+        ] {
+            assert_eq!(box_.met_by(from, way), want, "a ray {what}");
+        }
+
+        // A box holding nothing is reached by nothing, its ends being inverted.
+        assert!(!Bounds::default().met_by(DVec3::ZERO, DVec3::X), "nowhere");
     }
 }

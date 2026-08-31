@@ -241,7 +241,7 @@ fn a_ring_holds_its_tube_and_not_its_hole() {
     let body = Body::ring(major, minor);
     let mut sounding = Sounding::default();
     sounding.about(&body);
-    let mut at = |x, y, z| {
+    let at = |x, y, z| {
         sounding
             .standing(DVec3::new(x, y, z), &body)
             .expect("every cast direction grazed the body")

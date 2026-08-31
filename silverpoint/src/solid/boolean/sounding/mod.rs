@@ -30,7 +30,7 @@ use crate::number::predicate;
 use crate::number::tolerance::CHORDED;
 use crate::number::tolerance::PLACED;
 use crate::solid::topology::body::Body;
-use crate::solid::topology::face::FaceId;
+use crate::solid::topology::face::{Face, FaceId};
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
@@ -89,23 +89,34 @@ struct Covered {
     /// Which of the sounder's loops are this face's — the outline first, then
     /// its holes.
     loops: Range<usize>,
+    /// The box the face fills in the world.
+    ///
+    /// **What spares a face the solve every ray would otherwise cost it.** A
+    /// count is taken against every face of the body, and a body cut by a
+    /// many-sided tool has hundreds where a ray crosses two — see
+    /// [`Bounds::met_by`], which answers the rest in six comparisons.
+    fills: Bounds<DVec3>,
     /// Somewhere on the boundary's own branch, in each parameter — and `None`
     /// in one the surface does not run round, where there are no branches to
     /// be in.
     anchor: [Option<f64>; 2],
-    /// Whether the place being sounded stands on this face's surface.
-    ///
-    /// **Asked once for the whole query**, because it is asked twice over
-    /// otherwise and by two readers who have to agree: whether the place is on
-    /// the boundary at all, and whether a ray from it lies *in* a surface it
-    /// cannot be counted against. Two spellings of one tolerance is two chances
-    /// for a place to be on a face for the first and off it for the second,
-    /// which is a body that is solid to one question and hollow to the other.
-    ///
-    /// The one field here the place decides, which is why
-    /// [`Sounding::about`] leaves it false and [`Sounding::cover`] sets it per
-    /// question.
-    on: bool,
+}
+
+/// Whether `at` stands on the surface `face` is a piece of.
+///
+/// **Stated once**, because two readers have to agree: whether the place is on
+/// the boundary at all, and whether a ray from it lies *in* a surface it cannot
+/// be counted against. Two spellings of one tolerance is two chances for a
+/// place to be on a face for the first and off it for the second, which is a
+/// body that is solid to one question and hollow to the other.
+///
+/// **Asked of the faces a reader reaches rather than of every face.** A sounder
+/// is asked once per region of every face a boolean kept, and a body cut by a
+/// many-sided tool has thousands of regions and hundreds of faces — so a
+/// reading taken over the whole body per question is the one term that grows
+/// with their product. Each reader culls by a box first and asks here after.
+fn standing_on(face: &Face, at: DVec3) -> bool {
+    predicate::touching(face.surface.off(at), PLACED)
 }
 
 /// Sounds a body to find out what is inside it, keeping the room it works in.
@@ -143,13 +154,12 @@ impl Sounding {
     /// as every other unanswerable case in the boolean — an even count and an
     /// odd one are inside and outside, and there is no third reading to hand
     /// back.
-    pub(super) fn standing(&mut self, at: DVec3, body: &Body) -> Option<Standing> {
+    pub(super) fn standing(&self, at: DVec3, body: &Body) -> Option<Standing> {
         debug_assert_eq!(
             self.faces.len(),
             body.topology().faces().count(),
             "this was laid out for some other body"
         );
-        self.cover(at, body);
         if let Some(facing) = self.facing(at, body) {
             return Some(Standing::On(facing));
         }
@@ -169,12 +179,19 @@ impl Sounding {
     /// material — or `None` where `at` is not on its boundary at all.
     fn facing(&self, at: DVec3, body: &Body) -> Option<DVec3> {
         self.faces.iter().find_map(|covered| {
-            if !covered.on {
+            // A place the face's own box does not reach is a place no loop of
+            // it holds, so the surface need not be asked about it. Chorded
+            // slack, a curved face's box being read off a boundary walked as
+            // chords — see [`Bounds::meets`].
+            if !covered.fills.meets(Bounds::about(at, 0.0), CHORDED) {
+                return None;
+            }
+            let face = body.topology().face(covered.face);
+            if !standing_on(face, at) {
                 return None;
             }
             // On the face, or on an edge of it: both are the boundary, and the
             // second is what `covers` declines to call either way.
-            let face = body.topology().face(covered.face);
             let uv = face.surface.uv(at);
             self.covers(covered, uv)
                 .unwrap_or(true)
@@ -187,6 +204,14 @@ impl Sounding {
     fn count(&self, at: DVec3, way: DVec3, body: &Body) -> Option<usize> {
         let mut crossings = 0;
         for covered in &self.faces {
+            // **A face the ray misses is counted without being solved.** Its
+            // own surface reaches past it and would answer a crossing the face
+            // does not have, so the box has to be asked before the surface is —
+            // and asking it first is what keeps a count from costing a solve
+            // and a walk per face of the other body.
+            if !covered.fills.met_by(at, way) {
+                continue;
+            }
             let face = body.topology().face(covered.face);
             let met = face.surface.met_by(at, way);
             // **A ray lying *in* the surface cannot be counted against it.** It
@@ -199,7 +224,7 @@ impl Sounding {
             // start on what it grazes, and one running parallel and clear of a
             // plane does not start on that either. A sphere cannot hold a line
             // at all, so this never fires for one.
-            if met.all().is_empty() && covered.on {
+            if met.all().is_empty() && standing_on(face, at) {
                 return None;
             }
             for &along in met.all() {
@@ -272,10 +297,14 @@ impl Sounding {
             // face is read into as well — see [`Face::flatten`], and
             // [`Covered::anchor`], which is the same branch read back.
             let mut about = None;
+            let mut boundary = Bounds::default();
             for round in topology.loops_of(face) {
                 self.traced.clear();
                 for coedge in round {
                     topology.walked(*coedge).walk(CHORDED, &mut self.traced);
+                }
+                for &at in &self.traced {
+                    boundary.hold(at);
                 }
                 face.flatten(&self.traced, about, &mut self.walk);
                 self.starts.push(self.walk.len());
@@ -289,8 +318,8 @@ impl Sounding {
             }
             self.faces.push(Covered {
                 face: id,
-                on: false,
                 loops: from..self.starts.len() - 1,
+                fills: face.surface.fills(boundary),
                 // Somewhere on the boundary's own branch, which is any corner
                 // of it: the loops were laid out continuously, so they are all
                 // in the one branch.
@@ -301,18 +330,6 @@ impl Sounding {
                     })
                 },
             });
-        }
-    }
-
-    /// Say of every face whether `at` lies on the surface it stands on.
-    ///
-    /// The one thing about a face that both readers above need and neither
-    /// should decide twice — see [`Covered::on`].
-    fn cover(&mut self, at: DVec3, body: &Body) {
-        let topology = body.topology();
-        for covered in &mut self.faces {
-            let face = topology.face(covered.face);
-            covered.on = predicate::touching(face.surface.off(at), PLACED);
         }
     }
 }

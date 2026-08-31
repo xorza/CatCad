@@ -88,20 +88,19 @@ fn beside(outline: &[Corner], cut: Cut<'_>) -> bool {
     cut.side(outline[0].at) > 0.0
 }
 
-/// What a cut that reaches no part of `region` leaves of it.
+/// What a cut that reaches no part of `region` leaves of it: the region.
 ///
-/// The region unchanged where it stands on the side being kept, and nothing at
-/// all where it does not — which is the whole of what dividing a region comes
-/// to when the cut is nowhere near it. See [`Cut::reaches`], which is what says
-/// so, and why it says so for a closed cut as well as a straight one.
-fn aside<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>, into: &mut Cells) {
+/// **Which side it fell on is not asked here**, and that is what makes a cut
+/// one walk of the regions rather than two. A cut reaching no part of a region
+/// leaves it wholly to one side — see [`Cut::reaches`], and why it says so for
+/// a closed cut as well as a straight one — and both sides are written into one
+/// list, so copying it once puts it where it belongs whichever side that is.
+/// What each region is on is the sifting's question and it asks its own.
+fn aside<'a>(region: impl Iterator<Item = &'a [Corner]>, into: &mut Cells) {
     let mut walks = region;
     let Some(outline) = walks.next() else {
         return;
     };
-    if !beside(outline, cut) {
-        return;
-    }
     into.add(|write| {
         write.push(outline);
         for walk in walks {
@@ -271,29 +270,23 @@ impl Splitting {
         into: &mut Cells,
     ) -> bool {
         into.clear();
-        // Both sides walked whatever the first came to: the two write into one
-        // list, and stopping halfway would leave it holding one side of the cut
-        // as though that were the whole of it.
-        let one = self.append(from, cut, reading, into);
-        let two = self.append(from, cut.turned(), reading, into);
-        one && two
-    }
-
-    /// The same, onto whatever `into` already holds.
-    fn append(
-        &mut self,
-        from: &Cells,
-        cut: Cut<'_>,
-        reading: Reading<'_>,
-        into: &mut Cells,
-    ) -> bool {
         let mut written = true;
         for at in 0..from.len() {
-            if cut.reaches(from.fills(at)) {
-                written &= self.region(from.cell(at), cut, reading, into);
-            } else {
-                aside(from.cell(at), cut, into);
+            // **One walk of the regions and not one per side.** A cut divides
+            // almost none of what it is handed — a hundred and twenty-eight
+            // walls leave a block's face in as many slices and the next wall
+            // crosses two — so what the walk costs is the regions it merely
+            // carries over, and walking them once each is half of walking them
+            // once per side.
+            if !cut.reaches(from.fills(at)) {
+                aside(from.cell(at), into);
+                continue;
             }
+            // Both sides walked whatever the first came to: the two write into
+            // one list, and stopping halfway would leave it holding one side of
+            // the cut as though that were the whole of it.
+            written &= self.region(from.cell(at), cut, reading, into);
+            written &= self.region(from.cell(at), cut.turned(), reading, into);
         }
         written
     }
@@ -802,7 +795,23 @@ mod internals {
             into: &mut Cells,
         ) -> bool {
             into.clear();
-            self.append(from, cut, reading, into)
+            let mut written = true;
+            for at in 0..from.len() {
+                if cut.reaches(from.fills(at)) {
+                    written &= self.region(from.cell(at), cut, reading, into);
+                    continue;
+                }
+                // Which side a region the cut misses fell on, which production
+                // never asks — see [`aside`], where both sides go into one list
+                // and the sifting sorts them.
+                let Some(outline) = from.cell(at).next() else {
+                    continue;
+                };
+                if beside(outline, cut) {
+                    aside(from.cell(at), into);
+                }
+            }
+            written
         }
     }
 }
