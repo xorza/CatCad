@@ -15,3 +15,15 @@ use std::f64::consts::TAU;
 pub(crate) fn nearest(angle: f64, to: f64) -> f64 {
     angle + TAU * ((to - angle) / TAU).round()
 }
+
+/// The middle of the turn from `from` round to `to`, the way the angle grows.
+///
+/// **Round the circle and not along the line**, which is the whole of it: a
+/// stretch running off the end of a turn and back to the start of it reads as
+/// the *rest* of the circle when its two ends are merely subtracted, and its
+/// midpoint then lands on the far side. Stated here because both readers of it
+/// have a stretch that wraps by construction, and because getting it wrong is
+/// a place a face is ordered from and a walk seeded at.
+pub(crate) fn halfway(from: f64, to: f64) -> f64 {
+    from + (to - from).rem_euclid(TAU) / 2.0
+}

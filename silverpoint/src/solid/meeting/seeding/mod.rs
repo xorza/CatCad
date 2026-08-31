@@ -18,6 +18,7 @@
 //! how small it can be.
 //!
 use crate::inline::Inline;
+use crate::math::branch;
 use crate::math::sinusoid;
 use crate::number::predicate;
 use crate::solid::geometry::natural::Natural;
@@ -87,7 +88,7 @@ pub(crate) fn seeded(surface: &Surface, torus: &Torus, found: &mut Vec<DVec3>) -
     }
     for step in 0..ends.len() {
         let (from, to) = (ends[step], ends[(step + 1) % ends.len()]);
-        lay(from + (to - from).rem_euclid(TAU) / 2.0);
+        lay(branch::halfway(from, to));
     }
     true
 }

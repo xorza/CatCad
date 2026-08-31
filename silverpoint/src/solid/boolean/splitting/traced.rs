@@ -11,6 +11,7 @@
 use crate::loops::Loops;
 use crate::math::bisect;
 use crate::math::bounds::Bounds;
+use crate::math::branch;
 use crate::math::intersect::{self, Span};
 use crate::math::winding;
 use crate::number::tolerance::PLACED;
@@ -56,14 +57,27 @@ impl Clear {
     }
 
     /// Shut the stretch being walked, if any, and keep it if it is the longest.
+    ///
+    /// **Measured round the circle rather than along the line**, which the
+    /// widest stretch always needs: the walk is begun in the middle of it — see
+    /// [`Piece::from`] — so it is the one stretch that runs off the end of the
+    /// run's own parameter and back to the start of it. Read as a difference,
+    /// a stretch from `5.5` round to `0.8` comes back as four fifths of a turn
+    /// wide with its middle at `3.15`, which is the far side of the run and a
+    /// place the face holds. The nought of [`Traced::downed`] then stands
+    /// *inside* the face, every crossing in it wraps, and the reassembly asks
+    /// for the stretch it is not walking.
+    ///
+    /// The walk runs the way the run's own parameter grows and wraps once, so
+    /// how far it carried is that difference taken round.
     fn shut(&mut self) {
         if !self.walking {
             return;
         }
         self.walking = false;
-        let span = (self.upto - self.from).abs();
+        let span = (self.upto - self.from).rem_euclid(TAU);
         if span > self.widest {
-            (self.widest, self.middle) = (span, (self.from + self.upto) / 2.0);
+            (self.widest, self.middle) = (span, branch::halfway(self.from, self.upto));
         }
     }
 }
@@ -213,21 +227,31 @@ impl Piece {
         if !laid.meets(fills, 0.0) {
             return None;
         }
+        // **Measured the way the run runs, and turned over once at the end.**
+        // [`Clear`] reads how far a stretch carried by the difference of its
+        // two ends taken round, which wants them in the order the walk visits
+        // them — so which way the cut goes is applied to the answer rather than
+        // to every reading that makes it.
         let mut clear = Clear::default();
         for (along, at) in flattened(on, sampled, from, about, shift) {
             if laid.holds(at) {
                 clear.shut();
             } else {
-                clear.reach(if forward { along } else { TAU - along });
+                clear.reach(along);
             }
         }
         clear.shut();
+        let phase = if forward {
+            clear.middle
+        } else {
+            (TAU - clear.middle).rem_euclid(TAU)
+        };
         Some(Self {
             curve,
             taken,
             from,
             run,
-            phase: clear.middle,
+            phase,
             shift,
             fills,
             forward,

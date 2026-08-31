@@ -1181,10 +1181,27 @@ axis are all answered there. Each is a true quartic, and each is one the pencil
 writes down — the three came in together when the member search learned to turn
 away a chart it cannot walk, which §7.3 records.
 
-**Two pairs are not, and both are in `.notes/ISSUES.md`**: a cylinder against a
-ball its axis misses, for which the pencil search finds no ruled member at all,
-and a cone against a cylinder on crossing axes, whose curve the pencil does
-write down and which is turned away somewhere after that.
+**A cone drilled across and a ball off a rod's axis came in with them**, and
+both wanted the same fix one storey down. A run that crosses a face rather than
+closing inside it is ordered from a place of it the face does *not* hold — see
+`Clear` — and the walk is begun in the middle of that stretch on purpose, which
+makes it the one stretch running off the end of the run's own parameter and back
+to the start. Measured as a difference it came back as the rest of the turn with
+its middle on the far side, so the nought every crossing is ordered from stood
+*inside* the face, and the reassembly asked the cut for the stretch it was not
+walking. What that left was one half of a drill's wall keeping a single corner
+of the run where the other half kept sixty-one: both halves claimed one arc and
+neither claimed the other, and `Sewing::join` found an edge with one face and
+another with three. Measured round the circle it is right, and no tolerance
+moved.
+
+**What the exact tier still turns away is a degenerate pencil**, which §7.3
+names as a case of its own. A cylinder tangent to a sphere is the one a document
+reaches: the centre standing `R − r` off the axis puts a node on the curve,
+which comes to `h = ±2√(dr)·sin(θ/2)` in the cylinder's own angle — one loop
+crossing itself. Writing that down is the smaller half. The larger is that a
+meeting whose pieces cross is already refused for Villarceau's pair, a walked
+cut having no order for two pieces sharing a place.
 
 ### 9.5 M7 — fillet, chamfer, STEP
 

@@ -3,10 +3,9 @@
 //! **Every pair it answers, in one place.** Which curved pairs the kernel can
 //! put together is a fact about it rather than about any one test, and it moves
 //! whenever a routine is written or a reduction is found. So the answered ones
-//! are written down here, in two tables, and a pair that stops working is a
-//! diff in a table rather than a test nobody linked to another. What is refused
-//! is in `.notes/ISSUES.md`, and `.notes/KERNEL.md` §9.4 is where the frontier
-//! is argued.
+//! are written down here, in three tables, and a pair that stops working is a
+//! diff in a table rather than a test nobody linked to another.
+//! `.notes/KERNEL.md` §9.4 is where the frontier is argued.
 //!
 //! **An answered row is checked rather than counted.** What a cut leaves and
 //! what an intersection keeps are complements, so the two add back to the body
@@ -38,7 +37,7 @@ const FIRST: Step = Step(1);
 const SECOND: Step = Step(2);
 
 /// How finely every body here is meshed to read its volume back.
-const SAGITTA: f64 = 4e-3;
+const SAGITTA: f64 = 2e-3;
 
 /// How far the two sides of a cut may fail to add back to the whole, as a
 /// fraction of the whole.
@@ -54,10 +53,9 @@ const SAGITTA: f64 = 4e-3;
 /// largest row and would then say nothing about the smallest.
 ///
 /// **And it goes as [`SAGITTA`], measured rather than derived.** The widest row
-/// reads `5.8e-4` here, and `1.3e-4`, `1.3e-5` and `1.3e-6` at a quarter of
-/// this sagitta and each tenth below that — proportional over three decades,
-/// which is what says the reading is the chording and not a body that fails to
-/// close.
+/// reads `5.7e-4` here, `8.8e-5` at a tenth of this sagitta and `8.7e-6` at a
+/// hundredth — proportional over two decades, which is what says the reading is
+/// the chording and not a body that fails to close.
 const CLOSES: f64 = 2e-3;
 
 /// A plane facing `normal`, through `origin`.
@@ -170,51 +168,19 @@ fn a_plane_against_each_curved_surface_adds_back_to_the_whole() {
     held(cases);
 }
 
-/// **Every pair of curved surfaces the kernel puts together, held to its own
-/// complement.**
-///
-/// What is not here is refused, and for one of two reasons: the pencil search
-/// finds no ruled member at all, or it finds one and something after it turns
-/// the pair away. Both are in `.notes/ISSUES.md`.
+/// **Every pair sharing an axis, held to its own complement.** Two surfaces of
+/// revolution about one line meet in circles, which the geometric table of §7.3
+/// writes down outright — see `Meeting::coaxial`.
 #[test]
-fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
+fn every_coaxial_pair_adds_back_to_the_whole() {
     let up = DVec3::Y;
-    let cases: [(&str, Body, Body); 8] = [
+    let cases: [(&str, Body, Body); 4] = [
         (
             // Stopping short of the apex, which a hole taken right up to one
             // would end in a knife edge at.
             "a rod bored up a cone's axis",
             cone(DVec3::ZERO, up, 2.0, 4.0, FIRST),
             shaft(DVec3::new(0.0, -1.0, 0.0), up, 0.5, 3.0, SECOND),
-        ),
-        // A rod against a rod, which is three quartics and the one placement
-        // where two of them never meet at all.
-        (
-            "two rods crossing square, nested",
-            shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
-            shaft(DVec3::new(0.0, -4.0, 0.0), up, 1.0, 8.0, SECOND),
-        ),
-        (
-            // Unequal radii on axes that meet at a lean, whose meeting is the
-            // quartic that turned the member search away from a chart it could
-            // not walk — see `Filed::resolves`.
-            "two rods meeting at a lean",
-            shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
-            shaft(
-                DVec3::new(-2.0, -3.46, 0.0),
-                DVec3::new(0.5, 0.866, 0.0),
-                1.0,
-                8.0,
-                SECOND,
-            ),
-        ),
-        (
-            // Cross-sections that overlap rather than nest, whose meeting is
-            // one loop doubling back where a nested pair's is two — and no
-            // graph over either cylinder's angle holds it.
-            "two rods crossing square, overlapping",
-            shaft(DVec3::new(-4.0, 0.0, 0.0), DVec3::X, 2.0, 8.0, FIRST),
-            shaft(DVec3::new(0.0, -4.0, 1.5), up, 1.0, 8.0, SECOND),
         ),
         (
             "a rod bored coaxially through a rod",
@@ -227,14 +193,73 @@ fn every_curved_pair_the_kernel_answers_adds_back_to_the_whole() {
             ball(DVec3::new(0.0, 2.0, 0.0), 1.5, SECOND),
         ),
         (
-            "a ball off a cone's axis",
-            cone(DVec3::ZERO, up, 2.0, 4.0, FIRST),
-            ball(DVec3::new(1.0, 2.0, 0.0), 1.5, SECOND),
-        ),
-        (
             "a ball on a rod's axis",
             shaft(DVec3::new(0.0, -4.0, 0.0), up, 2.0, 8.0, FIRST),
             ball(DVec3::ZERO, 3.0, SECOND),
+        ),
+    ];
+    held(cases);
+}
+
+/// **Every pair meeting in a true quartic, held to its own complement.** What
+/// answers these is §7.3's second routine, the pencil the two quadrics share.
+///
+/// What is not here is refused for one reason: that pencil is degenerate, which
+/// puts a node on the curve and is a case §7.3 keeps apart. A cylinder tangent
+/// to a sphere is the one a document reaches.
+#[test]
+fn every_quartic_pair_adds_back_to_the_whole() {
+    let up = DVec3::Y;
+    // Half the size of the coaxial rows above, every ratio kept. A chord is
+    // laid at `CHORDED`, which is absolute, so a body half as wide is walked in
+    // a quarter of the corners — and six quartic cuts at the size above take
+    // this test past a second.
+    let cases: [(&str, Body, Body); 6] = [
+        (
+            "two rods crossing square, nested",
+            shaft(DVec3::new(-2.0, 0.0, 0.0), DVec3::X, 1.0, 4.0, FIRST),
+            shaft(DVec3::new(0.0, -2.0, 0.0), up, 0.5, 4.0, SECOND),
+        ),
+        (
+            // Unequal radii on axes that meet at a lean, whose meeting is the
+            // quartic that turned the member search away from a chart it could
+            // not walk — see `Filed::resolves`.
+            "two rods meeting at a lean",
+            shaft(DVec3::new(-2.0, 0.0, 0.0), DVec3::X, 1.0, 4.0, FIRST),
+            shaft(
+                DVec3::new(-1.0, -1.73, 0.0),
+                DVec3::new(0.5, 0.866, 0.0),
+                0.5,
+                4.0,
+                SECOND,
+            ),
+        ),
+        (
+            // Cross-sections that overlap rather than nest, whose meeting is
+            // one loop doubling back where a nested pair's is two — and no
+            // graph over either cylinder's angle holds it.
+            "two rods crossing square, overlapping",
+            shaft(DVec3::new(-2.0, 0.0, 0.0), DVec3::X, 1.0, 4.0, FIRST),
+            shaft(DVec3::new(0.0, -2.0, 0.75), up, 0.5, 4.0, SECOND),
+        ),
+        (
+            // Axes that cross square, whose meeting runs across both halves of
+            // the drill's wall rather than closing inside either.
+            "a rod drilled across a cone",
+            cone(DVec3::ZERO, up, 1.0, 2.0, FIRST),
+            shaft(DVec3::new(-2.0, 0.5, 0.0), DVec3::X, 0.25, 4.0, SECOND),
+        ),
+        (
+            // Off the axis by less than the two radii differ, so the rod passes
+            // clean through rather than lying tangent along the ball.
+            "a ball off a rod's axis",
+            shaft(DVec3::new(0.0, -2.0, 0.0), up, 1.0, 4.0, FIRST),
+            ball(DVec3::new(0.5, 0.0, 0.0), 1.75, SECOND),
+        ),
+        (
+            "a ball off a cone's axis",
+            cone(DVec3::ZERO, up, 1.0, 2.0, FIRST),
+            ball(DVec3::new(0.5, 1.0, 0.0), 0.75, SECOND),
         ),
     ];
     held(cases);
