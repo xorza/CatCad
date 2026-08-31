@@ -696,6 +696,21 @@ twenty-five pairs of pockets were refused, and none is. It costs the far-apart c
 ten above a rod and overlapping it in plan now has its four upright planes cut
 the rod — and correctness is the earlier of the two.
 
+**And a chain is swept rather than sampled.** What a single operation never
+reaches is a body already divided along its own surfaces, so the coverage that
+matters is two features and not one: every pair of operations over a pocket, a
+boss, a bore and a blind pocket, each held to its own volume; every one of the
+six orders of three tools, held to each other, `X − A − B` being `X − B − A`
+whatever a document types first; and the placements a round number reaches — a
+wall shared, a corner shared, a tool flush with the block's side, a pocket cut
+twice over, a boss filling the pocket it came from.
+
+**Two of those are refused and both are right.** Two pockets meeting along
+nothing but a corner pinch the material between them to a line, and so do two
+tangent bores: the two halves meet along that line and nowhere else, which is
+not a body §4.4 holds. The sweep asserts the refusal rather than working around
+it.
+
 **The polyline classifies and the curve builds.** `Cells` holds points in a
 surface's parameters and a closed cut is flattened at `ROUNDED`, a thousandth of
 its radius; those corners say which region a place falls in. The *body* takes

@@ -1,7 +1,7 @@
 use super::*;
 use crate::Plane;
 use crate::math::winding;
-use crate::number::tolerance::{CHORDED, EXACT};
+use crate::number::tolerance::{CHORDED, DRIFTING, EXACT};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
@@ -2466,15 +2466,7 @@ fn closes(bodies: &[&Body], want: f64, walls: f64, sagittas: &[f64], named: &str
 /// is that four deep.
 #[test]
 fn a_pocket_cut_beside_another_is_divided_by_the_first_ones_walls() {
-    let pocket = |at: DVec2, sides: usize| {
-        let corners: Vec<(f64, f64)> = (0..sides)
-            .map(|of| {
-                let turn = TAU * of as f64 / sides as f64;
-                (at.x + 0.4 * turn.cos(), at.y + 0.4 * turn.sin())
-            })
-            .collect();
-        block(raised(-1.0), &corners, 6.0, TOOL)
-    };
+    let pocket = |at: DVec2, sides: usize| tooled(at, 0.4, sides, -1.0, 6.0);
     let area = |sides: usize| sides as f64 * 0.4 * 0.4 * (TAU / sides as f64).sin() / 2.0;
     let mut boolean = Boolean::default();
     let mut mesher = Mesher::default();
@@ -2507,5 +2499,352 @@ fn a_pocket_cut_beside_another_is_divided_by_the_first_ones_walls() {
                 "{one} then {two}: shut in {shut} rather than {want}",
             );
         }
+    }
+}
+
+/// One row of a chain sweep: two features in order, and what they leave.
+///
+/// Named rather than a tuple because four of its seven are the same two kinds —
+/// a pair of bodies and a pair of operations read positionally is a row nobody
+/// can check against its own name.
+#[derive(Debug)]
+struct Chained {
+    what: &'static str,
+    one: Body,
+    doing: Operation,
+    two: Body,
+    then: Operation,
+    /// What the two shut in together, or `None` where the second is refused.
+    shuts: Option<f64>,
+    /// How much curved face the chording spans, which is what turns the sagitta
+    /// into a slack on the volume.
+    walls: f64,
+}
+
+/// A polygon of `sides` about `at`, `radius` to its corners, carried `deep`
+/// from `from`.
+fn tooled(at: DVec2, radius: f64, sides: usize, from: f64, deep: f64) -> Body {
+    let corners: Vec<(f64, f64)> = (0..sides)
+        .map(|of| {
+            let turn = TAU * of as f64 / sides as f64;
+            (at.x + radius * turn.cos(), at.y + radius * turn.sin())
+        })
+        .collect();
+    block(raised(from), &corners, deep, TOOL)
+}
+
+/// A box over `low` to `high`, carried `deep` from `from`.
+fn boxed(low: (f64, f64), high: (f64, f64), from: f64, deep: f64) -> Body {
+    block(
+        raised(from),
+        &[
+            (low.0, low.1),
+            (high.0, low.1),
+            (high.0, high.1),
+            (low.0, high.1),
+        ],
+        deep,
+        TOOL,
+    )
+}
+
+/// **A second feature on top of a first is built**, whatever the two are.
+///
+/// **The case a single operation never reaches.** A body is already divided
+/// along its own surfaces by the time a second feature meets it — see §7.4 —
+/// and what that costs is invisible until something is cut twice. Eight chains
+/// here, over the pairs of operations and the kinds of tool a document actually
+/// makes: a pocket, a boss, a bore, a blind pocket, and each of them beside or
+/// across the last.
+///
+/// **Held to the volume**, which for tools that stand clear of each other is
+/// the block's `64` and one tool apiece. Where they overlap the sum is not the
+/// answer and the row says what is.
+///
+/// **What a chord gives up is bounded rather than allowed for.** A mesh of an
+/// exact body reads short by at most two thirds of the sagitta times the curved
+/// face it spans, so a row with a bore in it carries how much wall that is and
+/// a row of flats carries none. A flat row is then held to the arithmetic bar
+/// [`DRIFTING`], which is what summing a few thousand signed tetrahedra costs
+/// the last places of the answer.
+#[test]
+fn a_second_feature_on_top_of_a_first_shuts_in_what_it_should() {
+    let bored = |at: DVec2, from: f64, deep: f64| rod(raised(from), at, 0.5, deep, TOOL).body;
+    // An eight-sided tool of circumradius `r` covers `8·r²·sin(π/4)/2`, which
+    // is `2√2·r²`; a bore of radius `r` covers `πr²`. And one bore's chording
+    // spans `2πr` round it times the four of depth it is cut through.
+    let eight = 2.0 * SQRT_2 * 0.25;
+    let bore = PI * 0.25;
+    let walled = TAU * 0.5 * 4.0;
+    let cases: [Chained; 8] = [
+        Chained {
+            what: "a pocket then a boss beside it",
+            one: tooled(DVec2::new(1.0, 1.0), 0.5, 8, -1.0, 6.0),
+            doing: Operation::Cut,
+            two: tooled(DVec2::new(3.0, 3.0), 0.5, 8, 4.0, 2.0),
+            then: Operation::Join,
+            shuts: Some(64.0 - 4.0 * eight + 2.0 * eight),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a boss then a pocket beside it",
+            one: tooled(DVec2::new(1.0, 1.0), 0.5, 8, 4.0, 2.0),
+            doing: Operation::Join,
+            two: tooled(DVec2::new(3.0, 3.0), 0.5, 8, -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 + 2.0 * eight - 4.0 * eight),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a boss then a boss beside it",
+            one: tooled(DVec2::new(1.0, 1.0), 0.5, 8, 4.0, 2.0),
+            doing: Operation::Join,
+            two: tooled(DVec2::new(3.0, 3.0), 0.5, 8, 4.0, 2.0),
+            then: Operation::Join,
+            shuts: Some(64.0 + 4.0 * eight),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a bore then a bore beside it",
+            one: bored(DVec2::new(1.0, 1.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: bored(DVec2::new(3.0, 3.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 - 8.0 * bore),
+            walls: 2.0 * walled,
+        },
+        Chained {
+            what: "a bore then a pocket beside it",
+            one: bored(DVec2::new(1.0, 1.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: tooled(DVec2::new(3.0, 3.0), 0.5, 8, -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 - 4.0 * bore - 4.0 * eight),
+            walls: walled,
+        },
+        Chained {
+            what: "a pocket then a bore beside it",
+            one: tooled(DVec2::new(1.0, 1.0), 0.5, 8, -1.0, 6.0),
+            doing: Operation::Cut,
+            two: bored(DVec2::new(3.0, 3.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 - 4.0 * eight - 4.0 * bore),
+            walls: walled,
+        },
+        Chained {
+            what: "a pocket then a blind pocket beside it",
+            one: tooled(DVec2::new(1.0, 1.0), 0.5, 8, -1.0, 6.0),
+            doing: Operation::Cut,
+            two: tooled(DVec2::new(3.0, 3.0), 0.5, 8, 2.0, 3.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 - 4.0 * eight - 2.0 * eight),
+            walls: 0.0,
+        },
+        Chained {
+            // Overlapping, so the two together take less than their sum: two
+            // unit boxes three quarters apart cover `1.75` between them.
+            what: "a pocket then a pocket across it",
+            one: boxed((1.0, 1.5), (2.0, 2.5), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((1.75, 1.5), (2.75, 2.5), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(64.0 - 4.0 * 1.75),
+            walls: 0.0,
+        },
+    ];
+    chained(cases);
+}
+
+/// **Cuts commute, however a document orders them.**
+///
+/// `X − A − B` is `X − B − A` for any two tools, overlapping or not, which is
+/// an invariant needing no closed form for the answer — and one a boolean can
+/// only satisfy by being right about all of it. Three tools and all six orders
+/// of them: an eight-sided pocket, a bore, and a five-sided pocket cut across
+/// both of the others.
+///
+/// **The same faces are chorded in every order**, whatever regions they were
+/// cut into, so the readings agree to far better than the sagitta they were
+/// taken at.
+#[test]
+fn cuts_commute_however_they_are_ordered() {
+    let tools = [
+        tooled(DVec2::new(1.6, 1.6), 0.6, 8, -1.0, 6.0),
+        rod(raised(-1.0), DVec2::new(2.6, 1.6), 0.5, 6.0, TOOL).body,
+        tooled(DVec2::new(2.1, 2.1), 0.6, 5, -1.0, 6.0),
+    ];
+    let mut boolean = Boolean::default();
+    let mut mesher = Mesher::default();
+    let mut first: Option<f64> = None;
+    for one in 0..3 {
+        for two in 0..3 {
+            for three in 0..3 {
+                let order = [one, two, three];
+                if !(0..3).all(|at| order.contains(&at)) {
+                    continue;
+                }
+                let mut body = cube();
+                for &at in &order {
+                    let mut into = Body::default();
+                    assert!(
+                        boolean.combine(&body, &tools[at], Operation::Cut, &mut into),
+                        "{order:?}: the cut at {at} was refused",
+                    );
+                    body = into;
+                }
+                let shut = mesher.volume(&body, 1e-4);
+                let want = *first.get_or_insert(shut);
+                assert!(
+                    (shut - want).abs() < 1e-9,
+                    "{order:?}: shut in {shut} where another order shut in {want}",
+                );
+            }
+        }
+    }
+}
+
+/// **Two features touching exactly are answered or refused, and never guessed
+/// at.**
+///
+/// The placements a document reaches by typing a round number: a wall shared, a
+/// corner shared, a tool flush with the block's own side, a pocket cut twice
+/// over, a boss filling the pocket it was cut from. Each is a coincidence the
+/// arithmetic has to survive rather than a general position it can lean on.
+///
+/// **Two of them are refused, and each is a solid that is not one.** Two
+/// pockets meeting along nothing but a corner pinch the material between them
+/// to a line, and so do two tangent bores: the two halves meet along that line
+/// and nowhere else, which is not a body `.notes/KERNEL.md` §4.4 holds. See
+/// [`Boolean::combine`], which turns such a result away rather than hand back
+/// something that reads as a solid and is not.
+#[test]
+fn two_features_touching_exactly_are_answered_or_refused() {
+    let bored = |at: DVec2| rod(raised(-1.0), at, 0.5, 6.0, TOOL).body;
+    let cases: [Chained; 9] = [
+        Chained {
+            what: "two pockets sharing a wall",
+            one: boxed((1.0, 1.0), (2.0, 2.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((2.0, 1.0), (3.0, 2.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(56.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "two pockets meeting at a corner",
+            one: boxed((1.0, 1.0), (2.0, 2.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((2.0, 2.0), (3.0, 3.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: None,
+            walls: 0.0,
+        },
+        Chained {
+            what: "a pocket flush with the block's side",
+            one: boxed((0.0, 1.0), (1.0, 2.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((2.0, 1.0), (3.0, 2.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(56.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a boss sitting on the top",
+            one: boxed((1.0, 1.0), (2.0, 2.0), 4.0, 2.0),
+            doing: Operation::Join,
+            two: boxed((2.5, 1.0), (3.5, 2.0), 4.0, 2.0),
+            then: Operation::Join,
+            shuts: Some(68.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "two bosses sharing a wall",
+            one: boxed((1.0, 1.0), (2.0, 2.0), 4.0, 2.0),
+            doing: Operation::Join,
+            two: boxed((2.0, 1.0), (3.0, 2.0), 4.0, 2.0),
+            then: Operation::Join,
+            shuts: Some(68.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a blind pocket ending where the next begins",
+            one: boxed((1.0, 1.0), (2.0, 2.0), 2.0, 2.0),
+            doing: Operation::Cut,
+            two: boxed((2.0, 1.0), (3.0, 2.0), 2.0, 2.0),
+            then: Operation::Cut,
+            shuts: Some(60.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "two bores tangent",
+            one: bored(DVec2::new(1.5, 2.0)),
+            doing: Operation::Cut,
+            two: bored(DVec2::new(2.5, 2.0)),
+            then: Operation::Cut,
+            shuts: None,
+            walls: 0.0,
+        },
+        Chained {
+            what: "a pocket cut twice over",
+            one: boxed((1.0, 1.0), (2.0, 2.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((1.0, 1.0), (2.0, 2.0), -1.0, 6.0),
+            then: Operation::Cut,
+            shuts: Some(60.0),
+            walls: 0.0,
+        },
+        Chained {
+            what: "a boss filling its own pocket",
+            one: boxed((1.0, 1.0), (2.0, 2.0), -1.0, 6.0),
+            doing: Operation::Cut,
+            two: boxed((1.0, 1.0), (2.0, 2.0), 0.0, 4.0),
+            then: Operation::Join,
+            shuts: Some(64.0),
+            walls: 0.0,
+        },
+    ];
+    chained(cases);
+}
+
+/// Build every row of `cases` on the block and hold it to what it says.
+fn chained<const ROWS: usize>(cases: [Chained; ROWS]) {
+    let mut boolean = Boolean::default();
+    let mut mesher = Mesher::default();
+    for row in cases {
+        let Chained {
+            what,
+            one,
+            doing,
+            two,
+            then,
+            shuts,
+            walls,
+        } = row;
+        let mut once = Body::default();
+        assert!(
+            boolean.combine(&cube(), &one, doing, &mut once),
+            "{what}: the first was refused",
+        );
+        let mut twice = Body::default();
+        let stands = boolean.combine(&once, &two, then, &mut twice);
+        let Some(want) = shuts else {
+            assert!(
+                !stands,
+                "{what}: a body that is not a solid was handed back"
+            );
+            assert!(
+                twice.is_empty(),
+                "{what}: a refusal left half a body behind"
+            );
+            continue;
+        };
+        assert!(stands, "{what}: the second was refused");
+        let sagitta = 1e-5;
+        let shut = mesher.volume(&twice, sagitta);
+        let slack = (2.0 / 3.0) * sagitta * walls + want * DRIFTING;
+        assert!(
+            (shut - want).abs() <= slack,
+            "{what}: shut in {shut} rather than {want}",
+        );
     }
 }
