@@ -290,6 +290,7 @@ impl<'a> Cut<'a> {
     /// least twice [`PLACED`], and for a circle exactly one root of the two
     /// lies on the run.
     fn met_across(self, from: DVec2, to: DVec2) -> DVec2 {
+        let [from, to] = ordered(from, to);
         if let Self::Straight { .. } = self {
             let (here, there) = (self.side(from), self.side(to));
             return from.lerp(to, here / (here - there));
@@ -458,5 +459,86 @@ impl<'a> Cut<'a> {
             Self::Bow(bow) => met = bow.bowed(from, to),
         }
         met
+    }
+}
+
+/// The two ends of one stretch in one order, whichever way round the walk
+/// handed them over.
+///
+/// **What makes a crossing the same place from either side of it.** A cut is
+/// taken twice over the region it divides — once keeping each side — and a
+/// later cut meets the two halves of the stretch it left walking opposite
+/// ways. Interpolated from one end, a crossing rounds a little differently from
+/// the same crossing interpolated from the other, so the two halves come back
+/// carrying places an ulp apart and nothing downstream can tell that they are
+/// one place. See `.notes/KERNEL.md` §9.1, where what that costs is argued.
+///
+/// Any total order does, so long as it is the same one on both sides. This is
+/// [`f64::total_cmp`] over the two coordinates in turn, which orders every pair
+/// of places a walk can hand over and reads nothing but the values themselves.
+fn ordered(from: DVec2, to: DVec2) -> [DVec2; 2] {
+    let by = from.x.total_cmp(&to.x).then(from.y.total_cmp(&to.y));
+    match by.is_le() {
+        true => [from, to],
+        false => [to, from],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A crossing is the same place whichever end of the stretch it is
+    /// measured from**, which is what lets two regions either side of one cut
+    /// be told they share it.
+    ///
+    /// A cut is taken twice over the region it divides, once keeping each side,
+    /// so the stretch it leaves is walked one way by one half and the other way
+    /// by the other. A later cut then meets both, and the place it reads has to
+    /// be one place: `from + t·(to − from)` and `to + (1 − t)·(from − to)` are
+    /// the same point in arithmetic and two points in an `f64`, an ulp apart —
+    /// which is a stretch nothing downstream can tell is shared.
+    ///
+    /// **And the naive form really does disagree**, which the count below is
+    /// what holds: a test whose fixture happened to round alike either way
+    /// would pass with the ordering taken out again.
+    #[test]
+    fn a_crossing_reads_the_same_from_either_end_of_its_stretch() {
+        let cut = Cut::Straight {
+            at: DVec2::new(0.3, 0.7),
+            along: DVec2::new(1.0, 3.0).normalize(),
+            run: None,
+        };
+        let naive = |from: DVec2, to: DVec2| {
+            let (here, there) = (cut.side(from), cut.side(to));
+            from.lerp(to, here / (here - there))
+        };
+
+        let mut asked = 0;
+        let mut fooled = 0;
+        for x in -9..10 {
+            for y in -9..10 {
+                let from = DVec2::new(f64::from(x) / 7.0, f64::from(y) / 11.0);
+                let to = from + DVec2::new(1.0 / 3.0, -5.0 / 13.0);
+                // Only a stretch that genuinely crosses has a crossing.
+                if (cut.side(from) > 0.0) == (cut.side(to) > 0.0) {
+                    continue;
+                }
+                asked += 1;
+                assert_eq!(
+                    cut.met_across(from, to),
+                    cut.met_across(to, from),
+                    "{from:?} to {to:?} crosses at two places",
+                );
+                if naive(from, to) != naive(to, from) {
+                    fooled += 1;
+                }
+            }
+        }
+        assert!(asked > 20, "only {asked} of the grid crossed the cut");
+        assert!(
+            fooled * 3 > asked,
+            "the naive form disagreed on only {fooled} of {asked}, which is no rounding to fix",
+        );
     }
 }

@@ -892,27 +892,34 @@ a corner there, and the merge cannot drop it: whether it can go turns on the
 face *across* that boundary dropping it too, which is not a question one face
 can answer. This takes away faces, not vertices.
 
-**What blocks it is that a shared stretch has no exact identity.** The pairing
-above wants the two walks of one stretch to carry the same two places, and they
-do not: a cut crossing regions either side of an *earlier* cut works its
-crossing out once per region, so the corner where two cuts meet comes back as
-`3.0` from one and `3.0000000000000004` from the other. The stretches along that
-cut then fail to pair, the cancellation is partial, and a face comes back in two
-loops where it should come back in one — measured on a block's face cut into a
-three by three grid, where eight of the twelve interior pairs cancel and four do
-not.
+**The first thing that blocked it is done.** A cut is taken twice over the
+region it divides, once keeping each side, and the two halves of the stretch it
+leaves are walked opposite ways — so a later cut met them as `from → to` and as
+`to → from`, and `from + t·(to − from)` is not the place `to + (1 − t)·(from −
+to)` is. The corner where two cuts met came back as `3.0` from one side and
+`3.0000000000000004` from the other, the stretches failed to pair, and a face
+cut into a three by three grid cancelled eight of its twelve interior pairs and
+came back in two loops. `Cut::met_across` now puts its two ends in one order
+before it measures anything, so a crossing is the same place from either side of
+the stretch it fell on. That is exact and costs a comparison.
+
+**What blocks it now is that the merge moves an edge another face still ends
+at.** Measured on `(A ∪ B) ∪ C`. During `A ∪ B`, `B`'s wall is cut by `A`'s own
+wall and comes back as two faces meeting along that line; merged, it is one face
+spanning it. Then `C` cuts the pair, and §7.4's uniform cut gives `C`'s own face
+a corner where `A`'s wall surface crosses it while the merged wall has none —
+so one edge is claimed by one face and the sewing refuses. Every other case the
+suite holds passes: the merge takes a milled flat from seventeen faces to eleven
+with its genus and its volume unmoved.
 
 So the merge is the second of two steps, and this is the first:
 
-**A crossing is worked out once and shared.** Where a cut crosses a stretch of
-boundary that lies on another cut, the place is the crossing of two *curves*
-this crate already holds, not of a cut and a chord of one — so it can be
-interned by the pair of runs that made it, the way `Imprints` already interns a
-curve by value. That is exact and needs no tolerance. Pairing within `PLACED`
-instead would be a third spelling of a rule the crate keeps in two places
-already and wants in one: `Sewing::vertex` files a place-ball in cells to decide
-that two corners of a body are one vertex, and an `Arrangement` folds crossings
-the same way one dimension down (§4.1).
+**A face's boundary carries every place another face of the body ends at**,
+which is what a boolean leans on when it cuts that body next. Two faces merged
+across an edge take that place off one side of it, and nothing yet puts it back.
+Either the merge refuses a pair whose shared stretch is the end of a third face,
+or the corner is kept as a corner and only the *edge* goes. Which of the two is
+right is the question to answer before any of the above is written again.
 
 What has to hold, and each is a test that breaks a merged body one way:
 
