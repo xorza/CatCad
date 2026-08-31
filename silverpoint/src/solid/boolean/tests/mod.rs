@@ -627,21 +627,27 @@ fn a_crossing_no_face_can_carry_is_refused() {
 /// what keeps a wall at the far end of a model out of a face it never touches.
 ///
 /// A body is divided by the other's *surfaces*, and a plane is unbounded where
-/// the wall standing on it is not — so the slab's own plane crosses the rod's
-/// cylinder in two ruling lines whether the slab is up against the rod or ten
-/// above its far end. Read as pieces, that costs faces for nothing; the answer
-/// is to ask how far the faces on a surface actually reach.
+/// the wall standing on it is not — so a slab's own plane crosses a rod's
+/// cylinder in two ruling lines wherever the two stand. What decides is the
+/// surface's own reach, asked against the whole of the other body: a plane that
+/// comes nowhere near it divides nothing of it, and one that crosses it divides
+/// it however far off the faces standing on that plane are.
+///
+/// **Clear on every axis, so every one of the slab's six planes misses.** The
+/// slab stood ten above the rod and overlapping it in plan was the wrong
+/// fixture for this claim: its four upright planes run down through the rod and
+/// cut it, which is the rule working rather than failing.
 ///
 /// Ten faces, which is the rod's four and the slab's six with not one of them
 /// cut — the stronger claim, a cut that divided nothing still showing here as
-/// pieces. And `3.5 × 6 × 4` of slab beside `π·1²·6` of rod, standing clear so
+/// pieces. And `3 × 3 × 4` of slab beside `π·1²·6` of rod, standing clear so
 /// that they add.
 #[test]
 fn a_surface_reaching_no_part_of_the_other_body_cuts_none_of_it() {
     let upright = through();
     let aloft = block(
         raised(10.0),
-        &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)],
+        &[(5.0, 4.0), (8.0, 4.0), (8.0, 7.0), (5.0, 7.0)],
         4.0,
         TOOL,
     );
@@ -653,7 +659,7 @@ fn a_surface_reaching_no_part_of_the_other_body_cuts_none_of_it() {
     );
     assert_eq!(into.topology().faces().count(), 10);
 
-    let want = 84.0 + PI * 6.0;
+    let want = 36.0 + PI * 6.0;
     let sagitta = 1e-6;
     let slack = (2.0 / 3.0) * sagitta * TAU * 6.0 * 2.0;
     let shut_in = Mesher::default().volume(&into, sagitta);
@@ -2435,5 +2441,71 @@ fn closes(bodies: &[&Body], want: f64, walls: f64, sagittas: &[f64], named: &str
         assert!(off < slack, "{named} read {off} off {want} at {sagitta}");
         assert!(off < last, "{named} read no nearer at {sagitta}: {off}");
         last = off;
+    }
+}
+
+/// **A second pocket beside the first is cut, and the first's walls are why.**
+///
+/// A body is already divided along its *own* surfaces, and that is what makes a
+/// cut by anything less than whole surfaces unsound. Cutting one pocket into a
+/// block divides the block's top along every wall plane of the tool, right
+/// across the face. Cut a second pocket beside it and those planes divide the
+/// rim of the new one. They reach the new tool's faces and would divide them
+/// too — but the faces *standing on* those planes are the first pocket's walls,
+/// far away, so a cull that asks about them leaves the new tool whole. The rim
+/// then carries a vertex on one side and none on the other, and the sewing
+/// finds an edge with one face.
+///
+/// **Every pair of side counts, because which ones break is arithmetic nobody
+/// can see.** Sixteen of these twenty-five were refused before the cull was
+/// asked of the surface rather than of the faces standing on it. Nine held:
+/// `4` then anything, `6` then `6` or `12`, and `8` then `4` or `8`.
+///
+/// **Held to the volume**, which is `64` less a pocket apiece: a regular
+/// `n`-gon of circumradius `0.4` has area `n·0.4²·sin(2π/n)/2`, and each pocket
+/// is that four deep.
+#[test]
+fn a_pocket_cut_beside_another_is_divided_by_the_first_ones_walls() {
+    let pocket = |at: DVec2, sides: usize| {
+        let corners: Vec<(f64, f64)> = (0..sides)
+            .map(|of| {
+                let turn = TAU * of as f64 / sides as f64;
+                (at.x + 0.4 * turn.cos(), at.y + 0.4 * turn.sin())
+            })
+            .collect();
+        block(raised(-1.0), &corners, 6.0, TOOL)
+    };
+    let area = |sides: usize| sides as f64 * 0.4 * 0.4 * (TAU / sides as f64).sin() / 2.0;
+    let mut boolean = Boolean::default();
+    let mut mesher = Mesher::default();
+    for one in [4usize, 6, 8, 12, 16] {
+        for two in [4usize, 6, 8, 12, 16] {
+            let mut once = Body::default();
+            assert!(
+                boolean.combine(
+                    &cube(),
+                    &pocket(DVec2::new(1.0, 1.0), one),
+                    Operation::Cut,
+                    &mut once,
+                ),
+                "{one} sides: the first pocket was refused",
+            );
+            let mut twice = Body::default();
+            assert!(
+                boolean.combine(
+                    &once,
+                    &pocket(DVec2::new(3.0, 1.0), two),
+                    Operation::Cut,
+                    &mut twice,
+                ),
+                "{one} then {two}: the second pocket was refused",
+            );
+            let want = 64.0 - 4.0 * (area(one) + area(two));
+            let shut = mesher.volume(&twice, 1e-6);
+            assert!(
+                (shut - want).abs() < 1e-9,
+                "{one} then {two}: shut in {shut} rather than {want}",
+            );
+        }
     }
 }

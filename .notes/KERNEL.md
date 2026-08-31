@@ -671,15 +671,30 @@ on one side of the shared edge and none on the other, and the sewing then finds
 three edges where it wanted two.
 
 **So a surface is dropped only where it reaches nothing to divide**, and that is
-asked twice: of the body, where a surface whose own faces come nowhere near the
-other body goes altogether, and of each face, where a surface that misses that
-face's own box divides nothing there. The second stays uniform because a surface
-reaching an edge reaches a place on the box of *both* faces that edge bounds —
-`Surface::reaches` is a ball round the box against the surface's own distance to
-its middle, coarse in the direction that only costs work. Cutting further than
-necessary costs nothing in the *answer*, §4.4's smooth-edge flag and §5's naming
-already handling a face in several patches. What it costs in time is §11, and it
-is the whole of what a boolean spends.
+asked twice of the *surface* and never of the faces standing on it: of the body,
+where a surface coming nowhere near the other body goes altogether, and of each
+face, where a surface that misses that face's own box divides nothing there.
+Both stay uniform because a surface reaching an edge reaches a place on the box
+of *both* faces that edge bounds — `Surface::reaches` is a ball round the box
+against the surface's own distance to its middle, coarse in the direction that
+only costs work. Cutting further than necessary costs nothing in the *answer*,
+§4.4's smooth-edge flag and §5's naming already handling a face in several
+patches. What it costs in time is §11, and it is the whole of what a boolean
+spends.
+
+**Asking it of the faces instead is the one thing that looks sound and is not**,
+and what catches it is a second feature rather than a first. A body is already
+divided along its *own* surfaces: cut a pocket into a block and the block's top
+is split along every wall plane of the tool, right across the face and far from
+the pocket. Cut a second pocket beside it and those planes divide the rim of the
+new one. They reach the new tool's faces and would divide them too — but the
+faces *standing on* those planes are the first pocket's walls, far away, so a
+cull that asks about them leaves the new tool whole. The rim carries a vertex on
+one side and none on the other, and the sewing finds an edge with one face.
+Measured over every pair of side counts from four to sixteen: sixteen of
+twenty-five pairs of pockets were refused, and none is. It costs the far-apart case its tightness — a slab
+ten above a rod and overlapping it in plan now has its four upright planes cut
+the rod — and correctness is the earlier of the two.
 
 **The polyline classifies and the curve builds.** `Cells` holds points in a
 surface's parameters and a closed cut is flattened at `ROUNDED`, a thousandth of
@@ -1364,6 +1379,17 @@ that wraps — and a marched run the boxes of its pieces. The last three are
 bounded for the rule's sake rather than for a measurement: on the fixture that
 would have shown them working they buy nothing, because that fixture's cost is
 not there at all.
+
+**And a document is a chain, which is where the count compounds.** Four pockets
+cut into a block one after the other, each on the answer of the last, sixteen
+sides apiece: 0.45, 1.54, 3.28 and 5.58 ms, the body going 6 faces to 282, 846,
+1654 and 2710. Each cut is dearer than the last because what it is handed is
+what the last one left, and §9.3 says why that cannot be merged down between
+them. Ten and a half milliseconds for four features is what a drag through the
+first of their drawings costs, against an 8.3 ms frame.
+
+*The second of those four used to be refused* — see §7.4, where culling the
+cut's surfaces by the faces standing on them is argued.
 
 **The curved path is the dearer one, and most of what it seemed to cost was a
 bug.** A rod of radius two bored across by rods of radius a half, each cut

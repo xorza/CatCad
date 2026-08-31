@@ -308,13 +308,25 @@ impl Combining {
         // that body is anywhere near — which costs pieces where the crossing
         // can be carried and costs the whole boolean where it cannot, a plane
         // parallel to a cylinder's axis meeting it in two ruling lines wherever
-        // the two stand. What decides is the *face's* reach, and what it is
-        // asked against is the whole of this body rather than the face being
-        // cut. That is not conservatism: a cut that divides one face and not
-        // the face beside it leaves a vertex on one side of the edge they share
-        // and none on the other, and the sewing then finds three edges where it
-        // wanted two. Cutting further than necessary is not merely tolerated —
+        // the two stand.
+        //
+        // **What decides is the surface's own reach and never the face's**,
+        // asked against the whole of this body rather than the face being cut.
+        // Not conservatism: a cut that divides one face and not the face beside
+        // it leaves a vertex on one side of the edge they share and none on the
+        // other, and the sewing then finds three edges where it wanted two. Cutting further than necessary is not merely tolerated —
         // see [`splitting`] — it has to be uniform.
+        //
+        // **And a body is already split along its own surfaces**, which is what
+        // makes the face's reach the wrong question rather than merely a
+        // coarser one. Cut a pocket into a block and the block's top is divided
+        // along every wall plane of the tool; cut a second pocket beside it and
+        // those planes divide the rim of the new one. The planes reach the new
+        // tool's faces and would divide them too — but the faces *standing on*
+        // those planes are the first pocket's walls, far away, so a cull that
+        // asks about them leaves the new tool whole and the rim divided on one
+        // side only. Measured: sixteen of twenty-five pairs of pockets were
+        // refused, and none is.
         //
         // Which run of the boxes is whose follows from `first`, the two calls
         // being the two ways round — see [`Scratch::boxed`].
@@ -324,18 +336,22 @@ impl Combining {
         } else {
             (split, 0..self.scratch.between)
         };
+        // A body with no faces is divided by nothing, and has no box to ask a
+        // surface about either.
+        if here.is_empty() {
+            return true;
+        }
+        self.scratch.met.clear();
+        self.scratch.reached.clear();
         let mut reach = Bounds::default();
         for at in here.clone() {
             reach.swallow(self.scratch.boxed[at].fills);
         }
-        self.scratch.met.clear();
-        self.scratch.reached.clear();
         for at in there {
-            let Boxed { face, fills } = self.scratch.boxed[at];
-            if !fills.meets(reach, CHORDED) {
+            let other = theirs.topology().face(self.scratch.boxed[at].face);
+            if !other.surface.reaches(reach, CHORDED) {
                 continue;
             }
-            let other = theirs.topology().face(face);
             // Through the index rather than by walking what is already here:
             // every face of one body asks about every surface of the other,
             // and the cost of a walk grows as the square of the body. Equality
