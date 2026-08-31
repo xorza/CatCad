@@ -591,7 +591,7 @@ pub(super) fn solids(
         patch,
         deciding,
         builder,
-        boolean,
+        putting,
         raised,
         regions,
         ..
@@ -602,7 +602,7 @@ pub(super) fn solids(
     let showing = growing.map_or(Deciding::Nothing, |growing| {
         let raising = Raising {
             builder,
-            boolean,
+            putting,
             raised,
             regions,
         };

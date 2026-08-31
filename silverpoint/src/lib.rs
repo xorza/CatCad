@@ -64,6 +64,7 @@ pub use solid::boolean::operation::Operation;
 pub use solid::build::builder::{Builder, Extrusion};
 pub use solid::build::revolving::{Revolution, Sector};
 pub use solid::grown::Grown;
+pub use solid::merging::Merging;
 pub use solid::mesh::{Mesher, Patch};
 pub use solid::named::{Named, Step};
 pub use solid::topology::body::Body;

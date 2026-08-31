@@ -752,7 +752,7 @@ impl<'a> Models<'a> {
         timeline
             .swept()
             .filter(|step| timeline.built(step.at))
-            .filter(|step| build.bodied(step.at).built().merged())
+            .filter(|step| build.bodied(step.at).built().modelled())
             .map(|step| (step.at, build.bodied(step.at).body()))
             .last()
     }
@@ -789,7 +789,7 @@ impl<'a> Models<'a> {
             .filter_map(move |step| {
                 let bodied = build.bodied(step.at);
                 let shown = Some(step.at) == model || bodied.built().refused();
-                (shown && !bodied.body().is_empty()).then(|| (step.at, bodied.body()))
+                (shown && !bodied.shown().is_empty()).then(|| (step.at, bodied.shown()))
             })
     }
 }

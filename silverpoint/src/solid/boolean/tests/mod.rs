@@ -1956,7 +1956,7 @@ fn a_ball_and_a_cone_are_cut_through_the_places_their_parameters_run_out() {
     );
 
     let cone = taper();
-    assert_eq!(cone.topology().faces().count(), 6, "the cone is not a cone");
+    assert_eq!(cone.topology().faces().count(), 4, "the cone is not a cone");
     let stub = rod(raised(-2.0), DVec2::ZERO, 1.0, 2.0, CUBE);
     assert!(
         boolean.combine(&cone, &stub.body, Operation::Join, &mut into),
@@ -2065,8 +2065,8 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
     assert_eq!(into.reckoning().genus, 0, "a frustum is a ball");
     assert_eq!(
         into.topology().faces().count(),
-        7,
-        "three lateral pieces, three sectors of the base and the slab's disc",
+        5,
+        "three lateral pieces, the base and the slab's disc",
     );
     // The frustum's own `π(R + r)l` for a slant of `√(0.25 + 1)`, and the two
     // discs it stands between.
@@ -2084,16 +2084,7 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
 /// which is the standing every unanswerable case in this boolean takes — see
 /// [`Boolean::combine`].
 ///
-/// Two are left, and each is a shape rather than an oversight.
-///
-/// **A plane that genuinely crosses a cone.** Milling a flat down a taper is
-/// that: the wall runs parallel to the axis and passes through the cone, so no
-/// cull can drop it. The hyperbola it cuts is written down — `Curve` holds the
-/// branch and a plane's own parameters take it as a graph about its vertex —
-/// but the *cone's* own parameters have no cut for one, and that is where
-/// `.notes/KERNEL.md` §9.2 stops.
-///
-/// **And Villarceau's circles.** A plane through a ring's middle at the
+/// **Villarceau's circles.** A plane through a ring's middle at the
 /// bitangent lean cuts two circles of the major radius, and they *cross* — at
 /// both places the plane touches the tube. A traced cut carries every piece of
 /// one meeting together and orders places along each piece in turn, which two
@@ -2103,24 +2094,6 @@ fn a_taper_sliced_by_a_slab_culls_the_walls_that_never_reach_it() {
 fn a_meeting_no_face_can_carry_is_refused_rather_than_answered_wrongly() {
     let mut boolean = Boolean::default();
     let mut into = Body::default();
-
-    // A wall at `x = 1`, which the taper is two across at its base and so
-    // stands wholly inside.
-    let milled = block(
-        Plane {
-            origin: DVec3::new(0.0, -1.0, 0.0),
-            x: DVec3::X,
-            y: DVec3::NEG_Z,
-        },
-        &[(1.0, -9.0), (9.0, -9.0), (9.0, 9.0), (1.0, 9.0)],
-        9.0,
-        CUBE,
-    );
-    assert!(
-        !boolean.combine(&taper(), &milled, Operation::Cut, &mut into),
-        "a flat was milled down a taper",
-    );
-    assert!(into.is_empty(), "a refusal left half a body behind");
 
     let (major, minor) = (3.0_f64, 1.0_f64);
     // `cos α = √(R² − r²)/R`, which is the lean that makes the plane touch the
@@ -2201,7 +2174,7 @@ fn a_taper_sliced_by_a_leaning_slab_is_cut_along_the_ellipse_its_rulings_set() {
     );
 
     let (major, minor) = (8.0 * 5.0_f64.sqrt() / 15.0, (16.0_f64 / 15.0).sqrt());
-    for (named, body, faces) in [("the far side", &kept, 4), ("the near side", &lost, 7)] {
+    for (named, body, faces) in [("the far side", &kept, 4), ("the near side", &lost, 5)] {
         assert_eq!(body.reckoning().genus, 0, "{named} is a ball");
         assert_eq!(body.topology().faces().count(), faces, "{named}");
         assert!(body.exact(), "{named}: a cone and a plane are both exact");
@@ -2227,6 +2200,86 @@ fn a_taper_sliced_by_a_leaning_slab_is_cut_along_the_ellipse_its_rulings_set() {
         walls,
         &[1e-2, 1e-3],
         "the two sides of the taper",
+    );
+}
+
+/// **A flat milled down a taper is cut along the hyperbola the wall leaves**,
+/// which is the last section of a cone a document can reach.
+///
+/// A plane parallel to a cone's axis meets the two rulings of the principal
+/// plane on opposite sides of the apex, so the section reaches both nappes and
+/// each vertex stands on one of them — see
+/// [`Meeting::of`](crate::solid::meeting::Meeting). The wall carries the branch
+/// as a graph about its own vertex and the cone carries it as a graph over the
+/// angle, and each of those is one shape covering every conic of its own
+/// surface.
+///
+/// **The branch, hand-computed.** [`taper`] is one across for every two down
+/// from an apex at `(0, 4, 0)`, and the wall is `x = 1`. The two rulings of the
+/// `xy` plane are met at `(1, 2, 0)` on the near nappe and `(1, 6, 0)` on the
+/// far, so the centre is `(1, 4, 0)` and the major half is two. The minor comes
+/// off the ratio those two vertices pin: `(e·a)²/cos²α − 1` for `e` along the
+/// axis and `cos²α = 4/5` is `1/4`, so the minor half is `2·√(1/4) = 1`.
+///
+/// **And the two sides sum to the cone**, which is the cross-check no closed
+/// form is needed for: `πr²h/3 = 16π/3` between them.
+///
+/// **What made it reachable was the disc.** A revolve used to cut its planar
+/// walls into three sectors like every other, and the wall's own chord across
+/// the base crossed a sector seam — where the disc broke its edge and the wall
+/// did not. A plane's parameters do not wrap, so the disc is one face and there
+/// is no seam to cross. See `.notes/KERNEL.md` §9.2.
+#[test]
+fn a_flat_milled_down_a_taper_is_cut_along_the_hyperbola_the_wall_leaves() {
+    // A wall at `x = 1`, which the taper is two across at its base and so
+    // stands wholly inside.
+    let milled = block(
+        Plane {
+            origin: DVec3::new(0.0, -1.0, 0.0),
+            x: DVec3::X,
+            y: DVec3::NEG_Z,
+        },
+        &[(1.0, -9.0), (9.0, -9.0), (9.0, 9.0), (1.0, 9.0)],
+        9.0,
+        CUBE,
+    );
+    let mut boolean = Boolean::default();
+    let (mut kept, mut lost) = (Body::default(), Body::default());
+    assert!(
+        boolean.combine(&taper(), &milled, Operation::Cut, &mut kept),
+        "the taper less the flat was turned away",
+    );
+    assert!(
+        boolean.combine(&taper(), &milled, Operation::Intersect, &mut lost),
+        "the flat the taper gave up was turned away",
+    );
+
+    for (named, body, faces) in [("what is left", &kept, 5), ("what went", &lost, 4)] {
+        assert_eq!(body.reckoning().genus, 0, "{named} is a ball");
+        assert_eq!(body.topology().faces().count(), faces, "{named}");
+        assert!(body.exact(), "{named}: a cone and a plane are both exact");
+        assert_eq!(body.strays(), 0.0, "{named}: nothing here was walked");
+        let mut rims = 0;
+        for (_, edge) in body.topology().edges() {
+            let Curve::Hyperbola(branch) = edge.curve else {
+                continue;
+            };
+            rims += 1;
+            assert!((branch.major - 2.0).abs() < 1e-12, "{named}: {branch:?}");
+            assert!((branch.minor - 1.0).abs() < 1e-12, "{named}: {branch:?}");
+        }
+        assert!(rims > 0, "{named} has no hyperbolic rim");
+    }
+
+    // The cone's own `πrl` for a slant of `√20`, its base disc, and the flat
+    // each side is left with — bounded by the `2` by `2√3` it stands in.
+    let walls = PI * 2.0 * 20.0_f64.sqrt() + PI * 4.0 + 4.0 * 3.0_f64.sqrt();
+    closes(
+        &[&kept, &lost],
+        16.0 * PI / 3.0,
+        walls,
+        &[1e-2, 1e-3],
+        "the two sides of the milled taper",
     );
 }
 

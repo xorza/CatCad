@@ -2,9 +2,9 @@
 //! a turn it is spun.
 
 use glam::{DVec3, Vec3};
-use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Sector, Step};
+use silverpoint::{Body, Builder, Extrusion, Operation, Revolution, Sector, Step};
 
-use crate::build::bodied;
+use crate::build::putting::Putting;
 use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::LIVE_FACES;
@@ -91,7 +91,7 @@ pub(super) enum Deciding {
 #[derive(Debug)]
 pub(super) struct Raising<'a> {
     pub(super) builder: &'a mut Builder,
-    pub(super) boolean: &'a mut Boolean,
+    pub(super) putting: &'a mut Putting,
     /// Where the tool is raised, before it is put together with what stands.
     pub(super) raised: &'a mut Body,
     /// Where the profile is resolved to positions among its sketch's faces.
@@ -274,7 +274,7 @@ impl Growing<'_> {
     ) -> Deciding {
         let Raising {
             builder,
-            boolean,
+            putting,
             raised,
             regions,
         } = raising;
@@ -330,7 +330,7 @@ impl Growing<'_> {
             std::mem::swap(into, raised);
             return Deciding::Beside;
         }
-        if !bodied::merged(boolean, standing, raised, self.operation, into) {
+        if !putting.drawn(standing, raised, self.operation, into) {
             // Refused, so the tool stands beside the model — which is what the
             // commit would leave too. A preview that showed an answer the step
             // cannot build would be worse than one that shows the tool.

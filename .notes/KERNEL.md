@@ -928,13 +928,13 @@ with a rim of radius three to the last bit.
   both places their plane touches the tube. Two pieces sharing a place have no
   such order.
 
-### 9.2 M6c — the two conics a cone still refuses
+### 9.2 M6c — the two conics a cone refused
 
-**Milling a flat down a taper**, which is the last refusal a document can reach.
-A plane parallel to a cone's axis cuts a hyperbola and one parallel to a ruling
-cuts a parabola. Cutting further than necessary is what puts the case in reach
-at all: a wall that crosses the taper cannot be culled, so the shape has to be
-written down.
+**Done.** Milling a flat down a taper was the last refusal a document could
+reach. A plane parallel to a cone's axis cuts a hyperbola and one parallel to a
+ruling cuts a parabola, and cutting further than necessary is what put the case
+in reach at all: a wall that crosses the taper cannot be culled, so the shape
+had to be written down.
 
 **No cull can stand in for it, and that is settled rather than assumed.** A
 surface reaches past the faces standing on it — a cone is a double cone whether
@@ -945,7 +945,7 @@ face and kept against the one beside it leaves a vertex on one side of the edge
 they share. Measured: five tests of the suite break, and §7.4 is where the
 argument already was.
 
-**Two of the three pieces are in.**
+**Three pieces, and all three are in.**
 
 - **`Curve::Parabola` and `Curve::Hyperbola`.** A parabola is a vertex, a focal
   length and a frame, read `f·t²` along it and `2f·t` across; a hyperbola
@@ -999,46 +999,46 @@ derivative. So a crossing is bisected on the side, as a traced cut's is, and a
 one. A circle keeps its straight arm: square across the axis it is the line
 `v = that`, which is exact where this one chords.
 
-**What is left is a seam.** Cutting a flat down a taper now writes every
-crossing down and cuts every face by it. What refuses is the sewing, and the
-cause is older than this milestone: a revolve builds a disc in three sectors and
-a cone in three lunes, so one *surface* carries several faces with artificial
-seams between them — and where a cut crosses a seam, the face holding the seam
-breaks its edge there and the face across the cut does not. Measured on the
-flat: six edges claimed once, three of them the chord the wall leaves in the
-base disc and three the hyperbola arc across the lune seam.
+**And the seam a revolve need not have made.** Cutting a flat down a taper
+wrote every crossing down and cut every face by it, and the *sewing* refused:
+the wall's chord across the base disc crossed a sector seam, where the disc
+broke its edge and the wall did not. A revolve split every wall into at most a
+third of a turn because a *curved* one must be — and the disc it sweeps from a
+run square across the axis is a plane, whose parameters do not wrap. It is one
+face now, with a loop that walks the whole of each circle it stands between, as
+an extrusion's cap already was. No seam to cross, and a revolve raises two fewer
+faces and three fewer edges per planar wall besides.
 
-**The lune half is closed, and it was a cull.** A plane past the rulings cuts
-an arc on each nappe, and the two carry the identical reading — the same plane,
-read the same way — so `Flare` cannot tell them apart by its own numbers. Read
-off the *face* rather than off the arc, both arcs reached it: one face was cut
-twice by one shape under two runs, the second wrote the marks, and the face
-across that arc then broke its edge along a run the first had never heard of.
-`flared` reads the nappe off a place of the arc itself, and `Flare::reaches`
-culls the arc the face does not stand on. Three edges claimed once, down from
-six.
+**Three things fell out of that, and each was a bug already there.**
 
-**The chord half is a seam a revolve need not have made.** A straight imprint
-carries no run, so nothing shares the place where the wall's chord crosses a
-sector seam of the base disc. Numbering straight imprints was tried and is
-wrong: which corners survive then turns on `passing` over a run rather than on
-the boundary, the face count comes to depend on the geometry, and the painter's
+- **A pole's vertex is what a seam ends at and nothing else.** No circle sweeps
+  there, so a disc with no seams leaves its own centre off the body — and a
+  vertex raised with nothing on it would still count against the Euler
+  reckoning.
+- **A wall cut less finely than the turn parts at a subset of the turn's own
+  seams.** One face parts at its two ends alone, and the vertices and angles a
+  seam is built from are the turn's rather than the wall's.
+- **A hole the punched loop swallows is gone.** `Splitting::punch` kept every
+  hole a region had when a closed cut fell clear of its boundary, so a bore
+  through an annulus came back with a hole nested inside a hole — and a walk
+  across it counted one boundary too many and read its own hole as material.
+  Reachable only once a disc was one face, and wrong before that.
+
+**Numbering straight imprints was the other route, and it is wrong.** A straight
+cut carries no run, so nothing shares the place where a chord crosses a seam.
+Given one, which corners survive turns on `passing` over a run rather than on
+the boundary: the face count comes to depend on the geometry, and the painter's
 batch grows on every frame the depth moves — sixteen blocks against a budget of
-two, measured. What the case actually wants is for the seam not to be there: a
-revolve splits every wall into at most a third of a turn because a *curved* one
-must be, and the disc it sweeps from a run square across the axis is a
-**plane**, whose parameters do not wrap. One face and no seam, as an
-extrusion's cap already is. That is a build-side change and the next thing to
-write.
+two, measured.
 
-### 9.3 M6b — merging what one cut split
+### 9.3 M6b — merging what one cut split — **done**
 
 The boolean raises a face per kept region, and a face cut by *n* surfaces comes
 back in *n* or more regions of which nearly all are kept. They lie on one
 surface, carry one name and face one way, so §5 already calls the set of them
-one face of the body and nothing above the kernel can tell — but the body holds
-sixty-eight times the faces the shape has, and the mesher and the painter carry
-every one. §11 is the measurement.
+one face of the body and nothing above the kernel can tell — but the body held
+sixty-eight times the faces the shape has, and the mesher and the painter
+carried every one. §11 is the measurement that asked for this.
 
 **It belongs at output**, where a body is drawn or exported and nothing will cut
 it again — which is where §4.4 put it, and this section spent a milestone
@@ -1050,61 +1050,72 @@ along that line; merged, it is one face spanning it, and the line is no longer
 an edge. `C` then cuts the pair, and §7.4's uniform cut gives `C`'s own face a
 corner where `A`'s wall *surface* crosses it — a surface the merged body still
 has — while the merged wall has none. One edge is claimed by one face and the
-sewing refuses. Every boolean that *ends* with a merged body is fine: the whole
-suite passes bar a face count, the merge taking a milled flat from seventeen
-faces to eleven with its genus and its volume unmoved. It is the next boolean
-over that body that breaks.
+sewing refuses. Every boolean that *ends* with a merged body is fine. It is the
+next boolean over that body that breaks.
 
-**The rule it breaks, stated:** the splits one boolean makes are part of the
+**The rule that breaks, stated:** the splits one boolean makes are part of the
 answer's contract for the next, because cutting by whole surfaces means a
 surface of a body divides the *other* body wherever it reaches — including where
 this body's own faces no longer end. A merge that removes an edge removes half
 of a place the next uniform cut will put back on one side only.
 
-**The loop algebra is settled, and it is a cancellation rather than a boolean.**
-Every region keeps its material on its left, so two regions sharing a stretch
-walk it opposite ways — and both being kept, the answer holds material either
-side of it and it bounds nothing. Drop the pairs; chain what is left. The chain
-needs no angular sort, where an arrangement's walk does: the regions tile the
-neighbourhood of every corner, so the stretch after a cancelled one is the
-cancelled twin's own next, and hopping across it lands in the region round the
-corner. Two kept regions meeting at nothing but a corner share no stretch, so
-nothing cancels there and each keeps its own loop. `Splitting::gather` then
-sorts outlines from holes exactly as it already does for a cut.
+**So the merge is a second body rather than an edit.** `Merging::merge` writes
+`from` into `into` with the pieces of every face put back together, and the
+document keeps the split answer to build its next step on. Which is what
+`Putting` in the application is: one place a solid is put together, reached by a
+step's own rebuild and by the form still deciding a depth, that combines into a
+buffer of its own and hands out the merged copy. Nothing above the kernel ever
+holds the pieces.
 
-A spike outside the workspace holds that over two cells side by side, a ring of
-eight round a missing middle, a region that already had a hole, an L, a pinch,
-two cells on a diagonal and a square in sixty-four slices.
+**A cancellation rather than a boolean.** Every region keeps its material on its
+left, so two regions sharing a stretch walk it opposite ways — and both being
+kept, the answer holds material either side of it and it bounds nothing. Drop
+the pairs; chain what is left. The chain needs no angular sort, where an
+arrangement's walk does: the regions tile the neighbourhood of every corner, so
+the coedge after a cancelled one is the cancelled twin's own next, and hopping
+across it lands in the region round the corner. Two kept regions meeting at
+nothing but a corner share no stretch, so nothing cancels there and each keeps
+its own loop.
 
-**And corners stay where they are.** A cut that met a face's own boundary left a
+**A group that would wrap is left alone**, which is §4.4 and the one case the
+cancellation must not be allowed to finish: a bore's wall is two faces of one
+cylinder sharing a surface, a name and a way to face, and put back together they
+would be one face covering a whole turn. Read off the two ends of the merged
+loop flattened into the surface's own parameters, against half a turn — not off
+its width, a walk stopping one chord short of the turn it makes.
+
+**Corners stay where they are.** A cut that met a face's own boundary left a
 corner there, and the merge cannot drop it: whether it can go turns on the face
 *across* that boundary dropping it too, which is not a question one face can
-answer. This takes away faces, not vertices.
+answer. This takes away faces and edges, never a vertex.
 
-**The pairing wants the two walks of one stretch to carry the same two places,
-and that is done.** A cut is taken twice over the region it divides, once
-keeping each side, so a later cut met the two halves as `from → to` and as
-`to → from` — and `from + t·(to − from)` is not the place `to + (1 − t)·(from −
-to)` is. The corner where two cuts met came back as `3.0` from one side and
-`3.0000000000000004` from the other, the stretches failed to pair, and a face
-cut into a three by three grid cancelled eight of its twelve interior pairs.
-`Cut::met_across` now puts its two ends in one order before it measures
-anything. Exact, and it costs a comparison.
+**The runs come along.** An edge on a marched or a quartic curve names a run
+rather than holding one, so the answer copies the table its edges name — see
+`Carried::take_from`.
 
-What has to hold, and each is a test that breaks a merged body one way:
+**The pairing wants the two walks of one stretch to carry the same two places.**
+A cut is taken twice over the region it divides, once keeping each side, so a
+later cut met the two halves as `from → to` and as `to → from` — and
+`from + t·(to − from)` is not the place `to + (1 − t)·(from − to)` is. The corner
+where two cuts met came back as `3.0` from one side and `3.0000000000000004`
+from the other, the stretches failed to pair, and a face cut into a three by
+three grid cancelled eight of its twelve interior pairs. `Cut::met_across` now
+puts its two ends in one order before it measures anything. Exact, and it costs
+a comparison.
 
-- **The merged loop is the symmetric difference**, so an edge with the same face
-  on both sides is removed rather than left as a seam — §4.4 forbids seams, and
-  a merge that made one would trade a large valid body for a small invalid one.
-  A partial cancellation makes exactly that, which is how the pairing gap above
-  was found.
-- **A merge crosses no boundary the other body still needs.** The cancellation
-  gives this rather than asking it: a stretch whose other side was dropped has
-  no twin and stays, which is what keeps a pocket's own rim.
-- **Holes survive.** Two regions can meet along a stretch and still leave a hole
-  between them, which is one loop of the answer and not two.
-- **The name and the orientation are already equal**, both regions coming off
-  one face, so nothing is chosen and §5's coincident-surface rule is untouched.
+**What it comes to**, a block bored by a prism of the given sides, release:
+
+| sides | faces the boolean left | merged | took |
+| ----- | ---------------------- | ------ | ---- |
+| 4     | 32                     | 10     | 0.03 ms |
+| 16    | 244                    | 22     | 0.08 ms |
+| 64    | 3148                   | 70     | 0.37 ms |
+| 128   | 12020                  | 134    | 1.03 ms |
+
+Every merged count is the shape's own — `6 + sides` — which is §11's prediction
+met exactly. The volume is unmoved to `1e-9` at each of them, and both gates in
+`silverpoint/tests/alloc/kernel.rs` hold a further merge of the same body to a
+strict zero, so it runs on every frame of a drag.
 
 ### 9.4 M7 — fillet, chamfer, STEP
 

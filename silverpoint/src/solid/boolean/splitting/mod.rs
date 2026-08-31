@@ -407,11 +407,23 @@ impl Splitting {
         if kept {
             // The region, with one more hole in it for each loop that fell
             // inside — and untouched where none did.
+            //
+            // **Less any hole the punched loop swallows**, which is a hole
+            // nested in a hole and bounds nothing: what is left of the region
+            // is the outline with the new loop taken out of it, and everything
+            // that was inside that loop went with it. Left in, a walk across
+            // the region counts one boundary too many and reads its own hole as
+            // material — see [`Inside::of`](crate::math::inside::Inside).
+            let punched = || round.iter().filter(|walk| within(walk));
             into.add(|write| {
-                for walk in held {
-                    write.push(walk);
+                write.push(outline);
+                for hole in holes.clone() {
+                    if punched().any(|walk| winding::holds(walk, hole[0].at)) {
+                        continue;
+                    }
+                    write.push(hole);
                 }
-                for walk in round.iter().filter(|walk| within(walk)) {
+                for walk in punched() {
                     write.push(walk);
                 }
             });

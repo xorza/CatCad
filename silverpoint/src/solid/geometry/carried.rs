@@ -27,6 +27,21 @@ pub(crate) struct Carried {
 }
 
 impl Carried {
+    /// Take a copy of what `of` holds, over the room this took.
+    ///
+    /// **A copy and not a trade**, which is what a body written *beside*
+    /// another asks for. A boolean hands its runs over and keeps none — see
+    /// [`Topology::trade_curves`](crate::solid::topology::Topology) — where a
+    /// merge writes a second body off a first and both go on being read, each
+    /// wanting the runs its own edges name.
+    ///
+    /// Refilled in place, a merge running on the frame a document is rebuilt
+    /// in.
+    pub(crate) fn take_from(&mut self, of: &Self) {
+        self.marched.take_from(&of.marched);
+        self.quartics.take_from(&of.quartics);
+    }
+
     /// Forget everything, keeping the room it took.
     pub(crate) fn clear(&mut self) {
         self.marched.clear();

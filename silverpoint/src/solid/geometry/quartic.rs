@@ -532,7 +532,7 @@ struct Walk {
 
 /// One component of one quartic, and what a reader answers without evaluating
 /// it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Filed {
     curve: Quartic,
     arc: Stretch,
@@ -602,6 +602,14 @@ impl Quartics {
     /// Forget every curve, keeping the room they took.
     pub(crate) fn clear(&mut self) {
         self.held.clear();
+    }
+
+    /// Take a copy of what `of` holds, over the room these took — see
+    /// [`Carried::take_from`](super::carried::Carried), where the reason for a
+    /// copy rather than a trade is.
+    pub(crate) fn take_from(&mut self, of: &Self) {
+        self.held.clear();
+        self.held.extend_from_slice(&of.held);
     }
 
     /// How many are filed, which is the number the next one takes.

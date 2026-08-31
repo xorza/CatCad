@@ -1,8 +1,9 @@
 //! The solid one sweep leaves behind, and what it was built from.
 
-use silverpoint::{Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution};
+use silverpoint::{Arrangement, Body, Builder, Extrusion, Operation, Plane, Revolution};
 
 use crate::build::Revision;
+use crate::build::putting::Putting;
 use crate::timeline::{FeatureId, Sweep};
 
 /// The body a sweep stands for, the reading it was built from, and how the
@@ -49,8 +50,16 @@ pub(crate) struct Bodied {
     /// and the honest place is beside the model rather than nowhere: the step
     /// is flagged, both solids are on screen, and the step after this one goes
     /// on building from the model that *was* worked out. See
-    /// [`Models::solids`](crate::model::Models).
+    /// [`Models::model`](crate::model::Models).
     body: Body,
+    /// The same solid with the pieces of every face put back together.
+    ///
+    /// **A second body rather than an edit**, which `.notes/KERNEL.md` §9.3
+    /// measures: the splits one boolean makes are part of its answer's contract
+    /// for the next one. So the step after this is built on `body`, and the
+    /// drawing, the picker and the mesher read this — see
+    /// [`Putting::tidy`] and [`Models::solids`](crate::model::Models).
+    shown: Body,
     /// Bumped whenever `body` is rewritten, so the step after this one can tell
     /// whether what it was built on has moved.
     ///
@@ -71,6 +80,7 @@ impl Bodied {
             digest: Digest::unbuilt(),
             regions: Vec::new(),
             body: Body::default(),
+            shown: Body::default(),
             version: Version::default(),
             built: Built::Lost,
         }
@@ -82,8 +92,16 @@ impl Bodied {
     }
 
     /// The model as of this step, or an empty body where it comes to nothing.
+    ///
+    /// **The pieces**, which is what the step after this one has to be built on
+    /// — see [`Bodied::shown`] for what is drawn.
     pub(crate) fn body(&self) -> &Body {
         &self.body
+    }
+
+    /// The same, put back together.
+    pub(crate) fn shown(&self) -> &Body {
+        &self.shown
     }
 
     /// Which version of that body this is.
@@ -119,7 +137,7 @@ impl Bodied {
         self.version = self.version.next();
         let Rebuilding {
             builder,
-            boolean,
+            putting,
             raised,
             arrangement,
         } = room;
@@ -130,6 +148,7 @@ impl Bodied {
         // [`Models::lost`](crate::model::Models).
         if regions.is_empty() {
             self.body.clear();
+            self.shown.clear();
             self.built = Built::Lost;
             return;
         }
@@ -146,6 +165,7 @@ impl Bodied {
             }
             Sweep::Spun { axle: None, .. } => {
                 self.body.clear();
+                self.shown.clear();
                 self.built = Built::Lost;
                 return;
             }
@@ -170,8 +190,7 @@ impl Bodied {
         // model exactly as it was, and the step is still the one that came to
         // nothing. The depth is a number somebody is still typing.
         let raised_nothing = raised.is_empty();
-        let stands = merged(
-            boolean,
+        let stands = putting.put(
             (!standing.is_empty()).then_some(standing),
             raised,
             digest.operation(),
@@ -188,6 +207,7 @@ impl Bodied {
             (true, true) => Built::Empty,
             (true, false) => Built::Made,
         };
+        putting.tidy(&self.body, &mut self.shown);
     }
 
     /// How the build went.
@@ -240,7 +260,7 @@ impl Built {
     /// Which is what says a step is what the step after it builds on: the two
     /// that are not are a step that found no region and one the kernel would
     /// not combine, and neither of those has a model to hand on.
-    pub(crate) fn merged(self) -> bool {
+    pub(crate) fn modelled(self) -> bool {
         matches!(self, Self::Made | Self::Empty)
     }
 
@@ -348,42 +368,6 @@ impl Version {
     }
 }
 
-/// Put `raised` together with `standing` per `operation`, into `into`, and say
-/// whether the two came to a body.
-///
-/// **Where a preview and a commit agree.** A step's own rebuild runs this, and
-/// so does the form still deciding a depth — see
-/// [`Growing::body`](crate::paint::growing::Growing). Two copies of the rule
-/// would be two chances for the solid on screen while a number is typed to be
-/// a solid the timeline goes on to build differently.
-///
-/// **Nothing standing is not the same as nothing to do.** A join is the whole
-/// of itself, and the two operations that need material to take out of or to
-/// share with come to nothing at all — which is honest rather than helpful: a
-/// first step that says cut has cut nothing, and quietly making it a boss
-/// would hide the mistake. `None` rather than an empty body, so a caller
-/// cannot pass one and mean the other.
-///
-/// Where they do not merge, `raised` is left holding the step's own solid for
-/// the caller to take: what a refusal costs is that the solid stands beside the
-/// model rather than in it.
-pub(crate) fn merged(
-    boolean: &mut Boolean,
-    standing: Option<&Body>,
-    raised: &mut Body,
-    operation: Operation,
-    into: &mut Body,
-) -> bool {
-    let Some(standing) = standing else {
-        match operation {
-            Operation::Join => std::mem::swap(into, raised),
-            Operation::Cut | Operation::Intersect => into.clear(),
-        }
-        return true;
-    };
-    boolean.combine(standing, raised, operation, into)
-}
-
 /// The room one step's rebuild works in, and the drawing it reads.
 ///
 /// A bundle because every one of them is held by the [`Build`](super::Build)
@@ -393,7 +377,7 @@ pub(crate) fn merged(
 #[derive(Debug)]
 pub(super) struct Rebuilding<'a> {
     pub(super) builder: &'a mut Builder,
-    pub(super) boolean: &'a mut Boolean,
+    pub(super) putting: &'a mut Putting,
     /// Where the step's own solid is raised, before it is put together with
     /// what stands. Lives no longer than the call.
     pub(super) raised: &'a mut Body,
@@ -410,7 +394,7 @@ mod internals {
         ///
         /// What a test counting the recipe asks — see
         /// [`Models::grown`](crate::model::Models). Production reads
-        /// [`Built::merged`] and [`Built::failed`], which are about what the
+        /// [`Built::modelled`] and [`Built::refused`], which are about what the
         /// step did to the model rather than about what it raised.
         pub(crate) fn raised(self) -> bool {
             matches!(self, Self::Made | Self::Refused)

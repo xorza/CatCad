@@ -87,6 +87,19 @@ impl Marchings {
         self.runs.clear();
     }
 
+    /// Take a copy of what `of` holds, over the room these took.
+    ///
+    /// **A copy and not a trade**, which is what a body written *beside*
+    /// another asks for: both go on being read, so both want the runs their
+    /// edges name — see [`Carried::take_from`](super::carried::Carried). Refilled
+    /// in place, a merge running on the frame a document is rebuilt in.
+    pub(crate) fn take_from(&mut self, of: &Self) {
+        self.runs.clear();
+        for at in 0..of.runs.len() {
+            self.runs.push_by(*of.runs.by(at), of.runs.get(at));
+        }
+    }
+
     /// How many runs are filed, which is the number the next one takes.
     pub(crate) fn len(&self) -> u32 {
         self.runs.len() as u32

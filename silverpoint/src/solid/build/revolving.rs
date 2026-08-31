@@ -273,9 +273,12 @@ pub(super) struct Revolving {
     /// The parts of the circle each corner sweeps, in step — and `None` for a
     /// corner on the line, which sweeps no circle at all.
     circling: Vec<Option<[EdgeId; MOST]>>,
+    /// Whether a seam ends at each corner, which is the only thing a corner
+    /// *on* the line is ever wanted for — see [`Revolving::corner`].
+    seamed: Vec<bool>,
     /// The faces raised off each strip, in step with [`Strips::all`] — and
     /// `None` for a strip lying *on* the line, which sweeps nothing.
-    walls: Vec<Option<[FaceId; MOST]>>,
+    walls: Vec<Option<Walls>>,
     /// One copy of each strip's own curve at every seam, in step with the
     /// walls — and `None` where the wall is and the turn closes.
     ///
@@ -338,7 +341,7 @@ impl Revolving {
             }
             self.raise_edges(spinning, strips, into);
             self.write_loops(spinning, strips, into);
-            self.gather(spinning, strips, into);
+            self.gather(strips, into);
         }
     }
 
@@ -459,7 +462,11 @@ impl Revolving {
             };
             let name = spinning.by.grew(Grown::Side(strip.bound));
             into.named(name);
-            let parts = each_part(spinning, |_| {
+            let parts = match surface {
+                Surface::Natural(Natural::Plane(_)) => 1,
+                _ => spinning.parts,
+            };
+            let faces = each_part(parts, |_| {
                 into.topology_mut().add_face(Face {
                     surface,
                     outward,
@@ -468,7 +475,7 @@ impl Revolving {
                     tolerance: EXACT,
                 })
             });
-            self.walls.push(Some(parts));
+            self.walls.push(Some(Walls { parts, faces }));
         }
         true
     }
@@ -589,14 +596,40 @@ impl Revolving {
         self.circling.clear();
         self.circling.resize(corners, None);
         self.seams.clear();
+        // Which corners a seam will end at, which has to be known before any
+        // vertex is raised — see [`Revolving::corner`], where a pole with no
+        // seam at it is left without one.
+        self.seamed.clear();
+        self.seamed.resize(corners, false);
+        for at in 0..strips.all().len() {
+            let seamed = match self.walls[at] {
+                Some(walls) => walls.parts > 1 || !spinning.closed,
+                None => self.caps.is_some(),
+            };
+            if seamed {
+                let strip = strips.all()[at];
+                self.seamed[strip.from] = true;
+                self.seamed[strip.to] = true;
+            }
+        }
         for at in 0..strips.all().len() {
             let strip = strips.all()[at];
             self.corner(spinning, strips, strip.from, into);
             self.corner(spinning, strips, strip.to, into);
             let seams = match self.walls[at] {
-                Some(walls) => Some(each_seam(spinning, |part| {
-                    let divided = Self::divided(spinning, self.caps, walls, part);
-                    self.seam(spinning, strips, strip, part, divided, into)
+                // **One face round a closed turn has no seam at all**, which is
+                // what makes it worth being one: an edge with that face either
+                // way of it is the seam §4.4 forbids. What bounds it is the
+                // circles alone — see [`Revolving::wall_loop`].
+                Some(walls) if walls.parts == 1 && spinning.closed => None,
+                // **At the turn's own seam and not at the wall's.** A wall cut
+                // less finely than the turn parts at a subset of the turn's
+                // seams — one face parts at its two ends alone — and the
+                // vertices and angles a seam is built from are the turn's.
+                Some(walls) => Some(each_seam(walls.parts, spinning.closed, |part| {
+                    let divided = Self::divided(spinning.closed, self.caps, walls, part);
+                    let seam = part * spinning.parts / walls.parts;
+                    self.seam(spinning, strips, strip, seam, divided, into)
                 })),
                 // A strip on the line sweeps no wall, and where the turn is cut
                 // it is still a side of both caps — one edge, the line itself,
@@ -649,13 +682,20 @@ impl Revolving {
         // wants a slot per part, and the slots being equal is what says which
         // this is.
         let raised = if at.y == 0.0 {
+            // **And none at all where no seam ends there.** A pole sweeps no
+            // circle, so a seam is the one thing that would reach it — and a
+            // vertex raised with nothing on it would still count against the
+            // body's own reckoning.
+            if !self.seamed[corner] {
+                return;
+            }
             let pole = into.topology_mut().add_vertex(Vertex {
                 at: spinning.spun(at, spinning.from),
                 tolerance,
             });
             [pole; MOST + 1]
         } else {
-            each_seam(spinning, |part| {
+            each_seam(spinning.parts, spinning.closed, |part| {
                 into.topology_mut().add_vertex(Vertex {
                     at: spinning.spun(at, spinning.seamed(part)),
                     tolerance,
@@ -670,20 +710,15 @@ impl Revolving {
     ///
     /// Round a closed turn those are neighbours. At the two ends of a partial
     /// one there is no neighbour, and what stands across the seam is the cap.
-    fn divided(
-        spinning: Spinning,
-        caps: Option<[FaceId; 2]>,
-        walls: [FaceId; MOST],
-        part: usize,
-    ) -> Divided {
-        let parts = spinning.parts;
+    fn divided(closed: bool, caps: Option<[FaceId; 2]>, walls: Walls, part: usize) -> Divided {
+        let Walls { parts, faces } = walls;
         let begins = match caps {
             Some(caps) if part == parts => caps[1],
-            _ => walls[part],
+            _ => faces[part],
         };
         let ends = match caps {
             Some(caps) if part == 0 => caps[0],
-            _ => walls[(part + parts - 1) % parts],
+            _ => faces[(part + parts - 1) % parts],
         };
         Divided {
             between: [begins, ends],
@@ -692,7 +727,7 @@ impl Revolving {
             // crease. The two at the ends of a partial turn divide a wall from
             // a cap, which is a crease like any other — see
             // `.notes/KERNEL.md` §4.4.
-            artificial: spinning.closed || (0 < part && part < parts),
+            artificial: closed || (0 < part && part < parts),
         }
     }
 
@@ -759,7 +794,7 @@ impl Revolving {
         spinning: Spinning,
         strips: &Strips,
         corner: usize,
-        between: [[FaceId; MOST]; 2],
+        between: [Walls; 2],
         into: &mut Body,
     ) {
         debug_assert!(
@@ -772,11 +807,11 @@ impl Revolving {
         // one circle the drawing was cut between and two segments drawn
         // straight through a corner both are.
         let topology = into.topology();
-        let [one, two] = between.map(|wall| topology.face(wall[0]).surface);
+        let [one, two] = between.map(|wall| topology.face(wall.faces[0]).surface);
         let smooth = Meeting::of(&one, &two) == Meeting::Same;
         let raised = self.corners[corner].expect("every corner of a strip is raised");
-        let parts = each_part(spinning, |part| {
-            let faces = between.map(|wall| wall[part]);
+        let parts = each_part(spinning.parts, |part| {
+            let faces = between.map(|wall| wall.faces[part]);
             into.topology_mut().add_edge(Edge {
                 curve: Curve::Circle(Circle { axis, radius: at.y }),
                 bounds: [spinning.seamed(part), spinning.seamed(part + 1)],
@@ -798,9 +833,8 @@ impl Revolving {
             }
         }
         for at in 0..self.walls.len() {
-            let strip = strips.all()[at];
-            for (part, face) in self.parted(spinning, at).enumerate() {
-                self.wall_loop(spinning.forward, strip, at, part, face, into);
+            for (part, face) in self.parted(at).enumerate() {
+                self.wall_loop(spinning, strips, at, part, face, into);
             }
         }
     }
@@ -847,44 +881,57 @@ impl Revolving {
 
     /// The one loop of one part of one wall: along the profile at the near
     /// seam, round to the far one, back along the profile, and round again.
+    ///
+    /// **A side of it goes wherever there is nothing to walk.** A corner on the
+    /// line sweeps a point, so the side that would have run round it *is* that
+    /// point — the same collapse the hand-built ball has at each of its own
+    /// two. And one face round a closed turn has no seams, so what is left is
+    /// the circles.
+    ///
+    /// **One arc of each circle where the wall is cut as finely as the turn,
+    /// and all of them where it is one face** — see [`Walls`].
     fn wall_loop(
         &self,
-        forward: bool,
-        strip: Strip,
+        spinning: Spinning,
+        strips: &Strips,
         at: usize,
         part: usize,
         face: FaceId,
         into: &mut Body,
     ) {
-        let seams = self.seams[at].expect("a wall that was raised has its seams");
+        let strip = strips.all()[at];
+        let parts = self.walls[at]
+            .expect("a wall that was raised has its parts")
+            .parts;
+        let Some(seams) = self.seams[at] else {
+            self.round_loops(spinning, strips, strip, face, into);
+            return;
+        };
         let circling = [strip.to, strip.from].map(|corner| self.circling[corner]);
+        let arcs = part * spinning.parts / parts..(part + 1) * spinning.parts / parts;
         let from = into.topology_mut().add_loop(|walk| {
             let wrote = walk.len();
-            // **Three edges where one end is a pole and four otherwise.** A
-            // corner on the line sweeps a point, so the side of the loop that
-            // would have run round it *is* that point — the same collapse the
-            // hand-built ball has at each of its own two.
             walk.push(Coedge {
                 edge: seams[part],
                 forward: true,
             });
             if let Some(round) = circling[0] {
-                walk.push(Coedge {
-                    edge: round[part],
+                walk.extend(arcs.clone().map(|arc| Coedge {
+                    edge: round[arc],
                     forward: true,
-                });
+                }));
             }
             walk.push(Coedge {
                 edge: seams[part + 1],
                 forward: false,
             });
             if let Some(round) = circling[1] {
-                walk.push(Coedge {
-                    edge: round[part],
+                walk.extend(arcs.clone().rev().map(|arc| Coedge {
+                    edge: round[arc],
                     forward: false,
-                });
+                }));
             }
-            if !forward {
+            if !spinning.forward {
                 // Read the other way round, which is what keeps the loop
                 // counterclockwise about a face whose parameters the frame
                 // reversed. Only this loop's own coedges, which is what the
@@ -898,6 +945,66 @@ impl Revolving {
         into.topology_mut().face_mut(face).loops = from..from + 1;
     }
 
+    /// The loops of a wall no seam bounds, which is one face round a closed
+    /// turn: a whole circle at each end it stands between.
+    ///
+    /// **A loop apiece rather than one**, which is what an annulus is: two
+    /// circles with the face between them and neither reaching the other. The
+    /// wider is the outline and the narrower the hole punched out of it, which
+    /// is the order a face's own loops come in. A disc has one of them, the
+    /// other end of it being a pole.
+    ///
+    /// The two are walked the ways the seamed loop walks them — the far circle
+    /// with the turn and the near one against it — so the winding is the one a
+    /// wall has anywhere.
+    fn round_loops(
+        &self,
+        spinning: Spinning,
+        strips: &Strips,
+        strip: Strip,
+        face: FaceId,
+        into: &mut Body,
+    ) {
+        let round = [strip.to, strip.from].map(|corner| {
+            let at = spinning.profile(strips.corners()[corner]);
+            (self.circling[corner], at.y)
+        });
+        let widest = if round[0].1 >= round[1].1 {
+            [0, 1]
+        } else {
+            [1, 0]
+        };
+        let from = into.topology().loops_added();
+        for which in widest {
+            let (Some(arcs), _) = round[which] else {
+                continue;
+            };
+            let forward = which == 0;
+            into.topology_mut().add_loop(|walk| {
+                let wrote = walk.len();
+                for step in 0..spinning.parts {
+                    let arc = if forward {
+                        step
+                    } else {
+                        spinning.parts - 1 - step
+                    };
+                    walk.push(Coedge {
+                        edge: arcs[arc],
+                        forward,
+                    });
+                }
+                if !spinning.forward {
+                    walk[wrote..].reverse();
+                    for coedge in &mut walk[wrote..] {
+                        *coedge = coedge.turned();
+                    }
+                }
+            });
+        }
+        let to = into.topology().loops_added();
+        into.topology_mut().face_mut(face).loops = from..to;
+    }
+
     /// Gather the faces into the shells of the one lump: the outline's round
     /// the outside, and one cavity per hole of the profile.
     ///
@@ -907,18 +1014,17 @@ impl Revolving {
     /// inside a region sweeps is a shell of its own with the solid all around
     /// it — and a partial turn, having caps again, is back to the extrusion's
     /// answer.
-    fn gather(&self, spinning: Spinning, strips: &Strips, into: &mut Body) {
+    fn gather(&self, strips: &Strips, into: &mut Body) {
         if let Some(caps) = self.caps {
-            let walls =
-                (0..strips.loops()).flat_map(|loop_| self.walled(spinning, strips.run(loop_)));
+            let walls = (0..strips.loops()).flat_map(|loop_| self.walled(strips.run(loop_)));
             let outer = shelled(into, walls.chain(caps));
             into.topology_mut().add_lump(Lump { outer, voids: 0..0 });
             return;
         }
-        let outer = shelled(into, self.walled(spinning, strips.run(0)));
+        let outer = shelled(into, self.walled(strips.run(0)));
         let from = into.topology().shells_voided();
         for loop_ in 1..strips.loops() {
-            let void = shelled(into, self.walled(spinning, strips.run(loop_)));
+            let void = shelled(into, self.walled(strips.run(loop_)));
             into.topology_mut().add_voided(void);
         }
         let to = into.topology().shells_voided();
@@ -935,16 +1041,37 @@ impl Revolving {
     /// see [`each_part`] — so a walk of the whole array would read one face
     /// several times, which is a loop written twice or a face shelled twice.
     /// One place knows to stop, and both walks go through it.
-    fn parted(&self, spinning: Spinning, at: usize) -> impl Iterator<Item = FaceId> {
+    fn parted(&self, at: usize) -> impl Iterator<Item = FaceId> {
         self.walls[at]
             .into_iter()
-            .flat_map(move |walls| walls.into_iter().take(spinning.parts))
+            .flat_map(|walls| walls.faces.into_iter().take(walls.parts))
     }
 
     /// Every wall the strips at `run` raised.
-    fn walled(&self, spinning: Spinning, run: Range<usize>) -> impl Iterator<Item = FaceId> {
-        run.flat_map(move |at| self.parted(spinning, at))
+    fn walled(&self, run: Range<usize>) -> impl Iterator<Item = FaceId> {
+        run.flat_map(|at| self.parted(at))
     }
+}
+
+/// The faces one strip's wall was cut into, and how many of them there are.
+///
+/// **A plane is one face however far the turn goes.** §4.4 cuts a wall so that
+/// no face wraps its own surface, and a plane's parameters do not wrap — so the
+/// annulus a run square across the line sweeps is one face whose loop walks the
+/// whole of each circle it stands between. A cylinder, a cone, a sphere and a
+/// torus are each cut into [`Spinning::parts`].
+///
+/// **Which is worth more than the faces it saves.** Three sectors of one disc
+/// are held apart by three radial seams, and a cut crossing one of those is
+/// broken there by the disc and not by the face across it — see
+/// `.notes/KERNEL.md` §9.2, where that is measured.
+///
+/// The slots past `parts` repeat the last — see [`each_part`] — so a reader
+/// asking by part gets the one face wherever it asks.
+#[derive(Debug, Clone, Copy)]
+struct Walls {
+    parts: usize,
+    faces: [FaceId; MOST],
 }
 
 /// What a seam divides, and whether that is a crease.
@@ -983,12 +1110,12 @@ pub(super) const MOST: usize = 3;
 /// The tail is never read — every walk here stops at [`Spinning::parts`] — and
 /// is filled rather than left an [`Option`] because every reader wants a value
 /// and none of them wants to ask.
-fn each_part<T: Copy>(spinning: Spinning, mut made: impl FnMut(usize) -> T) -> [T; MOST] {
+fn each_part<T: Copy>(parts: usize, mut made: impl FnMut(usize) -> T) -> [T; MOST] {
     let mut held: [Option<T>; MOST] = [None; MOST];
-    for (at, slot) in held.iter_mut().enumerate().take(spinning.parts) {
+    for (at, slot) in held.iter_mut().enumerate().take(parts) {
         *slot = Some(made(at));
     }
-    let last = held[spinning.parts - 1].expect("a turn is cut into at least one part");
+    let last = held[parts - 1].expect("a turn is cut into at least one part");
     held.map(|it| it.unwrap_or(last))
 }
 
@@ -996,18 +1123,18 @@ fn each_part<T: Copy>(spinning: Spinning, mut made: impl FnMut(usize) -> T) -> [
 /// last is the first again where the turn closes on itself.
 ///
 /// The tail past the seams repeats the last, on the terms [`each_part`] states.
-fn each_seam<T: Copy>(spinning: Spinning, mut made: impl FnMut(usize) -> T) -> [T; MOST + 1] {
+fn each_seam<T: Copy>(
+    parts: usize,
+    closed: bool,
+    mut made: impl FnMut(usize) -> T,
+) -> [T; MOST + 1] {
     let mut held: [Option<T>; MOST + 1] = [None; MOST + 1];
-    for (at, slot) in held.iter_mut().enumerate().take(spinning.parts) {
+    for (at, slot) in held.iter_mut().enumerate().take(parts) {
         *slot = Some(made(at));
     }
     let first = held[0].expect("a turn has at least one seam");
-    held[spinning.parts] = Some(if spinning.closed {
-        first
-    } else {
-        made(spinning.parts)
-    });
-    let last = held[spinning.parts].expect("the last seam was just made");
+    held[parts] = Some(if closed { first } else { made(parts) });
+    let last = held[parts].expect("the last seam was just made");
     held.map(|it| it.unwrap_or(last))
 }
 

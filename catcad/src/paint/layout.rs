@@ -1,8 +1,9 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{Body, Boolean, Builder, ConstraintId, Fill, Filler, Mesher, Operation, Patch};
+use silverpoint::{Body, Builder, ConstraintId, Fill, Filler, Mesher, Operation, Patch};
 
 use crate::build::Revision;
+use crate::build::putting::Putting;
 use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::cut::Cut;
@@ -444,7 +445,7 @@ pub(crate) struct Sheets {
     /// on every frame the form is open.
     pub(super) deciding: Body,
     pub(super) builder: Builder,
-    pub(super) boolean: Boolean,
+    pub(super) putting: Putting,
     /// Where the tool is raised, before it is put together with what stands.
     pub(super) raised: Body,
     /// Where the deciding profile is resolved to positions among its sketch's

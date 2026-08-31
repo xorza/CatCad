@@ -596,10 +596,13 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a spun ring is a ring: {reckoning:?}");
+    // Four walls: a cylinder and a cone cut in three apiece, and two annuli
+    // that are one face each — a plane's parameters do not wrap, so §4.4 has
+    // nothing to split.
     assert_eq!(
         body.topology().faces().count(),
-        4 * MOST,
-        "four walls, cut in three"
+        2 * MOST + 2,
+        "the annuli were cut into sectors"
     );
     assert!(body.exact(), "a cylinder, a cone and two planes are exact");
     assert_eq!(body.strays(), 0.0, "an exact body strays nowhere");
@@ -617,7 +620,7 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
     }
     assert_eq!(
         [cylinders, cones, planes],
-        [MOST, MOST, 2 * MOST],
+        [MOST, MOST, 2],
         "the wrong surfaces"
     );
 
@@ -747,17 +750,21 @@ fn a_profile_spun_about_its_own_side_closes_at_a_pole() {
     assert_eq!(reckoning.genus, 0, "a cone is a ball: {reckoning:?}");
     assert!(body.exact(), "a cone and a plane are exact");
     // The side lying *on* the line sweeps nothing, so two walls rather than
-    // three — and each is cut in three, no face being allowed to wrap.
+    // three — the cone cut in three, no face being allowed to wrap, and the
+    // base one face, a plane's parameters not wrapping at all.
     assert_eq!(
         body.topology().faces().count(),
-        2 * MOST,
+        MOST + 1,
         "the third side raised a wall",
     );
-    // **A pole is one vertex**, where the rim carries one per part: a corner on
-    // the line sweeps a point rather than a circle.
+    // **A pole is one vertex, and only where a seam ends at it.** A corner on
+    // the line sweeps a point rather than a circle, so nothing but a seam ever
+    // reaches one — and the base is one face with no seams, which leaves its
+    // own centre off the body altogether. The apex the cone's three seams meet
+    // at is the one pole left, and the rim carries a vertex per part.
     assert_eq!(
         body.topology().vertices().count(),
-        2 + MOST,
+        1 + MOST,
         "a pole raised more than one vertex",
     );
 
@@ -889,10 +896,12 @@ fn a_profile_of_two_regions_raises_one_body_of_two_lumps() {
         STEP,
     )
     .body();
+    // Eight walls, four of them square across the line: those sweep annuli,
+    // which are one face apiece where a cylinder is cut in three.
     assert_eq!(
         spun.topology().faces().count(),
-        8 * MOST,
-        "eight walls, each cut in three",
+        2 * (2 * MOST + 2),
+        "the annuli were cut into sectors",
     );
     assert_eq!(spun.names().count(), 8, "one name per side of each square");
     assert_eq!(spun.topology().lumps().count(), 2, "two regions, two lumps");

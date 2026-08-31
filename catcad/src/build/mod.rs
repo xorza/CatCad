@@ -1,13 +1,15 @@
 //! The room an edit works in, and everything replaying the timeline leaves
 //! behind.
 
-use silverpoint::{Body, Boolean, Builder, Drive, PointId, Removed, Sketch, Solver};
+use silverpoint::{Body, Builder, Drive, PointId, Removed, Sketch, Solver};
 
 use crate::build::bodied::{Bodied, Digest, Rebuilding};
+use crate::build::putting::Putting;
 use crate::build::settled::Settled;
 use crate::timeline::{FeatureId, Swept};
 
 pub(crate) mod bodied;
+pub(crate) mod putting;
 pub(crate) mod settled;
 
 /// The solver, and everything derived from a [`Timeline`] rather than written
@@ -72,7 +74,7 @@ pub(crate) struct Build {
     builder: Builder,
     /// The room putting two of them together works in, kept for the same
     /// reason.
-    boolean: Boolean,
+    putting: Putting,
     /// Where each step's profile is resolved to positions among its sketch's
     /// faces, one step at a time.
     ///
@@ -264,7 +266,7 @@ impl Build {
             settled,
             bodied,
             builder,
-            boolean,
+            putting,
             raised,
             standing,
             regions,
@@ -310,7 +312,7 @@ impl Build {
             had.rebuild(
                 Rebuilding {
                     builder,
-                    boolean,
+                    putting,
                     raised,
                     arrangement: settled.arrangement(),
                 },
@@ -318,7 +320,7 @@ impl Build {
                 regions,
                 on.map(Bodied::body).unwrap_or(&nothing),
             );
-            if had.built().merged() {
+            if had.built().modelled() {
                 model = Some(bodied.len());
             }
             bodied.push(had);

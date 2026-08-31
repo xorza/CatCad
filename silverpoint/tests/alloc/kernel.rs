@@ -1,24 +1,29 @@
 //! What putting two solids together costs the heap, a combine at a time.
 //!
-//! Every gate here runs through one [`Boolean`] held across its window, which
-//! is the shape a drag has: a document is rebuilt on every frame of one, and
-//! every buffer the four stages want comes out the same size each time.
+//! Every gate here runs through one [`Boolean`] or one [`Merging`] held across
+//! its window, which is the shape a drag has: a document is rebuilt on every
+//! frame of one, and every buffer the stages want comes out the same size each
+//! time.
 //!
-//! The four are chosen for the paths they are the only ones to reach. The
-//! swallowed cut is the one that hangs a cavity on a lump; the bored cut is the
-//! one that puts curves in the imprint list and takes closed cuts through the
-//! splitter; the join is the one that gathers more than one shell that shuts
-//! something in.
+//! The four combines are chosen for the paths they are the only ones to reach.
+//! The swallowed cut is the one that hangs a cavity on a lump; the bored cut is
+//! the one that puts curves in the imprint list and takes closed cuts through
+//! the splitter; the join is the one that gathers more than one shell that
+//! shuts something in. The two merges are the flat path and the round one, a
+//! group that may wrap being the only thing the second reads that the first
+//! does not.
 //!
-//! **Every gate says what its combine has to come to**, which is the one thing
-//! a number cannot check for itself: a refusal empties the body and returns,
+//! **Every gate says what its work has to come to**, which is the one thing a
+//! number cannot check for itself: a refusal empties the body and returns,
 //! which allocates nothing at all — so a boolean that quietly began refusing
-//! would go on passing. What each is held to is the volume worked out by hand
-//! off the two blocks.
+//! would go on passing. A combine is held to the volume worked out by hand off
+//! the two blocks, and a merge to the faces the shape has.
 
 use common::AllocTester;
 use glam::DVec2;
-use silverpoint::{Arrangement, Body, Boolean, Extrusion, Mesher, Operation, Plane, Sketch, Step};
+use silverpoint::{
+    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Operation, Plane, Sketch, Step,
+};
 use std::f64::consts::PI;
 use std::hint::black_box;
 use std::ops::Range;
@@ -146,5 +151,54 @@ fn joining_a_block_that_touches_nothing_allocates_nothing() {
         &block(6.0..8.0, 6.0..8.0, 0.0, 2.0, TOOL),
         Operation::Join,
         72.0,
+    );
+}
+
+/// Put the pieces of every face of `cube()` cut by `tool` back together, and
+/// gate every further merge of the same body at a strict zero.
+///
+/// **What every combine above is followed by**, one level up: a document merges
+/// the answer of a boolean before anything else sees it, on the same frame and
+/// the same clock — see `Putting` in the application.
+fn tidy(tool: &Body, doing: Operation, faces: usize) {
+    let cube = cube();
+    let mut split = Body::default();
+    assert!(
+        Boolean::default().combine(&cube, tool, doing, &mut split),
+        "{doing:?} was refused, so this gate would measure a refusal"
+    );
+    let mut merging = Merging::default();
+    let mut into = Body::default();
+    merging.merge(&split, &mut into);
+    let came = into.names().count();
+    assert_eq!(
+        came, faces,
+        "the merge came to {came} names rather than {faces}"
+    );
+    AllocTester::new().run(|| {
+        merging.merge(&split, &mut into);
+        black_box(&into);
+    });
+}
+
+/// The corner cut, whose three cut walls come back whole: 6 names of the block
+/// and 3 of the tool.
+#[test]
+fn merging_an_overlapping_cut_allocates_nothing() {
+    tidy(
+        &block(3.0..5.0, 3.0..5.0, 3.0, 5.0, TOOL),
+        Operation::Cut,
+        9,
+    );
+}
+
+/// The bore, whose wall stays two faces of one name by `.notes/KERNEL.md`
+/// §4.4: 6 names of the block and 1 of the rod.
+#[test]
+fn merging_a_bore_allocates_nothing() {
+    tidy(
+        &rod(DVec2::new(2.0, 2.0), 1.0, -1.0, 5.0, TOOL),
+        Operation::Cut,
+        7,
     );
 }

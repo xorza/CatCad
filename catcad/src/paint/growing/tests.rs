@@ -94,7 +94,7 @@ struct Shown {
 
 fn shown(staged: &Staged, distance: f64, operation: Operation) -> Shown {
     let mut builder = Builder::default();
-    let mut boolean = Boolean::default();
+    let mut putting = Putting::default();
     let mut raised = Body::default();
     let mut into = Body::default();
     let mut regions = Vec::new();
@@ -109,7 +109,7 @@ fn shown(staged: &Staged, distance: f64, operation: Operation) -> Shown {
         staged.document.models(&staged.build, Some(staged.tool)),
         Raising {
             builder: &mut builder,
-            boolean: &mut boolean,
+            putting: &mut putting,
             raised: &mut raised,
             regions: &mut regions,
         },
@@ -201,7 +201,7 @@ fn a_first_step_joins_alone_and_cuts_nothing() {
 fn a_region_that_has_gone_shows_nothing() {
     let staged = staged(square(1.0, 1.0, 1.0), true);
     let mut builder = Builder::default();
-    let mut boolean = Boolean::default();
+    let mut putting = Putting::default();
     let mut raised = Body::default();
     let mut into = Body::default();
     let mut regions = Vec::new();
@@ -216,7 +216,7 @@ fn a_region_that_has_gone_shows_nothing() {
         staged.document.models(&staged.build, Some(staged.tool)),
         Raising {
             builder: &mut builder,
-            boolean: &mut boolean,
+            putting: &mut putting,
             raised: &mut raised,
             regions: &mut regions,
         },
