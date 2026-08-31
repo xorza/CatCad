@@ -66,8 +66,15 @@ pub struct Mesher {
     /// so that it reads alongside the parameters — see
     /// [`Face::placed`](crate::solid::topology::face::Face).
     standing: Vec<DVec3>,
-    /// The same corners in the surface's own parameters — the outline.
+    /// The same corners in the surface's own parameters — the outline, and one
+    /// hole at a time on its way into the run of them.
+    ///
+    /// **Cut into cells before it is added and not after**, which is what
+    /// [`Loops`] asks: a writer is handed the whole run of loops, so a hole
+    /// finished in place afterwards would take every hole before it round a
+    /// second time.
     outline: Vec<DVec2>,
+    punched: Vec<DVec2>,
     /// One flattened loop per hole.
     holes: Loops<DVec2>,
     cutter: Cutter,
@@ -159,6 +166,7 @@ impl Mesher {
             traced,
             standing,
             outline,
+            punched,
             holes,
             cutter,
             fill,
@@ -199,12 +207,12 @@ impl Mesher {
             let from = done;
             done = traced.len();
             face.placed(&traced[from..done], standing);
-            holes.add(|into| {
-                face.flatten(&traced[from..done], Some(about), into);
-                for uv in into.iter_mut() {
-                    *uv = lattice.celled(*uv);
-                }
-            });
+            punched.clear();
+            face.flatten(&traced[from..done], Some(about), punched);
+            for uv in punched.iter_mut() {
+                *uv = lattice.celled(*uv);
+            }
+            holes.push(punched);
         }
 
         cutter.polygon(outline, holes, fill);

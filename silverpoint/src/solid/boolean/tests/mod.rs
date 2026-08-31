@@ -1796,14 +1796,81 @@ fn the_holes_of_a_face_are_read_into_its_own_turn() {
 
     let mut mesher = Mesher::default();
     let mut patch = Patch::default();
-    for sagitta in [1e-3, 1e-4] {
-        let held: Vec<f64> = walls
+    let mut read = |sagitta: f64| -> Vec<f64> {
+        walls
             .iter()
             .map(|&at| mesher.shut_in(&twice, &[at], sagitta, &mut patch))
-            .collect();
+            .collect()
+    };
+    let coarse = read(1e-3);
+    let fine = read(1e-4);
+
+    // **The two halves agree**, which they cannot where one has read its holes
+    // into a turn of its own. Asked at the finer of the two, where the chording
+    // of each half's holes has settled — at the coarser one the two are chorded
+    // from different angles and part by `0.007`.
+    assert!(
+        (fine[0] - fine[1]).abs() < 1e-9,
+        "the two halves shut in {fine:?}",
+    );
+    // **And each settles rather than running away.** A face whose holes stand
+    // outside it reads differently the finer it is asked — `78.28` against
+    // `69.05` across these two sagittas, where a face that is right moves by
+    // the mesh's own convergence and a fortieth of that.
+    for at in 0..walls.len() {
         assert!(
-            (held[0] - held[1]).abs() < 1e-9,
-            "at {sagitta:e} the two halves shut in {held:?}",
+            (coarse[at] - fine[at]).abs() < 0.5,
+            "half {at} read {} then {}",
+            coarse[at],
+            fine[at],
         );
+    }
+}
+
+/// **Every bore takes the same volume out, however many came before it.**
+///
+/// A bar bored across its own axis four times over, each cut taking the answer
+/// of the last. The bores are the same size and each passes through the axis,
+/// so each removes exactly what [`bicylinder`] says and the four answers fall
+/// on a straight line.
+///
+/// **A second hole is where a face's holes stop being independent.** They are
+/// written into one run of loops, and a writer handed that run is handed *all*
+/// of it — so a hole finished in place after it is added takes every hole
+/// before it round again, lands outside the outline, and is passed over rather
+/// than punched. One hole hides that entirely: the first bore is right whatever
+/// happens to the ones after it.
+///
+/// Held against the closed form and not against the first answer, so a failure
+/// says which of the two is wrong. The slack is the mesh's: a curved face
+/// chorded at a sagitta reads a little under the surface it stands for.
+#[test]
+fn a_bar_bored_again_and_again_loses_the_same_each_time() {
+    let want = bicylinder(2.0, 0.5, 0.0);
+    let mut boolean = Boolean::default();
+    let mut held = rod(raised(-2.0), DVec2::ZERO, 2.0, 20.0, CUBE).body;
+    let mut into = Body::default();
+    let mut mesher = Mesher::default();
+    let mut last = mesher.volume(&held, 1e-4);
+    for at in 0..4 {
+        let bore = rod(
+            off(Plane::FRONT, -4.0),
+            DVec2::new(0.0, 2.0 + 4.0 * at as f64),
+            0.5,
+            8.0,
+            TOOL,
+        );
+        assert!(
+            boolean.combine(&held, &bore.body, Operation::Cut, &mut into),
+            "bore {at} was refused",
+        );
+        std::mem::swap(&mut held, &mut into);
+        let now = mesher.volume(&held, 1e-4);
+        assert!(
+            (last - now - want).abs() < 5e-3,
+            "bore {at} took {} rather than {want}",
+            last - now,
+        );
+        last = now;
     }
 }
