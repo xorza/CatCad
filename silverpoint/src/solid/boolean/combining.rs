@@ -699,7 +699,11 @@ impl Combining {
                     marks.resize(traced.len(), came);
                 }
                 walk.clear();
-                face.flatten(traced, walk);
+                // The turn the outline was laid out in, which every hole of
+                // the face is read into as well — see [`Face::flatten`]. The
+                // outline comes first, so what `laid` already holds is it.
+                let about = (at > 0).then(|| laid.middle());
+                face.flatten(traced, about, walk);
                 for at in walk.iter() {
                     laid.hold(*at);
                 }

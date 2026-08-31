@@ -22,6 +22,7 @@
 //! comes out of here decides which regions a boolean keeps, not what shape any
 //! of them is.
 
+use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::chorded::Chorded;
 use crate::math::winding;
@@ -267,13 +268,24 @@ impl Sounding {
         for (id, face) in topology.faces() {
             let from = self.starts.len() - 1;
             let began = self.walk.len();
+            // The turn the outline was laid out in, which every hole of the
+            // face is read into as well — see [`Face::flatten`], and
+            // [`Covered::anchor`], which is the same branch read back.
+            let mut about = None;
             for round in topology.loops_of(face) {
                 self.traced.clear();
                 for coedge in round {
                     topology.walked(*coedge).walk(CHORDED, &mut self.traced);
                 }
-                face.flatten(&self.traced, &mut self.walk);
+                face.flatten(&self.traced, about, &mut self.walk);
                 self.starts.push(self.walk.len());
+                about = about.or_else(|| {
+                    let mut laid = Bounds::default();
+                    for at in &self.walk[began..] {
+                        laid.hold(*at);
+                    }
+                    Some(laid.middle())
+                });
             }
             self.faces.push(Covered {
                 face: id,

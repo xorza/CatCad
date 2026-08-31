@@ -101,7 +101,10 @@ impl Checking {
                     topology.walked(coedge).walk(CHORDED, traced);
                 }
                 flattened.clear();
-                face.flatten(&traced[..], flattened);
+                // One loop at a time and against itself alone, which is what
+                // this check asks — so each is read on its own branch and there
+                // is nothing for it to agree with.
+                face.flatten(&traced[..], None, flattened);
                 let held = flattened.len();
                 let chord = |step: usize| Span {
                     from: flattened[step],

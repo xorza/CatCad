@@ -18,6 +18,7 @@ use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
+use crate::solid::mesh::Patch;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::edge::Edge;
 use crate::solid::topology::face::Face;
@@ -1737,4 +1738,72 @@ fn a_ring_drilled_at_a_lean_takes_the_bore_the_ring_says_it_should() {
         whole.abs() < slack,
         "the bore and its slug are {whole} off the ring",
     );
+}
+
+/// **A face's holes are read into the turn its outline was laid out in**, which
+/// a face straddling the far side of a cylinder is where it shows.
+///
+/// A bar bored twice across its own axis. Its wall comes in two halves — no
+/// face may wrap, §4.4 — split at the drawing's own zero and half turn, and
+/// each bore punches one hole through each half. The far half is laid out over
+/// `π` to `2π`, while a hole of it whose walk begins the other side of the
+/// branch inverts into `(−π, π]` — so read on its own the hole comes back a
+/// whole turn below the outline that holds it, and every reader afterwards sees
+/// a hole outside its own face.
+///
+/// **Held by the symmetry**, which is what makes it a figure rather than a
+/// guess: the bores run through the bar's axis, so the two halves are mirror
+/// images and shut in the same amount. Read at two sagittas, because a face
+/// whose holes have run away does not merely read wrong — it reads *differently*
+/// the finer it is asked, where a face that is right settles.
+#[test]
+fn the_holes_of_a_face_are_read_into_its_own_turn() {
+    let bar = rod(raised(-2.0), DVec2::ZERO, 2.0, 20.0, CUBE).body;
+    let mut boolean = Boolean::default();
+    let mut once = Body::default();
+    let first = rod(
+        off(Plane::FRONT, -4.0),
+        DVec2::new(0.0, 2.0),
+        0.5,
+        8.0,
+        TOOL,
+    );
+    assert!(boolean.combine(&bar, &first.body, Operation::Cut, &mut once));
+    let mut twice = Body::default();
+    let second = rod(
+        off(Plane::FRONT, -4.0),
+        DVec2::new(0.0, 6.0),
+        0.5,
+        8.0,
+        TOOL,
+    );
+    assert!(boolean.combine(&once, &second.body, Operation::Cut, &mut twice));
+
+    // The two halves of the wall, which are the faces on the bar's own
+    // cylinder — the caps are planes and the bores are of a narrower radius.
+    let walls: Vec<_> = twice
+        .topology()
+        .faces()
+        .filter(|(_, face)| {
+            matches!(
+                face.surface,
+                Surface::Natural(Natural::Cylinder(tube)) if tube.radius > 1.0
+            )
+        })
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(walls.len(), 2, "the bar's wall is not two faces");
+
+    let mut mesher = Mesher::default();
+    let mut patch = Patch::default();
+    for sagitta in [1e-3, 1e-4] {
+        let held: Vec<f64> = walls
+            .iter()
+            .map(|&at| mesher.shut_in(&twice, &[at], sagitta, &mut patch))
+            .collect();
+        assert!(
+            (held[0] - held[1]).abs() < 1e-9,
+            "at {sagitta:e} the two halves shut in {held:?}",
+        );
+    }
 }

@@ -10,6 +10,7 @@ mod lattice;
 mod refining;
 
 use crate::loops::Loops;
+use crate::math::bounds::Bounds;
 use crate::math::chorded::Chorded;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::solid::mesh::lattice::Lattice;
@@ -171,8 +172,17 @@ impl Mesher {
         for &coedge in topology.outline_of(face) {
             topology.walked(coedge).walk(sagitta, traced);
         }
-        face.flatten(&traced[..], outline);
+        face.flatten(&traced[..], None, outline);
         face.placed(&traced[..], standing);
+        // **The turn the outline was laid out in**, which every hole of the
+        // face has to be read into as well — see [`Face::flatten`]. Taken
+        // before the cells below, the lattice being a reading of these and not
+        // a replacement for them.
+        let mut laid = Bounds::default();
+        for uv in outline.iter() {
+            laid.hold(*uv);
+        }
+        let about = laid.middle();
         // **Measured in the cells the surface itself rules over**, which is
         // what makes a triangulator's idea of near the same as a face's — see
         // [`Lattice`]. Everything below runs in those units, and the corners
@@ -190,7 +200,7 @@ impl Mesher {
             done = traced.len();
             face.placed(&traced[from..done], standing);
             holes.add(|into| {
-                face.flatten(&traced[from..done], into);
+                face.flatten(&traced[from..done], Some(about), into);
                 for uv in into.iter_mut() {
                     *uv = lattice.celled(*uv);
                 }

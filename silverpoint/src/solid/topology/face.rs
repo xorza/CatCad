@@ -87,18 +87,27 @@ impl Face {
     /// sounder asks so it can say whether a ray came through the face or missed
     /// it, and a face drawn to one boundary and picked against another is a
     /// hairline nobody can find by reading either.
-    pub(crate) fn flatten(&self, traced: &[DVec3], into: &mut Vec<DVec2>) {
+    ///
+    /// **`about` is the turn the rest of the face was laid out in**, and a
+    /// caller with more than one loop owes it. Each loop is continuous in
+    /// itself whatever it starts from, but *which* turn it lands in is decided
+    /// by its own first corner — so a hole whose walk happens to begin the
+    /// other side of the branch comes back a whole turn from the outline that
+    /// holds it, and every reader afterwards sees a hole outside its own face.
+    /// `None` for the first loop, which has nothing to agree with, and the
+    /// middle of what that one filled for the rest.
+    pub(crate) fn flatten(&self, traced: &[DVec3], about: Option<DVec2>, into: &mut Vec<DVec2>) {
         // **Walked twice and nothing kept**, which is what a path a frame goes
         // down owes: a corner at the head of the loop that the surface says
         // nothing about takes its angle from the corner at the tail, so where
         // the chain comes round to has to be known before the writing starts.
         // The first walk works that out and remembers where.
-        let mut behind = None;
+        let mut behind = about;
         for &corner in traced {
             behind = self.parameters(corner, behind).or(behind);
         }
         into.reserve(traced.len());
-        let mut last = None;
+        let mut last = about;
         for (at, &corner) in traced.iter().enumerate() {
             if let Some(uv) = self.parameters(corner, last) {
                 into.push(uv);
