@@ -10,7 +10,7 @@ use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
-use silverpoint::{Grown, Named, Operation, Sector};
+use silverpoint::{Bevel, Grown, Named, Operation, Sector};
 
 /// One step, as a file holds it.
 ///
@@ -54,8 +54,42 @@ pub(super) enum Step {
         /// One pair of face names per pick, each pair naming the edge between
         /// the two faces.
         along: Vec<[Facing; 2]>,
-        radius: f64,
+        reach: f64,
+        bevel: Bevelled,
     },
+}
+
+/// What a blend leaves between the two rulings, as a file holds it.
+///
+/// A mirror of [`Bevel`] on the terms [`Operated`] states: the type belongs to
+/// silverpoint, a file's vocabulary belongs here, and the match between them
+/// being exhaustive both ways is what makes a third kind a compile error rather
+/// than a step that quietly writes as something else.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) enum Bevelled {
+    Round,
+    Flat,
+}
+
+impl Bevelled {
+    /// `bevel` as a file would hold it.
+    fn of(bevel: Bevel) -> Self {
+        match bevel {
+            Bevel::Round => Bevelled::Round,
+            Bevel::Flat => Bevelled::Flat,
+        }
+    }
+
+    /// The same, as a timeline holds one.
+    ///
+    /// Nothing to fault, on the terms [`Operated::operation`] states: every
+    /// value it can be read as is one the timeline can hold.
+    fn bevel(&self) -> Bevel {
+        match self {
+            Bevelled::Round => Bevel::Round,
+            Bevelled::Flat => Bevel::Flat,
+        }
+    }
 }
 
 /// One face of the model, as a file holds it.
@@ -399,12 +433,17 @@ impl Step {
                 sector: Sectored::of(*sector),
                 operation: Operated::of(*operation),
             },
-            Feature::Round { along, radius } => Step::Round {
+            Feature::Round {
+                along,
+                reach,
+                bevel,
+            } => Step::Round {
                 along: along
                     .iter()
                     .map(|pair| pair.map(|named| Facing::of(named, timeline, steps, handles)))
                     .collect(),
-                radius: *radius,
+                reach: *reach,
+                bevel: Bevelled::of(*bevel),
             },
         }
     }
@@ -472,8 +511,12 @@ impl Step {
                     operation: operation.operation(),
                 }))
             }
-            Step::Round { along, radius } => {
-                finite(at, *radius)?;
+            Step::Round {
+                along,
+                reach,
+                bevel,
+            } => {
+                finite(at, *reach)?;
                 let mut picks = Vec::with_capacity(along.len());
                 for pair in along {
                     let [one, two] = pair;
@@ -484,7 +527,8 @@ impl Step {
                 }
                 Ok(Loaded::plain(Feature::Round {
                     along: picks,
-                    radius: *radius,
+                    reach: *reach,
+                    bevel: bevel.bevel(),
                 }))
             }
         }

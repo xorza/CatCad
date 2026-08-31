@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use glam::{DVec2, DVec3};
-use silverpoint::{Named, Operation, Plane, Sector, SegmentId, Sketch, Step};
+use silverpoint::{Bevel, Named, Operation, Plane, Sector, SegmentId, Sketch, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -264,7 +264,7 @@ impl Timeline {
         }
     }
 
-    /// Blend the rounding at `at` to a new radius.
+    /// Take the blend at `at` to a new reach.
     ///
     /// The third of the one-number edits beside [`Timeline::offset`] and
     /// [`Timeline::carry`], and the same shape for the same reason: restating
@@ -272,11 +272,11 @@ impl Timeline {
     /// follows from a replay.
     pub(crate) fn blend(&mut self, at: FeatureId, to: f64) {
         match self.feature_mut(at) {
-            Feature::Round { radius, .. } => *radius = to,
+            Feature::Round { reach, .. } => *reach = to,
             other @ (Feature::Plane(_)
             | Feature::Sketch { .. }
             | Feature::Extrude { .. }
-            | Feature::Revolve { .. }) => wrong_kind(at, "a rounding", other),
+            | Feature::Revolve { .. }) => wrong_kind(at, "a blend", other),
         }
     }
 
@@ -706,9 +706,14 @@ impl Timeline {
                     },
                     *operation,
                 ),
-                Feature::Round { along, radius } => Doing::Round {
+                Feature::Round {
                     along,
-                    radius: *radius,
+                    reach,
+                    bevel,
+                } => Doing::Round {
+                    along,
+                    reach: *reach,
+                    bevel: *bevel,
                 },
                 Feature::Plane(_) | Feature::Sketch { .. } => return None,
             };
@@ -883,7 +888,8 @@ pub(crate) enum Doing<'a> {
         /// and moves every solid grown off it.
         plane: Plane,
     },
-    /// Put a blend of `radius` where each edge `along` names was.
+    /// Put a blend `reach` far back where each edge `along` names was, as
+    /// `bevel` says.
     ///
     /// Nothing is resolved against a drawing, which is what makes this the one
     /// arm with no plane and no sketch: a pick is a pair of face names, and a
@@ -891,7 +897,8 @@ pub(crate) enum Doing<'a> {
     /// see [`Feature::Round`](feature::Feature).
     Round {
         along: &'a [[Named; 2]],
-        radius: f64,
+        reach: f64,
+        bevel: Bevel,
     },
 }
 

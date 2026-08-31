@@ -49,7 +49,7 @@ pub(crate) struct Status<'a> {
     /// How many blends the kernel would not put in.
     ///
     /// Beside the two counts above on the terms they stand beside each other:
-    /// a person mends this one by scrubbing a radius down, where a step adrift
+    /// a person mends this one by scrubbing a reach down, where a step adrift
     /// wants drawing or picking again and an unmerged solid wants moving. See
     /// [`Models::unrounded`](crate::model::Models::unrounded).
     pub(crate) unrounded: usize,

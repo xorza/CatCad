@@ -809,7 +809,7 @@ last bit the two ends can be told apart by. Converged, not tolerated.
 Refused rather than guessed at: an edge claimed by other than exactly two
 faces, and a cavity with more than one lump to hang it on.
 
-### 7.5 Round — a blend where an edge was
+### 7.5 Round — a blend where an edge was, round or flat
 
 **A local operation on the topology, and never a boolean between bodies.** The
 tempting route is to build a fillet out of what already works: for a straight
@@ -836,6 +836,21 @@ cuts out of the cylinder — a circle where that face stands square to the edge,
 an ellipse where it leans, and `Meeting::of` answers both. Which of the two
 sweeps between the corners is the blend's own is the one whose middle stands
 inside the turn the blend covers.
+
+**A flat blend is the same routine with a plane between the rulings.** A
+chamfer cuts the two faces back to rulings of its own — the setback outright,
+where a fillet's stand `reach·tan(θ/2)` back — puts a plane through both, and
+leaves two creases where a fillet leaves two smooth joins. Everything else is
+shared: the same corners swallowed, the same edges cut back, the same arc across
+a corner (a line, `Meeting::of` writing it down as readily as a circle), and the
+same junction where two of them meet. `Bevel` is the one field that tells them
+apart, and **the crease flag is read rather than stated** — `Face::smooth` at
+every edge the rounding mints, which is what the checking holds it against.
+
+**Three flat picks at one corner are refused.** Three chamfer planes meet at one
+point and leave no patch between them, so what fills the corner is *three lines*
+running to that point rather than a face — and a blend then bounds five edges
+where the routine gives it four. §9.5 is what is left of it.
 
 **The blend is wound off the face it was cut from.** A blend uses each of its
 four edges the way the face across that edge does not, so fixing the first
@@ -967,9 +982,11 @@ settles nothing and bumps no revision, the regions, the sweep and the operation.
 Both equal → keep the body that is already there, refilled *over* rather than
 into a fresh one, so a drag reaches the heap not at all (§4.5).
 
-**And one step that sweeps nothing.** `Feature::Round { along, radius }` names
-no drawing, lies on no plane and raises no second solid: it rewrites the model
-standing before it. §7.5 is what it does; what it is *named by* is §5's own
+**And one step that sweeps nothing.** `Feature::Round { along, reach, bevel }`
+names no drawing, lies on no plane and raises no second solid: it rewrites the
+model standing before it. A fillet and a chamfer are that one step with one
+field between them, which is the argument the operation field above makes about
+a cut and a boss. §7.5 is what it does; what it is *named by* is §5's own
 vocabulary — a pick is a pair of `Named`, which is the only durable name an edge
 has, so picking two faces in the viewport *is* naming the edge between them and
 the picker needs no way to pick an edge of its own. The bar offers it for
@@ -1385,25 +1402,36 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **the blend, its corners and its consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners and their consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
-A plane/plane fillet is a cylinder and stays exact, and the vertex blend where
-three of them meet is a sphere and stays exact too; a plane/cylinder-
-perpendicular fillet is a torus; general blends are NURBS, and mark the body
-fitted.
+A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
+of them meet is a sphere and stays exact too, and a chamfer is a plane and stays
+exact; a plane/cylinder-perpendicular fillet is a torus; general blends are
+NURBS, and mark the body fitted.
 
-**The first slice is in the tree**: a constant-radius blend down a straight edge
-between two planes, exact, convex or concave, several edges at a time — meeting
-at a corner or not, and with a patch of a sphere where three of them meet — and
-a body like any other afterwards. §7.5 is how it works and what it refuses.
+**The first slice is in the tree**: a constant-reach blend down a straight edge
+between two planes, exact, convex or concave, round or flat, several edges at a
+time — meeting at a corner or not, and with a patch of a sphere where three
+round ones meet — and a body like any other afterwards. §7.5 is how it works and
+what it refuses.
 
-**And it lands in CatCad**, which is rule 1. `Feature::Round { along, radius }`
+**A chamfer is the same routine and not a second one**, which is what
+`Bevel::Flat` buys: the two share the corners they swallow, the edges they cut
+back, the junction where two meet, the step of the timeline, the file record and
+the field on the bar. What varies is the surface between the rulings and the two
+joins, and the crease flag is *read* off the faces rather than written by hand —
+so neither kind can claim the other's.
+
+**And it lands in CatCad**, which is rule 1. `Feature::Round { along, reach, bevel }`
 is a step of the timeline like any other — replayed, cached, saved, reopened,
 reordered and taken back — and §8 is the shape of it. The gesture is two faces
 picked in the viewport and a chip with a radius beside it, which needed no new
 picking: a pick is a pair of face names, so the faces the edge divides *are* its
-name. Picking the step again restates the radius on the same field. A blend the
+name. Two chips stand side by side there, a fillet and a chamfer, because the
+two differ in one word and share the field — a person picks the corner's shape
+rather than setting a mode. Picking the step again restates the reach on the
+same field. A blend the
 kernel refuses is its own kind of trouble, counted apart from a lost profile and
 from a solid that would not merge, because a person mends it by scrubbing the
 radius down.
@@ -1441,8 +1469,10 @@ arcs is §7.5.
   slice stays exact — a cylinder tangent to two planes is one cylinder, where a
   blend running out onto a cylinder or a cone is a surface of the fitted tier
   with a radius that moves.
-- **A chamfer**, which is this topology with a plane between the two rulings
-  instead of a cylinder and both joins creases instead of smooth.
+- **A flat corner where three picks meet.** Three chamfer planes meet at one
+  point, so what goes there is three lines to that point rather than a face —
+  and a blend then bounds five edges where the routine gives it four. The pair
+  is done, the triple is not.
 - **STEP**, which is what the naming and the exactness were always for.
 
 ---

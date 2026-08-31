@@ -6,7 +6,7 @@ use crate::document::file::error::Missing;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, World};
 use glam::DVec2;
-use silverpoint::{Constraint, Dimension, Grown, Operation, Sector};
+use silverpoint::{Bevel, Constraint, Dimension, Grown, Operation, Sector};
 
 /// The text `timeline` is written as.
 ///
@@ -252,7 +252,8 @@ fn a_document_is_written_exactly_like_this() {
                 grown.step().grew(Grown::Cornered([0, 1, 2])),
             ],
         ],
-        radius: 0.25,
+        reach: 0.25,
+        bevel: Bevel::Flat,
     });
 
     // And back again, which is what says the reading matches the writing. A
@@ -268,7 +269,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 7,
+    version: 8,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -346,7 +347,8 @@ fn a_document_is_written_exactly_like_this() {
                     grew: Corner((0, 1, 2)),
                 )),
             ],
-            radius: 0.25,
+            reach: 0.25,
+            bevel: Flat,
         ),
     ],
     rolled: None,
@@ -623,7 +625,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Round(along: [((by: 1, grew: Base), (by: 1, grew: Far))], radius: 1.0)"
+                     Round(along: [((by: 1, grew: Base), (by: 1, grew: Far))], reach: 1.0, bevel: Round)"
                 ),
             ),
             Fault::NoSuchFace { at: 2, names: 1 },
@@ -636,22 +638,23 @@ fn a_document_that_says_something_impossible_is_refused() {
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 1, regions: []), distance: 1.0, operation: Join), \
-                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], radius: 1.0), \
+                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], reach: 1.0, bevel: Round), \
                      Round(along: [((by: 3, grew: Blend(0)), \
-                     (by: 3, grew: Side(Segment(at: 0, along: true))))], radius: 1.0)"
+                     (by: 3, grew: Side(Segment(at: 0, along: true))))], reach: 1.0, \
+                     bevel: Round)"
                 ),
             ),
             Fault::NoSuchFace { at: 4, names: 3 },
         ),
-        // A blend of a radius that is not a number, which is the same complaint
-        // a distance gets and reached through the one field a rounding states.
+        // A blend whose reach is not a number, which is the same complaint a
+        // distance gets and reached through the one number a blend states.
         (
             document(
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 1, regions: []), distance: 1.0, operation: Join), \
-                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], radius: inf)"
+                     Round(along: [((by: 2, grew: Base), (by: 2, grew: Far))], reach: inf, bevel: Round)"
                 ),
             ),
             Fault::NotFinite { at: 3 },

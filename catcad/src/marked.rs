@@ -22,7 +22,7 @@
 //! names exists is the icon table's own check, which walks all of it rather
 //! than the rows a control draws.
 
-use silverpoint::Operation;
+use silverpoint::{Bevel, Operation};
 
 use crate::look::icons::Glyph;
 use crate::timeline::feature::Feature;
@@ -104,6 +104,7 @@ pub(crate) const SKETCH: Marked = Marked::new(Glyph::Sketch, "Sketch");
 pub(crate) const EXTRUDE: Marked = Marked::new(Glyph::Extrude, "Extrude");
 pub(crate) const REVOLVE: Marked = Marked::new(Glyph::Revolve, "Revolve");
 pub(crate) const FILLET: Marked = Marked::new(Glyph::Round, "Fillet");
+pub(crate) const CHAMFER: Marked = Marked::new(Glyph::Chamfer, "Chamfer");
 
 /// How the step `feature` is drawn and named.
 ///
@@ -111,16 +112,28 @@ pub(crate) const FILLET: Marked = Marked::new(Glyph::Round, "Fillet");
 /// the terms [`doing`] below states: three of them show it, and none of them
 /// may disagree with the other two.
 ///
-/// **"Fillet" where the timeline says a rounding**, because that is the word a
-/// draughtsman uses — the same split [`wording::named`](crate::wording::named)
-/// already makes over a segment and an edge.
+/// **"Fillet" and "Chamfer" where the timeline says one kind of step**, because
+/// those are the words a draughtsman uses — the same split
+/// [`wording::named`](crate::wording::named) already makes over a segment and
+/// an edge. What tells the two apart is the one field they differ in.
 pub(crate) fn making(feature: &Feature) -> Marked {
     match feature {
         Feature::Plane(_) => PLANE,
         Feature::Sketch { .. } => SKETCH,
         Feature::Extrude { .. } => EXTRUDE,
         Feature::Revolve { .. } => REVOLVE,
-        Feature::Round { .. } => FILLET,
+        Feature::Round { bevel, .. } => bevelled(*bevel),
+    }
+}
+
+/// How a blend of `bevel` is drawn and named.
+///
+/// Apart from [`making`] above because the bar offers both *before* a step
+/// exists: a chip has a kind and no feature to read it off.
+pub(crate) fn bevelled(bevel: Bevel) -> Marked {
+    match bevel {
+        Bevel::Round => FILLET,
+        Bevel::Flat => CHAMFER,
     }
 }
 
@@ -139,7 +152,7 @@ pub(crate) fn doing(operation: Operation) -> Marked {
 
 /// Every mark the overlay draws, which only the check that walks it wants.
 ///
-/// Beside the rows rather than down in the check, so a twelfth mark is written
+/// Beside the rows rather than down in the check, so a thirteenth is written
 /// three lines above the list that has to name it — a row added and left out of
 /// here is exactly the fault the check is for.
 ///
@@ -148,8 +161,8 @@ pub(crate) fn doing(operation: Operation) -> Marked {
 /// test, and the wider gate would leave this dead in every build that turned
 /// the feature on without turning tests on.
 #[cfg(test)]
-const EVERY: [Marked; 11] = [
-    CONFIRM, CANCEL, JOINS, CUTS, SHARES, CIRCLE, PLANE, SKETCH, EXTRUDE, REVOLVE, FILLET,
+const EVERY: [Marked; 12] = [
+    CONFIRM, CANCEL, JOINS, CUTS, SHARES, CIRCLE, PLANE, SKETCH, EXTRUDE, REVOLVE, FILLET, CHAMFER,
 ];
 
 #[cfg(test)]

@@ -134,7 +134,11 @@ fn a_block_with_one_edge_rounded_loses_the_corner_the_arithmetic_says() {
     )];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Round, ROUND),
+            &cube,
+            &mut into
+        ),
         "a unit blend down a four-long edge of a four-across block was refused",
     );
 
@@ -190,7 +194,11 @@ fn a_blend_lies_on_the_cylinder_tangent_to_both_faces() {
         DVec3::new(4.0, 4.0, 0.0),
     )];
     let mut into = Body::default();
-    assert!(Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into));
+    assert!(Rounding::default().round(
+        &Round::new(&along, 1.0, Bevel::Round, ROUND),
+        &cube,
+        &mut into
+    ));
 
     let (_, face) = into
         .patches(ROUND.grew(Grown::Rounded(0)))
@@ -241,7 +249,11 @@ fn a_notch_rounded_on_the_inside_gains_the_corner_the_arithmetic_says() {
     )];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &notched, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Round, ROUND),
+            &notched,
+            &mut into
+        ),
         "a unit blend down the reflex edge of a notch was refused",
     );
 
@@ -280,7 +292,11 @@ fn two_edges_rounded_at_once_take_both_corners() {
     ];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 0.5, ROUND), &cube, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 0.5, Bevel::Round, ROUND),
+            &cube,
+            &mut into
+        ),
         "two opposite edges of a block were refused",
     );
 
@@ -315,7 +331,11 @@ fn a_rounded_block_is_bored_like_any_other() {
         DVec3::new(4.0, 4.0, 0.0),
     )];
     let mut rounded = Body::default();
-    assert!(Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut rounded));
+    assert!(Rounding::default().round(
+        &Round::new(&along, 1.0, Bevel::Round, ROUND),
+        &cube,
+        &mut rounded
+    ));
 
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::new(2.0, 2.0));
@@ -350,12 +370,13 @@ fn a_rounded_block_is_bored_like_any_other() {
 /// **What a rounding cannot make is refused rather than guessed at**, which is
 /// the standing every unanswerable case in this kernel takes.
 ///
-/// Five, and each is a different thing being asked for: a radius that is no
-/// blend at all; one so large the blend runs off the end of the edges it has to
-/// meet, which wants those edges rounded too; a pair of names with no edge
-/// between them; an edge on a face that is not flat, which wants a
-/// variable-radius blend; and two picks meeting at a corner from opposite
-/// sides, which is a corner no rolling ball reaches from one side.
+/// Six, and each is a different thing being asked for: a reach that is no blend
+/// at all; one so large the blend runs off the end of the edges it has to meet,
+/// which wants those edges rounded too; a pair of names with no edge between
+/// them; an edge on a face that is not flat, which wants a variable-radius
+/// blend; two picks meeting at a corner from opposite sides, which is a corner
+/// no rolling ball reaches from one side; and three *flat* picks meeting at a
+/// corner, which wants three lines where three round ones want a patch.
 #[test]
 fn what_a_rounding_cannot_make_is_refused() {
     let cube = cube();
@@ -380,11 +401,34 @@ fn what_a_rounding_cannot_make_is_refused() {
     ];
     for (what, along, radius) in rows {
         assert!(
-            !rounding.round(&Round::new(&along, radius, ROUND), &cube, &mut into),
+            !rounding.round(
+                &Round::new(&along, radius, Bevel::Round, ROUND),
+                &cube,
+                &mut into
+            ),
             "{what} was answered",
         );
         assert!(into.is_empty(), "{what}: a refusal left half a body behind");
     }
+
+    // Three chamfers at one corner. Their planes meet at a point and leave no
+    // patch between them, so what fills the corner is three lines rather than a
+    // face — which is a routine of its own, where three fillets leave a patch
+    // of a sphere.
+    let corner = [
+        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 0.0, 0.0)),
+    ];
+    assert!(
+        !rounding.round(
+            &Round::new(&corner, 1.0, Bevel::Flat, ROUND),
+            &cube,
+            &mut into
+        ),
+        "three chamfers meeting at a corner were answered",
+    );
+    assert!(into.is_empty(), "a refusal left half a body behind");
 
     // A corner where a reflex edge meets a convex one. Both cylinders stand a
     // radius off the face they share and the two stand off it on opposite
@@ -403,7 +447,11 @@ fn what_a_rounding_cannot_make_is_refused() {
         ),
     ];
     assert!(
-        !rounding.round(&Round::new(&leaning, 0.5, ROUND), &notched, &mut into),
+        !rounding.round(
+            &Round::new(&leaning, 0.5, Bevel::Round, ROUND),
+            &notched,
+            &mut into
+        ),
         "a corner a blend reaches from either side was answered",
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
@@ -418,7 +466,11 @@ fn what_a_rounding_cannot_make_is_refused() {
         rod.names().nth(2).expect("a rod has a wall"),
     ]];
     assert!(
-        !rounding.round(&Round::new(&round, 0.25, ROUND), &rod, &mut into),
+        !rounding.round(
+            &Round::new(&round, 0.25, Bevel::Round, ROUND),
+            &rod,
+            &mut into
+        ),
         "the rim of a rod was answered, and a blend there is not a cylinder",
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
@@ -445,7 +497,11 @@ fn two_blends_meeting_at_a_corner_close_against_each_other() {
     ];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Round, ROUND),
+            &cube,
+            &mut into
+        ),
         "two picks meeting at a corner were refused",
     );
 
@@ -514,7 +570,11 @@ fn three_blends_meeting_at_a_corner_leave_a_patch_of_a_sphere() {
     ];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &cube, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Round, ROUND),
+            &cube,
+            &mut into
+        ),
         "three picks meeting at a corner were refused",
     );
 
@@ -573,6 +633,126 @@ fn three_blends_meeting_at_a_corner_leave_a_patch_of_a_sphere() {
     assert!(into.exact(), "a sphere is of the exact tier");
 }
 
+/// **A flat blend cuts the corner off square**, which is the other thing a
+/// rounding can put between the two rulings.
+///
+/// Everything but the surface is what a round one leaves: the same two faces
+/// cut back to the same two rulings for a corner they meet square at, the same
+/// corner swallowed, the same edges shortened. What differs is the face between
+/// them and the two joins, which are creases where a fillet's are not.
+///
+/// The corner it takes is a right triangle with both legs the setback, so a
+/// unit chamfer down a four-long edge takes `½·1²·4` off sixty-four.
+#[test]
+fn a_flat_blend_cuts_the_corner_off_square() {
+    let cube = cube();
+    let along = [between(
+        &cube,
+        DVec3::new(0.0, 4.0, 0.0),
+        DVec3::new(4.0, 4.0, 0.0),
+    )];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Flat, ROUND),
+            &cube,
+            &mut into
+        ),
+        "a unit chamfer down a four-long edge was refused",
+    );
+
+    let want = 64.0 - 0.5 * 4.0;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the chamfered block shuts in {} where {want} is the corner taken off sixty-four",
+        volume(&into),
+    );
+
+    // The same counts a fillet leaves, which is the whole claim: one topology,
+    // two surfaces.
+    assert_eq!(
+        into.reckoning().genus,
+        0,
+        "a chamfered block is still a ball"
+    );
+    let topology = into.topology();
+    assert_eq!(topology.faces().count(), 7, "six faces and the chamfer");
+    assert_eq!(topology.edges().count(), 15);
+    assert_eq!(
+        smooth(&into),
+        0,
+        "a chamfer meets both faces at an angle, so neither join is smooth",
+    );
+
+    let (_, face) = into
+        .patches(ROUND.grew(Grown::Rounded(0)))
+        .next()
+        .expect("the chamfer is a face of the answer");
+    let Surface::Natural(Natural::Plane(plane)) = face.surface else {
+        panic!("a chamfer between two planes is a plane, not {face:?}");
+    };
+    // The top of the block is `y = 4` and the wall it meets is `z = 0`, so a
+    // unit chamfer between them runs from `(·, 3, 0)` to `(·, 4, −1)` — and the
+    // plane square to that run leans equally on both faces.
+    let leaning = DVec3::new(0.0, 1.0, 1.0).normalize();
+    assert!(
+        predicate::parallel(plane.normal(), leaning),
+        "the chamfer faces {} rather than equally on both",
+        plane.normal(),
+    );
+    // And out of the material, which is away from the edge for a corner cut off
+    // rather than filled in.
+    assert!(
+        face.normal(face.surface.uv(DVec3::new(0.0, 4.0, -1.0)))
+            .abs_diff_eq(leaning, PLACED),
+        "the chamfer faces into the material",
+    );
+    assert!(into.exact(), "a plane is of the exact tier");
+}
+
+/// **Two flat blends meeting at a corner close against each other in a line**,
+/// which is the junction two round ones make with the ellipse straightened.
+///
+/// The two chamfer planes cross in a line, and `Meeting::of` writes it down —
+/// so nothing about the corner is a case of its own. What the two share near
+/// the corner is `∫₀ˢ (s − v)² dv`, which comes to `s³/3`, so a unit chamfer
+/// down two adjacent four-long edges shuts in `64 − 4 + ⅓`.
+#[test]
+fn two_flat_blends_meeting_at_a_corner_close_against_each_other() {
+    let cube = cube();
+    let along = [
+        between(&cube, DVec3::new(0.0, 4.0, 0.0), DVec3::new(4.0, 4.0, 0.0)),
+        between(&cube, DVec3::new(4.0, 4.0, 0.0), DVec3::new(4.0, 4.0, -4.0)),
+    ];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Flat, ROUND),
+            &cube,
+            &mut into
+        ),
+        "two chamfers meeting at a corner were refused",
+    );
+
+    let want = 64.0 - 4.0 + 1.0 / 3.0;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the twice-chamfered block shuts in {} where {want} is the two corners \
+         less the one they share",
+        volume(&into),
+    );
+    let reckoning = into.reckoning();
+    assert_eq!(
+        reckoning.genus, 0,
+        "a twice-chamfered block is still a ball"
+    );
+    let topology = into.topology();
+    assert_eq!(topology.faces().count(), 8, "six faces and two chamfers");
+    assert_eq!(topology.edges().count(), 17);
+    assert_eq!(smooth(&into), 0, "no join of a chamfer is smooth");
+    assert!(into.exact(), "two planes crossing in a line stay exact");
+}
+
 /// **A blend whose ends lean cuts ellipses rather than arcs of a circle**,
 /// which is the second thing a face across the end of one can be.
 ///
@@ -603,7 +783,11 @@ fn a_blend_whose_ends_lean_is_closed_by_two_ellipses() {
     )];
     let mut into = Body::default();
     assert!(
-        Rounding::default().round(&Round::new(&along, 1.0, ROUND), &trapezoid, &mut into),
+        Rounding::default().round(
+            &Round::new(&along, 1.0, Bevel::Round, ROUND),
+            &trapezoid,
+            &mut into
+        ),
         "a unit blend between two leaning walls was refused",
     );
 

@@ -322,7 +322,18 @@ impl Build {
                 // No drawing at all, which is what makes a rounding the one
                 // step here that resolves nothing: a pick is a pair of face
                 // names — see [`Doing::Round`].
-                Doing::Round { along, radius } => (None, Recipe::Round { along, radius }),
+                Doing::Round {
+                    along,
+                    reach,
+                    bevel,
+                } => (
+                    None,
+                    Recipe::Round {
+                        along,
+                        reach,
+                        bevel,
+                    },
+                ),
             };
             let mut had = match standing.iter().position(|had| had.of() == step.at) {
                 Some(at) => standing.swap_remove(at),

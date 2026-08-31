@@ -1,7 +1,7 @@
 //! What can be asked of what is picked out, along the bottom.
 
 use palantir::{Align, DragValue, Ui, WidgetId};
-use silverpoint::{Constraint, ConstraintId, Entity, Named, SegmentId};
+use silverpoint::{Bevel, Constraint, ConstraintId, Entity, Named, SegmentId};
 
 use crate::control::chip::Chip;
 use crate::control::pill::{self, Pill};
@@ -25,27 +25,27 @@ use crate::wording;
 /// round number.
 const SCRUB_SPEED: f64 = 0.01;
 
-/// What the radius field opens at, before anybody has scrubbed one.
+/// What the reach field opens at, before anybody has scrubbed one.
 ///
-/// **A number rather than nothing**, because a blend of no radius is one the
+/// **A number rather than nothing**, because a blend of no reach is one the
 /// kernel refuses — see [`Rounding::round`](silverpoint::Rounding) — so a field
 /// opening at nought would offer a chip whose only answer is a step that will
 /// not build. One is what a document with no unit can honestly seed, and the
-/// field keeps whatever it is scrubbed to for the next fillet.
-const FIRST_RADIUS: f64 = 1.0;
+/// field keeps whatever it is scrubbed to for the next blend.
+const FIRST_REACH: f64 = 1.0;
 
-/// The number the radius field is showing.
+/// The number the reach field is showing.
 ///
 /// **A type for one number, because its default is not nought.** The bar keeps
 /// it between frames — see [`Hud`](crate::hud::Hud) — and a derived default
-/// there would open the field on a radius the kernel refuses. Spelled here, so
+/// there would open the field on a reach the kernel refuses. Spelled here, so
 /// what the field opens at and what it means are one line apart.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Radius(f64);
+pub(super) struct Reach(f64);
 
-impl Default for Radius {
+impl Default for Reach {
     fn default() -> Self {
-        Self(FIRST_RADIUS)
+        Self(FIRST_REACH)
     }
 }
 
@@ -71,7 +71,7 @@ pub(super) const REMOVE: &str = "Remove";
 /// **Almost everything here wants a sketch open**, and for one reason: what it
 /// offers is what can be *said about* a drawing, and none of that is asked of a
 /// document you are only looking at. Three are not — starting a sketch, and the
-/// two a fillet is asked through, which are about the model rather than about
+/// two a blend is asked through, which are about the model rather than about
 /// any drawing — so those are the ones read before that gate.
 ///
 /// **Centred, which the rest of the overlay is not.** Two edges picked in the
@@ -84,7 +84,7 @@ pub(super) fn show(
     offers: &mut Vec<Constraint>,
     picked: &Picked,
     draft: &mut f64,
-    radius: &mut Radius,
+    reach: &mut Reach,
     intents: &mut Intents,
 ) {
     let Shown {
@@ -124,11 +124,11 @@ pub(super) fn show(
     if let Some(resizable) = dimension {
         *draft = resizable.value;
     }
-    // The same, for a rounding already in the recipe. A fillet still being
-    // *offered* names no step, so the field keeps what it was last scrubbed to
-    // — which is what makes a second fillet open at the first one's radius.
-    if let Some(stated) = blendable.map(|blendable| blendable.radius) {
-        radius.0 = stated;
+    // The same, for a blend already in the recipe. One still being *offered*
+    // names no step, so the field keeps what it was last scrubbed to — which is
+    // what makes a second blend open at the first one's reach.
+    if let Some(stated) = blendable.map(|blendable| blendable.reach) {
+        reach.0 = stated;
     }
     let theme = shown.theme;
     Pill::hstack(theme, "relations")
@@ -151,29 +151,38 @@ pub(super) fn show(
                 intents.push(Change::AddSketch { on });
             }
             // Before the gate below, because neither wants a drawing: what a
-            // fillet is asked of is the model, and a face of it is picked in the
+            // blend is asked of is the model, and a face of it is picked in the
             // viewport rather than drawn — see
             // [`Change::Round`](crate::intent::change::Change).
             if let Some(along) = roundable {
-                scrub(ui, &mut radius.0);
-                if offering(ui, shown.icons, theme, marked::FILLET) {
-                    // The list reaches the heap on the frame the chip is
-                    // pressed and on no other, as the extrude's profile does.
-                    intents.push(Change::Round {
-                        along: vec![along],
-                        radius: radius.0,
-                    });
+                scrub(ui, &mut reach.0);
+                // **Both kinds, side by side.** They differ in one word and
+                // share the field, the pick and every step of what follows —
+                // see [`Feature::Round`](crate::timeline::feature::Feature) —
+                // so a person chooses between two pictures of the same corner
+                // rather than setting a mode.
+                for bevel in [Bevel::Round, Bevel::Flat] {
+                    if offering(ui, shown.icons, theme, marked::bevelled(bevel)) {
+                        // The list reaches the heap on the frame the chip is
+                        // pressed and on no other, as the extrude's profile
+                        // does.
+                        intents.push(Change::Round {
+                            along: vec![along],
+                            reach: reach.0,
+                            bevel,
+                        });
+                    }
                 }
             }
-            // The fillet already in the recipe, restated. The same field, so
-            // the number is read and scrubbed in one place whether the step
-            // exists yet or not.
+            // The blend already in the recipe, restated. The same field, so the
+            // number is read and scrubbed in one place whether the step exists
+            // yet or not.
             if let Some(blendable) = blendable {
-                let edited = scrub(ui, &mut radius.0);
+                let edited = scrub(ui, &mut reach.0);
                 if edited.changed {
                     intents.push(Change::Blend {
                         round: blendable.at,
-                        to: radius.0,
+                        to: reach.0,
                     });
                 }
                 // One gesture, one step to take back, on the terms the
@@ -280,9 +289,9 @@ pub(super) fn show(
 /// Show one number the bar scrubs, writing what the gesture makes of it into
 /// `value`.
 ///
-/// Its own call because three readings show one — a dimension, a fillet being
-/// offered, and a fillet already in the recipe — and a field spelled three
-/// times would be three places for the speed and the precision to differ.
+/// Its own call because three readings show one — a dimension, a blend being
+/// offered, and a blend already in the recipe — and a field spelled three times
+/// would be three places for the speed and the precision to differ.
 ///
 /// The widget's own response is read here and not handed back: it borrows both
 /// the number and the surface for as long as it lives, which would leave every
@@ -358,7 +367,7 @@ pub(super) struct Picked {
     ///
     /// **A [`Named`] rather than the [`Part`] it came off**, which is where a
     /// pick becomes a name the kernel takes: a face answers to one across every
-    /// edit, and the pair of them a fillet is asked for is exactly the two
+    /// edit, and the pair of them a blend is asked for is exactly the two
     /// picked out — see [`Change::Round`].
     faces: Vec<Named>,
     /// Whether anything picked is none of those four, or is of a second
@@ -520,7 +529,7 @@ impl Picked {
         Some(at)
     }
 
-    /// The pair of faces a fillet would be asked for, if what is picked is
+    /// The pair of faces a blend would be asked for, if what is picked is
     /// exactly two of them.
     ///
     /// **Two, because a pick names one edge**, which is the edge those two
@@ -545,14 +554,14 @@ impl Picked {
         (one != two).then_some([one, two])
     }
 
-    /// The one rounding picked out and the radius it states, if what is picked
+    /// The one blend picked out and how far back it reaches, if what is picked
     /// is exactly that step.
     ///
     /// The mirror of [`Picked::resizable`] one level up: a step somebody may
     /// restate, and what it says as it stands.
     fn blendable(&self, models: Models<'_>) -> Option<Blendable> {
         let at = self.step()?;
-        models.radius_at(at).map(|radius| Blendable { at, radius })
+        models.reach_at(at).map(|reach| Blendable { at, reach })
     }
 
     /// The one plane picked out, if what is picked is exactly that.
@@ -590,14 +599,14 @@ struct Resizable {
     value: f64,
 }
 
-/// A rounding the bar can scrub, and the radius it states as it stands.
+/// A blend the bar can scrub, and how far back it reaches as it stands.
 ///
 /// [`Resizable`]'s twin, and the same shape for the same reason: which step to
 /// name in the change it raises, and what to seed the field with.
 #[derive(Debug, Clone, Copy)]
 struct Blendable {
     at: FeatureId,
-    radius: f64,
+    reach: f64,
 }
 
 /// The regions the bar can grow a solid off.

@@ -9,7 +9,7 @@ use crate::profile::Profile;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
-use silverpoint::{Entity, Grown, Named, Operation, Plane, Sector, SegmentId};
+use silverpoint::{Bevel, Entity, Grown, Named, Operation, Plane, Sector, SegmentId};
 use std::f64::consts::FRAC_PI_2;
 
 /// A square: four free points and the edges between them, which shuts one
@@ -125,19 +125,20 @@ impl Standing {
         body.names().collect()
     }
 
-    /// Round the edge between the far cap and the first wall to `radius`, and
-    /// hand back the step that did it.
+    /// Blend the edge between the far cap and the first wall `reach` far back,
+    /// and hand back the step that did it.
     ///
     /// **The pair of names a block always has an edge between**, which is what
     /// keeps the row readable: [`Body::names`](silverpoint::Body) promises the
     /// base, the far end, then one wall per curve bounding the region.
-    fn round(&mut self, radius: f64) -> FeatureId {
+    fn round(&mut self, reach: f64) -> FeatureId {
         let names = self.names();
         self.document.apply(
             &mut self.build,
             Change::Round {
                 along: vec![[names[1], names[2]]],
-                radius,
+                reach,
+                bevel: Bevel::Round,
             },
         );
         self.models()
@@ -148,7 +149,7 @@ impl Standing {
             .expect("the change put a rounding in the recipe")
     }
 
-    /// Restate the radius of the rounding at `round`, the way the bar's field
+    /// Restate the reach of the blend at `round`, the way the bar's field
     /// does.
     fn blend(&mut self, round: FeatureId, to: f64) {
         self.document
@@ -437,9 +438,9 @@ fn a_blend_the_kernel_refuses_leaves_the_model_standing() {
     standing.blend(round, 0.5);
     let models = standing.models();
     assert_eq!(
-        models.radius_at(round),
+        models.reach_at(round),
         Some(0.5),
-        "restating the radius did not reach the step",
+        "restating the reach did not reach the step",
     );
     assert_eq!(
         models.came_at(round),

@@ -1,6 +1,6 @@
 //! Where the model is changed, and the answer tidied.
 
-use silverpoint::{Body, Boolean, Merging, Named, Operation, Round, Rounding, Step};
+use silverpoint::{Bevel, Body, Boolean, Merging, Named, Operation, Round, Rounding, Step};
 
 /// The room the model is changed in, and every buffer that takes.
 ///
@@ -56,8 +56,8 @@ impl Putting {
         self.boolean.combine(standing, raised, operation, into)
     }
 
-    /// Put a blend of `radius` where each edge `along` names was in `standing`,
-    /// into `into`, and say whether the kernel would.
+    /// Put a blend `reach` far back where each edge `along` names was in
+    /// `standing`, into `into`, and say whether the kernel would.
     ///
     /// **A local edit to one body rather than a boolean between two**, which
     /// `.notes/KERNEL.md` §7.5 measures: a fillet's cylinder lies tangent to
@@ -74,12 +74,13 @@ impl Putting {
         &mut self,
         standing: &Body,
         along: &[[Named; 2]],
-        radius: f64,
+        reach: f64,
+        bevel: Bevel,
         by: Step,
         into: &mut Body,
     ) -> bool {
         self.rounding
-            .round(&Round::new(along, radius, by), standing, into)
+            .round(&Round::new(along, reach, bevel, by), standing, into)
     }
 
     /// `from` with the pieces of every face put back together, into `into`.

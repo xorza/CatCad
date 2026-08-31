@@ -1,6 +1,7 @@
 //! Putting a blend where an edge of a body was.
 
 use crate::inline::Inline;
+use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, PLACED};
 use crate::solid::geometry::axis::Axis;
@@ -28,7 +29,23 @@ use glam::DVec3;
 use std::array;
 use std::f64::consts::TAU;
 
-/// Which edges of a body to round, and how far.
+/// What a blend leaves between the two rulings it cuts a corner back to.
+///
+/// **Two, and the topology is the same either way.** A round blend puts a piece
+/// of cylinder there, tangent to both faces, and the two joins are no creases —
+/// a fillet. A flat one puts a plane there, and both joins are creases — a
+/// chamfer. Everything else the rounding does is the same: the faces are cut
+/// back to the same pair of rulings, the same corners are swallowed, and the
+/// same edges are shortened. See `.notes/KERNEL.md` §7.5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bevel {
+    /// A cylinder tangent to both faces — a fillet.
+    Round,
+    /// A plane between the two rulings — a chamfer.
+    Flat,
+}
+
+/// Which edges of a body to blend, how far, and with what.
 ///
 /// **The edges are named by the faces they divide**, which is the only durable
 /// name an edge has: the kernel keeps no identity for one across a rebuild —
@@ -42,18 +59,54 @@ use std::f64::consts::TAU;
 #[derive(Debug, Clone, Copy)]
 pub struct Round<'a> {
     along: &'a [[Named; 2]],
-    radius: f64,
+    reach: f64,
+    bevel: Bevel,
     by: Step,
 }
 
 impl<'a> Round<'a> {
-    /// Round every edge `along` names to `radius`, as the step `by`.
-    pub fn new(along: &'a [[Named; 2]], radius: f64, by: Step) -> Self {
-        Self { along, radius, by }
+    /// Blend every edge `along` names as `bevel` says, `reach` far back, as the
+    /// step `by`.
+    ///
+    /// **One number for the two kinds**, and it says the same thing about both:
+    /// how far back along each face the blend runs out. A round blend reads it
+    /// as the radius, which for two faces meeting square *is* that reach; a
+    /// flat one reads it as the setback outright. So a step changed from one to
+    /// the other keeps its footprint wherever the two faces meet square, and
+    /// stands `reach·tan(θ/2)` off it where they do not.
+    pub fn new(along: &'a [[Named; 2]], reach: f64, bevel: Bevel, by: Step) -> Self {
+        Self {
+            along,
+            reach,
+            bevel,
+            by,
+        }
     }
 }
 
-/// One edge to be rounded, and the cylinder the blend on it lies on.
+/// The surface a blend lies on, and which kind of blend it is.
+///
+/// **One reading rather than a flag beside a surface**, because everything that
+/// tells the two apart wants the surface's own shape: the arc a round blend
+/// closes a corner with is a section of its cylinder, and a flat one closes on
+/// a line.
+#[derive(Debug, Clone, Copy)]
+enum Laid {
+    Round(Cylinder),
+    Flat(Plane),
+}
+
+impl Laid {
+    /// The surface itself, as a face of the answer names one.
+    fn surface(self) -> Surface {
+        match self {
+            Laid::Round(cylinder) => Surface::Natural(Natural::Cylinder(cylinder)),
+            Laid::Flat(plane) => Surface::Natural(Natural::Plane(plane)),
+        }
+    }
+}
+
+/// One edge to be blended, and the surface the blend on it lies on.
 ///
 /// Worked out before a face of the answer is raised, so that a pick nothing can
 /// be made of is a refusal rather than half a body — the standing every
@@ -75,8 +128,8 @@ struct Blend {
     /// Which way the first of those faces walks the spine, which is what says
     /// where its material is and so which way round the blend is wound.
     walks: bool,
-    /// The cylinder it lies on, and whether the material is inside it.
-    cylinder: Cylinder,
+    /// The surface it lies on, and whether the material is inside it.
+    laid: Laid,
     outward: bool,
     /// Which of the caller's picks found it — see [`Grown::Rounded`].
     pick: u32,
@@ -280,7 +333,7 @@ struct Picked {
     pick: u32,
 }
 
-/// Rounds edges of a body, keeping the room it works in.
+/// Blends edges of a body, keeping the room it works in.
 ///
 /// **A local operation on the topology and never a boolean between bodies**,
 /// which is measured rather than preferred: the material a fillet takes out of
@@ -290,8 +343,8 @@ struct Picked {
 /// `.notes/KERNEL.md` §9.5. Nothing here is cut against anything, so there is
 /// no tangency to turn away.
 ///
-/// **Two faces are cut back to the rulings the blend runs out along, and a
-/// piece of cylinder is put between them.** Everything else the body had comes
+/// **Two faces are cut back to the rulings the blend runs out along, and what
+/// [`Bevel`] names is put between them.** Everything else the body had comes
 /// through untouched: the corner where the edge ended is swallowed, the two
 /// edges running to it are shortened, and the face across it gains an arc.
 ///
@@ -366,9 +419,11 @@ impl Rounding {
     /// made of: one that finds no edge at all; an edge that is not straight or
     /// does not divide two planes; a corner where other than three edges meet;
     /// a corner the picks meeting there do not agree about, one being cut into
-    /// a convex edge and another filled into a concave one; and a radius too
-    /// large for the edges the blend has to run out onto, which would put a
-    /// corner of the answer past the end of one of them.
+    /// a convex edge and another filled into a concave one; three *flat* picks
+    /// at one corner, which leaves three lines rather than a patch and is a
+    /// routine of its own; and a reach too large for the edges the blend has to
+    /// run out onto, which would put a corner of the answer past the end of one
+    /// of them.
     ///
     /// **Picked edges sharing a corner are not among them.** Two of them close
     /// against each other in an ellipse and leave nothing over — see
@@ -405,7 +460,7 @@ impl Rounding {
         self.swallowed.resize(topology.vertex_slots(), None);
         self.trimmed.clear();
         self.trimmed.resize(topology.edge_slots(), [None; 2]);
-        if of.radius <= 0.0 {
+        if of.reach <= 0.0 {
             return false;
         }
         self.meeting.clear();
@@ -435,7 +490,7 @@ impl Rounding {
             }
         }
         for at in 0..self.picked.len() {
-            let Some(blend) = Self::blended(topology, self.picked[at], of.radius) else {
+            let Some(blend) = Self::blended(topology, self.picked[at], of) else {
                 return false;
             };
             self.blends.push(blend);
@@ -563,7 +618,12 @@ impl Rounding {
     /// side the material is. The two rulings it runs out along are that line
     /// brought back onto each plane, and the corners of the blend are where
     /// those rulings cross the edges the two faces already had.
-    fn blended(topology: &Topology, picked: Picked, radius: f64) -> Option<Blend> {
+    ///
+    /// **A flat blend is the same rulings and a plane between them.** Its
+    /// reach is read as the setback outright, so its rulings stand that far
+    /// along each face rather than `reach·tan(θ/2)` — which is the same place
+    /// wherever the two faces meet square. See [`Round::new`].
+    fn blended(topology: &Topology, picked: Picked, of: &Round<'_>) -> Option<Blend> {
         let edge = topology.edge(picked.edge);
         let Curve::Line(line) = edge.curve else {
             return None;
@@ -601,21 +661,49 @@ impl Rounding {
             true => -1.0,
             false => 1.0,
         };
-        let centre = line.origin + (normals[0] + normals[1]) * (toward * radius / (1.0 + leaning));
-        let axis = Axis::new(centre, line.direction, normals[0] * -toward);
+        // **The rulings first, because a chamfer's plane is the one through
+        // both.** A round blend's stand where its cylinder touches; a flat
+        // one's stand the setback back along each face, which is that face's
+        // own normal taken square to the other's.
+        let centre =
+            line.origin + (normals[0] + normals[1]) * (toward * of.reach / (1.0 + leaning));
         let rails = [0, 1].map(|side| Line {
-            origin: centre - normals[side] * (toward * radius),
+            origin: match of.bevel {
+                Bevel::Round => centre - normals[side] * (toward * of.reach),
+                Bevel::Flat => {
+                    let inward = normals[1 - side] - normals[side] * leaning;
+                    line.origin + inward.normalize() * (toward * of.reach)
+                }
+            },
             direction: line.direction,
         });
+        let laid = match of.bevel {
+            Bevel::Round => Laid::Round(Cylinder {
+                axis: Axis::new(centre, line.direction, normals[0] * -toward),
+                radius: of.reach,
+            }),
+            Bevel::Flat => Laid::Flat(Plane {
+                origin: rails[0].origin,
+                x: line.direction,
+                y: (rails[1].origin - rails[0].origin).normalize(),
+            }),
+        };
         Some(Blend {
             spine: picked.edge,
             between,
             walks,
-            cylinder: Cylinder { axis, radius },
-            // A cylinder faces away from its axis, which is out of the material
-            // exactly where the blend was cut into a convex edge rather than
-            // filled into a concave one.
-            outward: convex,
+            laid,
+            // **Out of the material is away from the edge** for a blend cut
+            // into a convex one and toward it for one filled into a concave
+            // one. A cylinder always faces away from its axis, which is that
+            // outright; a chamfer's plane faces whichever way its own frame
+            // came out, so it is asked which side the edge stands on.
+            outward: match laid {
+                Laid::Round(_) => convex,
+                Laid::Flat(plane) => {
+                    (plane.normal().dot(line.origin - plane.origin) > 0.0) == convex
+                }
+            },
             pick: picked.pick,
             rails,
             at: edge.ends(true),
@@ -644,7 +732,7 @@ impl Rounding {
         }
         let across = shared(topology, along, between)?;
         let carried = topology.carried();
-        let surface = Surface::Natural(Natural::Cylinder(blend.cylinder));
+        let surface = blend.laid.surface();
         let Meeting::Along(curves) = Meeting::of(&topology.face(across).surface, &surface) else {
             return None;
         };
@@ -652,12 +740,17 @@ impl Rounding {
         let ends = made.map(|at| curve.along(at, carried));
         // **The way round that stays on the blend**, which is the turn it
         // covers: from the ruling on one face to the ruling on the other, less
-        // than a half turn wherever the two planes meet at an angle at all.
-        let axis = blend.cylinder.axis;
-        let span = axis.bearing(rails[1].origin - axis.origin);
-        let bounds = swept(&curve, ends, carried, |middle| {
-            let angle = axis.angle_of(middle);
-            angle * span >= 0.0 && angle.abs() <= span.abs()
+        // than a half turn wherever the two planes meet at an angle at all. A
+        // flat blend meets the face across a corner in a line, which comes back
+        // to nowhere and asks nothing.
+        let bounds = swept(&curve, ends, carried, |middle| match blend.laid {
+            Laid::Round(cylinder) => {
+                let axis = cylinder.axis;
+                let span = axis.bearing(rails[1].origin - axis.origin);
+                let angle = axis.angle_of(middle);
+                angle * span >= 0.0 && angle.abs() <= span.abs()
+            }
+            Laid::Flat(_) => true,
         });
         Some(Ending::Across {
             across,
@@ -721,7 +814,7 @@ impl Rounding {
         )?;
         let made = [met, back];
         let carried = topology.carried();
-        let surfaces = pair.map(|blend| Surface::Natural(Natural::Cylinder(blend.cylinder)));
+        let surfaces = pair.map(|blend| blend.laid.surface());
         let Meeting::Along(curves) = Meeting::of(&surfaces[0], &surfaces[1]) else {
             return None;
         };
@@ -784,8 +877,16 @@ impl Rounding {
         if three.iter().any(|blend| blend.outward != outward) {
             return None;
         }
-        let radius = three[0].cylinder.radius;
-        let axis = three[0].cylinder.axis;
+        // **A flat corner is a routine of its own**, and is refused: three
+        // chamfer planes meet at one point and leave no patch between them, so
+        // what fills the corner is three lines rather than a face — see
+        // `.notes/KERNEL.md` §9.5. Asked of the first alone, one [`Round`]
+        // carrying one [`Bevel`] for every blend it raises.
+        let Laid::Round(first) = three[0].laid else {
+            return None;
+        };
+        let radius = first.radius;
+        let axis = first.axis;
         // **Every face runs through the corner**, which is what lets a plane be
         // measured from without being written down: how far a place stands off
         // one of them is its reach along that face's own normal from there.
@@ -868,12 +969,7 @@ impl Rounding {
         for at in 0..self.blends.len() {
             let blend = self.blends[at];
             let name = of.by.grew(Grown::Rounded(blend.pick));
-            let raised = Self::patch(
-                into,
-                name,
-                Surface::Natural(Natural::Cylinder(blend.cylinder)),
-                blend.outward,
-            );
+            let raised = Self::patch(into, name, blend.laid.surface(), blend.outward);
             self.raised.push(raised);
         }
         // The corner patches after the blends, so a caller writing one drawable
@@ -939,19 +1035,13 @@ impl Rounding {
                     (into.topology().vertex(corners[end * 2 + side]).at - rail.origin)
                         .dot(rail.direction)
                 });
-                into.topology_mut().add_edge(Edge {
-                    curve: Curve::Line(rail),
+                Self::arc(
+                    into,
+                    Curve::Line(rail),
                     bounds,
-                    from: corners[side],
-                    to: corners[2 + side],
-                    between: [self.made[blend.between[side].slot()].expect(RAISED), face],
-                    // A blend meets the face it runs out onto along a ruling it
-                    // lies tangent to, which is what a blend is — see
-                    // `.notes/KERNEL.md` §9.5, and [`Face::smooth`], which the
-                    // checking holds this against.
-                    artificial: true,
-                    tolerance: EXACT,
-                })
+                    [corners[side], corners[2 + side]],
+                    [self.made[blend.between[side].slot()].expect(RAISED), face],
+                )
             });
             let mut arced = [true; 2];
             let arcs = array::from_fn(|end| match ends[end] {
@@ -1046,9 +1136,12 @@ impl Rounding {
         let arcs = array::from_fn(|which| {
             let end = corner.ends[which];
             let seats = self.blends[end.blend].between.map(|face| corner.seat(face));
+            let Laid::Round(cylinder) = self.blends[end.blend].laid else {
+                unreachable!("a patch of a sphere is only ever put between round blends");
+            };
             let axis = Axis::new(
                 centre,
-                self.blends[end.blend].cylinder.axis.direction,
+                cylinder.axis.direction,
                 corner.made[seats[0]] - centre,
             );
             let curve = Curve::Circle(Circle {
@@ -1094,9 +1187,14 @@ impl Rounding {
     /// faces it divides run out into each other.
     ///
     /// Its own call because everything the rounding puts in is this shape — the
-    /// arc across a corner, the arc two blends share, and the circle a patch
-    /// touches a cylinder along — and the flag has to be read the way the
-    /// checking reads it. See [`Face::smooth`].
+    /// two rulings, the arc across a corner, the arc two blends share, and the
+    /// circle a patch touches a cylinder along — and the flag has to be read
+    /// the way the checking reads it. See [`Face::smooth`].
+    ///
+    /// **Read rather than stated**, which the chamfer is what made necessary: a
+    /// round blend runs out into the face it was cut from and a flat one
+    /// creases against it, and a flag written by hand would have had to know
+    /// which.
     fn arc(
         into: &mut Body,
         curve: Curve,

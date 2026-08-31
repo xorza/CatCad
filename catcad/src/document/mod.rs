@@ -507,8 +507,8 @@ impl Document {
                 build.revised();
             }
             // Nothing to solve either, on the terms the carry above states: a
-            // blend's radius is a number the step holds, and what it does to
-            // the model follows from a replay.
+            // blend's reach is a number the step holds, and what it does to the
+            // model follows from a replay.
             Change::Blend { round, to } => {
                 self.timeline.blend(round, to);
                 build.revised();
@@ -548,8 +548,16 @@ impl Document {
             // The step-adder that resolves nothing at all. Its picks are face
             // names, which a body answers to without a drawing being read —
             // see [`Change::Round`].
-            Change::Round { along, radius } => {
-                shaped = Shaped::Made(self.timeline.add(Feature::Round { along, radius }));
+            Change::Round {
+                along,
+                reach,
+                bevel,
+            } => {
+                shaped = Shaped::Made(self.timeline.add(Feature::Round {
+                    along,
+                    reach,
+                    bevel,
+                }));
                 build.revised();
             }
             // The last step-adder, and the simplest: a sketch is born empty, so

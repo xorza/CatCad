@@ -1,6 +1,8 @@
 //! The solid one step leaves behind, and what it was built from.
 
-use silverpoint::{Arrangement, Body, Builder, Extrusion, Named, Operation, Plane, Revolution};
+use silverpoint::{
+    Arrangement, Bevel, Body, Builder, Extrusion, Named, Operation, Plane, Revolution,
+};
 
 use crate::build::Revision;
 use crate::build::putting::Putting;
@@ -139,7 +141,11 @@ impl Bodied {
         self.version = self.version.next();
         match recipe {
             Recipe::Sweep { digest, regions } => self.sweep(room, digest, regions, standing),
-            Recipe::Round { along, radius } => self.round(room, along, radius, standing),
+            Recipe::Round {
+                along,
+                reach,
+                bevel,
+            } => self.round(room, along, reach, bevel, standing),
         }
     }
 
@@ -218,21 +224,35 @@ impl Bodied {
         putting.tidy(&self.body, &mut self.shown);
     }
 
-    /// Put a blend of `radius` where each edge `along` names was, in the model
-    /// `standing` left.
+    /// Put a blend `reach` far back where each edge `along` names was, in the
+    /// model `standing` left.
     ///
     /// **Nothing is raised and nothing is combined**, which is what makes this
     /// the shorter of the two: a rounding rewrites the body standing before it,
     /// so there is no second solid for a refusal to leave beside the model.
     /// What a refusal costs is the step, and the model goes on standing — see
     /// [`Built::Unrounded`], and [`Built::Lost`] for the other way it can go.
-    fn round(&mut self, room: Rebuilding<'_>, along: &[[Named; 2]], radius: f64, standing: &Body) {
+    fn round(
+        &mut self,
+        room: Rebuilding<'_>,
+        along: &[[Named; 2]],
+        reach: f64,
+        bevel: Bevel,
+        standing: &Body,
+    ) {
         let Rebuilding { putting, .. } = room;
-        if !putting.round(standing, along, radius, self.of.step(), &mut self.body) {
+        if !putting.round(
+            standing,
+            along,
+            reach,
+            bevel,
+            self.of.step(),
+            &mut self.body,
+        ) {
             // **Which of the two refusals it was**, worked out here because the
             // kernel answers one `false` for both and the two are mended
             // differently: a pick the model no longer holds wants picking
-            // again, and a radius it will not take wants scrubbing down.
+            // again, and a reach it will not take wants scrubbing down.
             self.came_to(
                 match along.iter().flatten().all(|&named| standing.holds(named)) {
                     true => Built::Unrounded,
@@ -306,7 +326,7 @@ pub(crate) enum Built {
     /// costs is the step, and the model goes on standing.
     ///
     /// **Told apart from [`Built::Lost`] because they are mended differently.**
-    /// A pick the model no longer holds is mended by picking again; a radius
+    /// A pick the model no longer holds is mended by picking again; a reach
     /// too large for the edges the blend has to run out onto is mended by
     /// scrubbing it down. See `.notes/KERNEL.md` §7.5 for the whole list of
     /// what a rounding refuses.
@@ -352,14 +372,16 @@ pub(super) enum Recipe<'a> {
         /// sketch, resolved by the walk that hands this over.
         regions: &'a [usize],
     },
-    /// A blend of `radius` put where each edge `along` names was.
+    /// A blend put `reach` far back where each edge `along` names was, as
+    /// `bevel` says.
     ///
     /// **No digest at all**, which is what a step that resolves nothing against
     /// a drawing comes to: a pick is a pair of face names, and what moves under
     /// it is the model, which [`Bodied::standing`] already counts.
     Round {
         along: &'a [[Named; 2]],
-        radius: f64,
+        reach: f64,
+        bevel: Bevel,
     },
 }
 
@@ -407,7 +429,8 @@ enum Kept {
     },
     Round {
         along: Vec<[Named; 2]>,
-        radius: f64,
+        reach: f64,
+        bevel: Bevel,
     },
 }
 
@@ -423,12 +446,17 @@ impl Kept {
                 },
             ) => *digest == was && regions == at,
             (
-                Kept::Round { along, radius },
+                Kept::Round {
+                    along,
+                    reach,
+                    bevel,
+                },
                 Recipe::Round {
                     along: picks,
-                    radius: to,
+                    reach: to,
+                    bevel: kind,
                 },
-            ) => along == picks && *radius == to,
+            ) => along == picks && *reach == to && *bevel == kind,
             _ => false,
         }
     }
@@ -448,15 +476,20 @@ impl Kept {
                 regions.extend_from_slice(at);
             }
             (
-                Kept::Round { along, radius },
+                Kept::Round {
+                    along,
+                    reach,
+                    bevel,
+                },
                 Recipe::Round {
                     along: picks,
-                    radius: to,
+                    reach: to,
+                    bevel: kind,
                 },
             ) => {
                 along.clear();
                 along.extend_from_slice(picks);
-                *radius = to;
+                (*reach, *bevel) = (to, kind);
             }
             // A first build, which is the only time the arm moves: a step never
             // changes kind, so nothing after this hands the heap anything back.
@@ -466,10 +499,18 @@ impl Kept {
                     regions: regions.to_vec(),
                 }
             }
-            (_, Recipe::Round { along, radius }) => {
+            (
+                _,
+                Recipe::Round {
+                    along,
+                    reach,
+                    bevel,
+                },
+            ) => {
                 *self = Kept::Round {
                     along: along.to_vec(),
-                    radius,
+                    reach,
+                    bevel,
                 }
             }
         }

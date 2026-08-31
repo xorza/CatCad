@@ -5,7 +5,7 @@ use crate::drawing::anchor::Anchor;
 use crate::profile::Profile;
 use aperture::Motion;
 use glam::{DVec2, DVec3, Vec3};
-use silverpoint::{Grown, Operation, Plane, Sketch};
+use silverpoint::{Bevel, Grown, Operation, Plane, Sketch};
 
 /// A step names an earlier step and never itself, and a handle stays dead once
 /// its step is gone.
@@ -393,7 +393,8 @@ fn a_rounding_stands_on_every_step_it_picked_a_face_of() {
             first.step().grew(Grown::Far),
             second.step().grew(Grown::Base),
         ]],
-        radius: 0.5,
+        reach: 0.5,
+        bevel: Bevel::Round,
     });
 
     let mut doomed = Vec::new();

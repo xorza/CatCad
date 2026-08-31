@@ -22,7 +22,7 @@
 use common::AllocTester;
 use glam::DVec2;
 use silverpoint::{
-    Arrangement, Body, Boolean, Extrusion, Merging, Mesher, Named, Operation, Plane, Round,
+    Arrangement, Bevel, Body, Boolean, Extrusion, Merging, Mesher, Named, Operation, Plane, Round,
     Rounding, Sketch, Step,
 };
 use std::f64::consts::PI;
@@ -204,8 +204,9 @@ fn merging_a_bore_allocates_nothing() {
     );
 }
 
-/// Round the edges `picks` names on `cube()` to `radius`, hold the answer to
-/// `want`, and gate every further rounding of the same body at a strict zero.
+/// Blend the edges `picks` names on `cube()` `reach` far back as `bevel` says,
+/// hold the answer to `want`, and gate every further rounding of the same body
+/// at a strict zero.
 ///
 /// **The one operation here that is neither a boolean nor a merge**, and it
 /// runs on the same clock as both: a rounding is a step of a history, so a drag
@@ -213,11 +214,11 @@ fn merging_a_bore_allocates_nothing() {
 ///
 /// An edge is picked as a pair of the block's own face names, which is the only
 /// durable name one has — see [`Body::names`], where their order is promised.
-fn blend(picks: &[[usize; 2]], radius: f64, want: f64) {
+fn blend(picks: &[[usize; 2]], reach: f64, bevel: Bevel, want: f64) {
     let cube = cube();
     let names: Vec<_> = cube.names().collect();
     let along: Vec<[Named; 2]> = picks.iter().map(|at| at.map(|at| names[at])).collect();
-    let round = Round::new(&along, radius, TOOL);
+    let round = Round::new(&along, reach, bevel, TOOL);
     let mut rounding = Rounding::default();
     let mut into = Body::default();
     assert!(
@@ -239,7 +240,7 @@ fn blend(picks: &[[usize; 2]], radius: f64, want: f64) {
 /// `64 − (1 − π/4)·4`.
 #[test]
 fn rounding_an_edge_of_a_block_allocates_nothing() {
-    blend(&[[1, 2]], 1.0, 64.0 - (1.0 - PI / 4.0) * 4.0);
+    blend(&[[1, 2]], 1.0, Bevel::Round, 64.0 - (1.0 - PI / 4.0) * 4.0);
 }
 
 /// Two blends closing against each other, which is the path a corner shared by
@@ -259,6 +260,7 @@ fn rounding_two_edges_that_meet_allocates_nothing() {
     blend(
         &[[1, 2], [2, 3]],
         1.0,
+        Bevel::Round,
         64.0 - 8.0 * (1.0 - PI / 4.0) + 5.0 / 3.0 - PI / 2.0,
     );
 }
@@ -275,6 +277,20 @@ fn rounding_three_edges_that_meet_allocates_nothing() {
     blend(
         &[[1, 2], [2, 3], [1, 3]],
         1.0,
+        Bevel::Round,
         54.0 + 9.0 * PI / 4.0 + PI / 6.0,
     );
+}
+
+/// And a chamfer, which is the same walk over a plane rather than a cylinder.
+///
+/// One row rather than three, because what a flat blend does differently is the
+/// surface it lays down: the corners it swallows, the edges it cuts back and the
+/// tables it keeps are the round one's. The two edges meet, so the junction is
+/// walked too — see
+/// `two_flat_blends_meeting_at_a_corner_close_against_each_other`, where
+/// `64 − 4 + ⅓` is argued.
+#[test]
+fn chamfering_two_edges_that_meet_allocates_nothing() {
+    blend(&[[1, 2], [2, 3]], 1.0, Bevel::Flat, 64.0 - 4.0 + 1.0 / 3.0);
 }

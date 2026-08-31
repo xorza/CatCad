@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::{Named, Operation, Plane, Sector, SegmentId, Sketch};
+use silverpoint::{Bevel, Named, Operation, Plane, Sector, SegmentId, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -83,7 +83,18 @@ pub(crate) enum Feature {
     /// profile nor an operation: it names no region, lies on no plane, and
     /// raises no second solid to put into the model. What it changes is the
     /// model standing before it, which every other step here builds *onto*.
-    Round { along: Vec<[Named; 2]>, radius: f64 },
+    ///
+    /// **`reach` says how far back the blend runs out and `bevel` what goes
+    /// between**, which is one step kind for a fillet and a chamfer both: the
+    /// two share every field, a drag handle, a file record and a row of the
+    /// recipe, so the word is what varies — the same argument
+    /// [`Feature::Extrude`] makes about a cut and a boss. See
+    /// [`Round::new`](silverpoint::Round::new), where the one number is argued.
+    Round {
+        along: Vec<[Named; 2]>,
+        reach: f64,
+        bevel: Bevel,
+    },
 }
 
 // Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
@@ -118,9 +129,14 @@ impl Clone for Feature {
                 sector: *sector,
                 operation: *operation,
             },
-            Feature::Round { along, radius } => Feature::Round {
+            Feature::Round {
+                along,
+                reach,
+                bevel,
+            } => Feature::Round {
                 along: along.clone(),
-                radius: *radius,
+                reach: *reach,
+                bevel: *bevel,
             },
         }
     }
@@ -173,15 +189,21 @@ impl Clone for Feature {
                 *operation = *doing;
             }
             (
-                Feature::Round { along, radius },
+                Feature::Round {
+                    along,
+                    reach,
+                    bevel,
+                },
                 Feature::Round {
                     along: picks,
-                    radius: to,
+                    reach: to,
+                    bevel: kind,
                 },
             ) => {
                 along.clear();
                 along.extend_from_slice(picks);
-                *radius = *to;
+                *reach = *to;
+                *bevel = *kind;
             }
             // A plane is a handful of numbers, and two steps of different kinds
             // share nothing there would be any point writing over.
@@ -269,7 +291,13 @@ impl Feature {
             Feature::Sketch { .. } => "a sketch",
             Feature::Extrude { .. } => "an extrude",
             Feature::Revolve { .. } => "a revolve",
-            Feature::Round { .. } => "a rounding",
+            Feature::Round {
+                bevel: Bevel::Round,
+                ..
+            } => "a fillet",
+            Feature::Round {
+                bevel: Bevel::Flat, ..
+            } => "a chamfer",
         }
     }
 }

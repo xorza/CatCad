@@ -28,6 +28,7 @@ pub(crate) enum Glyph {
     Extrude,
     Revolve,
     Round,
+    Chamfer,
     Perspective,
     Orthographic,
     Fit,
@@ -44,7 +45,7 @@ pub(crate) enum Glyph {
 /// by `glyph as usize` rather than search. The atlas sorts its own table by
 /// name, so the ids are resolved back by name into this order — the two orders
 /// are unrelated and neither may be assumed of the other.
-const SOURCES: [(Glyph, &str, &str); 24] = [
+const SOURCES: [(Glyph, &str, &str); 25] = [
     (Glyph::Pointer, "pointer", POINTER),
     (Glyph::Point, "point", POINT),
     (Glyph::Line, "line", LINE),
@@ -61,6 +62,7 @@ const SOURCES: [(Glyph, &str, &str); 24] = [
     (Glyph::Extrude, "extrude", EXTRUDE),
     (Glyph::Revolve, "revolve", REVOLVE),
     (Glyph::Round, "round", ROUND),
+    (Glyph::Chamfer, "chamfer", CHAMFER),
     (Glyph::Perspective, "perspective", PERSPECTIVE),
     (Glyph::Orthographic, "orthographic", ORTHOGRAPHIC),
     (Glyph::Fit, "fit", FIT),
@@ -174,6 +176,14 @@ const REVOLVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
 /// dashed square is the material taken away, which on its own reads as nothing
 /// at all. Together they say what a fillet does to a corner.
 const ROUND: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 20.5V12a7.5 7.5 0 0 1 7.5-7.5H20" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M4 4.5h7.5M4 4.5V12" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 2.6"/></svg>"##;
+
+/// The same corner as [`ROUND`], cut off square rather than round.
+///
+/// **The pair reads as a pair**, which is the whole of why it is drawn this
+/// way: the two say the same thing about the same corner and differ in one
+/// stroke, so a reader tells a chamfer from a fillet by the shape of that
+/// stroke rather than by remembering which icon is which.
+const CHAMFER: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 20.5V12l8-7.5H20" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 4.5h8M4 4.5V12" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 2.6"/></svg>"##;
 
 const PERSPECTIVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4.5l16 3v9l-16 3z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 12h16" fill="none" stroke="#fff" stroke-width="1.6"/></svg>"##;
 

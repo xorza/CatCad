@@ -358,7 +358,7 @@ pub(crate) struct Sheeted {
 /// under it, and is mended by drawing or by picking again; an unmerged solid is
 /// the kernel refusing a boolean it cannot do yet, and is mended by moving the
 /// solid or by waiting for the kernel to widen; a blend the kernel would not
-/// put in is mended by scrubbing its radius down. A reader handed `true` would
+/// put in is mended by scrubbing its reach down. A reader handed `true` would
 /// have to go back to the build to find out which it had.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Broken {
@@ -588,16 +588,16 @@ impl<'a> Models<'a> {
             .then(|| self.build.bodied(at).built())
     }
 
-    /// The radius the rounding at `at` states, or `None` where that step is not
+    /// How far back the blend at `at` reaches, or `None` where that step is not
     /// one.
     ///
-    /// A fair question of any step rather than of a rounding known to be one,
-    /// on the terms [`Models::broken_at`] states: what is picked out is a step,
+    /// A fair question of any step rather than of a blend known to be one, on
+    /// the terms [`Models::broken_at`] states: what is picked out is a step,
     /// and being told its kind first is what a caller should not have to
     /// arrange.
-    pub(crate) fn radius_at(self, at: FeatureId) -> Option<f64> {
+    pub(crate) fn reach_at(self, at: FeatureId) -> Option<f64> {
         match self.timeline.feature(at) {
-            Feature::Round { radius, .. } => Some(*radius),
+            Feature::Round { reach, .. } => Some(*reach),
             Feature::Plane(_)
             | Feature::Sketch { .. }
             | Feature::Extrude { .. }
@@ -709,7 +709,7 @@ impl<'a> Models<'a> {
     ///
     /// The third thing a step can come to — see [`Broken::Unrounded`]. Counted
     /// apart from the two above on the terms they are counted apart from each
-    /// other: a person mends this one by scrubbing a radius down, which is
+    /// other: a person mends this one by scrubbing a reach down, which is
     /// neither of the other two answers.
     pub(crate) fn unrounded(self) -> usize {
         self.broken(Broken::Unrounded)

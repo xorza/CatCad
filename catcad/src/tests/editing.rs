@@ -206,11 +206,11 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
     raised.frame();
 }
 
-/// **Two faces of the model picked out offer a fillet, and pressing it puts a
-/// rounding on the end of the recipe.**
+/// **Two faces of the model picked out offer a fillet and a chamfer, and
+/// pressing either puts a blend on the end of the recipe.**
 ///
 /// The path a user has for the one step that sweeps nothing: pick the two faces
-/// an edge divides, set a radius, press the chip. A pick is a pair of face
+/// an edge divides, set a reach, press the chip. A pick is a pair of face
 /// names — see [`Feature::Round`] — so picking the faces *is* naming the edge,
 /// and the viewport needs no way to pick an edge of its own.
 ///
@@ -226,7 +226,7 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
 /// go in. What a blend that *does* go in comes to is asked over a block in
 /// [`build::tests`](crate::build).
 #[test]
-fn two_faces_picked_out_offer_a_fillet_and_one_face_does_not() {
+fn two_faces_picked_out_offer_a_blend_and_one_face_does_not() {
     let mut raised = Raised::new();
     assert_eq!(raised.solids(), 1);
 
@@ -250,20 +250,27 @@ fn two_faces_picked_out_offer_a_fillet_and_one_face_does_not() {
     // One face names no edge, so there is nothing to offer.
     raised.choose(Choice::Select(Some(one)));
     raised.frame();
-    assert!(
-        !raised.shows(internals::relation("Fillet")),
-        "one face picked out offered a fillet"
-    );
+    for offered in ["Fillet", "Chamfer"] {
+        assert!(
+            !raised.shows(internals::relation(offered)),
+            "one face picked out offered a {offered}"
+        );
+    }
 
     raised.choose(Choice::Include(two));
     raised.frame();
-    assert!(
-        raised.shows(internals::relation("Fillet")),
-        "two faces picked out offered no fillet: {}",
-        raised.app.status()
-    );
+    // **Both kinds, and the same pick answers either**, which is the whole of
+    // why they are one step: a person chooses the corner's shape rather than a
+    // mode — see [`Feature::Round`].
+    for offered in ["Fillet", "Chamfer"] {
+        assert!(
+            raised.shows(internals::relation(offered)),
+            "two faces picked out offered no {offered}: {}",
+            raised.app.status()
+        );
+    }
 
-    raised.press(internals::relation("Fillet"));
+    raised.press(internals::relation("Chamfer"));
     raised.frame();
     let rounding = |raised: &Raised| {
         raised
@@ -275,7 +282,7 @@ fn two_faces_picked_out_offer_a_fillet_and_one_face_does_not() {
     assert_eq!(
         rounding(&raised),
         1,
-        "pressing Fillet put no rounding in the recipe: {}",
+        "pressing Chamfer put no blend in the recipe: {}",
         raised.app.status()
     );
     // The model is the disc it was, and the recipe says which step could not go
