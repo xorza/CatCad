@@ -13,7 +13,6 @@ pub(crate) mod axis;
 pub(crate) mod carried;
 pub(crate) mod circle;
 pub(crate) mod cone;
-pub(crate) mod congruence;
 pub(crate) mod curve;
 pub(crate) mod cylinder;
 pub(crate) mod ellipse;

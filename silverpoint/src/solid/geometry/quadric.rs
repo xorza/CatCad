@@ -23,8 +23,8 @@ use glam::DVec3;
 /// **Exact throughout and not written over a tier**, where every other exact
 /// routine in the crate is asked in whatever arithmetic a caller hands it. The
 /// reason is that this is a *construction* and not a predicate: what reads it
-/// is a determinant, a polynomial gcd and a congruence, none of which a filter
-/// can decline its way through. There is no question the filtered form would
+/// is a determinant and a polynomial gcd, neither of which a filter can decline
+/// its way through. There is no question the filtered form would
 /// answer that the exact one does not.
 ///
 /// **Exactly rational, because every coefficient is one step from an `f64`.**
@@ -244,8 +244,7 @@ impl Quadric {
     ///
     /// **`None` has two meanings and both are answers.** A discriminant under
     /// nought is a place with no *real* line through it, which every place of a
-    /// sphere is — the same fact [`Signature::ruled`](super::congruence::Signature::ruled) reports about the whole
-    /// surface. And a place the quadric is singular at, a cone's apex, has no
+    /// sphere is. And a place the quadric is singular at, a cone's apex, has no
     /// tangent plane to take a binary form on.
     ///
     /// `place` has to be on the quadric: a line through a place off it meets it
