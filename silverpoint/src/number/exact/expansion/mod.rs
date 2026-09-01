@@ -128,28 +128,6 @@ impl<const N: usize> Expansion<N> {
             .map_or(Ordering::Equal, |at| at.total_cmp(&0.0))
     }
 
-    /// What it comes to as a float, for a caller wanting a number rather than a
-    /// decision.
-    ///
-    /// Summed smallest first, so each addition carries what the ones before it
-    /// contributed instead of losing them under the largest. The nearest float
-    /// for everything the tests sweep, and not proved nearest in general —
-    /// Shewchuk's own estimate is an approximation too, and a caller needing
-    /// the guarantee wants the terms compressed first.
-    ///
-    /// **Nothing in production reads it yet**, what asks an expansion today
-    /// wanting a sign and nothing else. Kept because it is what holds the
-    /// arithmetic up: every tier here answers with a number as well as a
-    /// decision — [`Field::nearest`](super::field::Field::nearest) and
-    /// [`Filtered::nearest`](super::filtered::Filtered::nearest) are the same
-    /// reading — and the sweep in the tests holds this one against the
-    /// rational's, which is what says the terms are the number and not only its
-    /// sign.
-    #[allow(dead_code)]
-    pub(crate) fn estimate(&self) -> f64 {
-        self.terms.all().iter().sum()
-    }
-
     /// Keep `term` unless it is nothing.
     ///
     /// A zero term is a slot spent carrying no value, and dropping them is what
@@ -267,6 +245,32 @@ impl<const N: usize> Decides for Expansion<N> {
     /// Always an answer: an exact tier has no bound to reach across nought.
     fn decided(&self) -> Option<Ordering> {
         Some(self.sign())
+    }
+}
+
+#[cfg(test)]
+mod internals {
+    use crate::number::exact::expansion::Expansion;
+
+    impl<const N: usize> Expansion<N> {
+        /// What it comes to as a float.
+        ///
+        /// Summed smallest first, so each addition carries what the ones before
+        /// it contributed instead of losing them under the largest. The nearest
+        /// float for everything the sweep asks, and not proved nearest in
+        /// general — Shewchuk's own estimate is an approximation too, and a
+        /// caller needing the guarantee wants the terms compressed first.
+        ///
+        /// **A test reading and nothing else.** What asks an expansion in
+        /// production wants a sign, and the tiers that answer with a number
+        /// have their own reading — see
+        /// [`Field::nearest`](crate::number::exact::field::Field::nearest) and
+        /// [`Filtered::nearest`](crate::number::exact::filtered::Filtered::nearest).
+        /// What this is for is the sweep that holds it against the rational's,
+        /// which is what says the terms are the number and not only its sign.
+        pub(crate) fn estimate(&self) -> f64 {
+            self.terms.all().iter().sum()
+        }
     }
 }
 

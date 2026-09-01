@@ -315,7 +315,8 @@ fn every_crossing_answered_stands_on_the_patch() {
 #[test]
 fn the_tip_reads_nought_whatever_the_ray_and_is_never_counted() {
     let gusset = square();
-    let tip = gusset.met();
+    let framing = gusset.framing();
+    let tip = framing.met;
     let angle = gusset.filled.axis.angle_of(tip);
     for from in CAST {
         for down in 0..=4 {
@@ -325,10 +326,10 @@ fn the_tip_reads_nought_whatever_the_ray_and_is_never_counted() {
             ));
             let way = at - from;
             assert!(
-                gusset.aimed(angle, from, way).abs()
-                    < 1e-9 * gusset.aimed(angle + 0.2, from, way).abs(),
+                gusset.aimed(angle, from, way, framing).abs()
+                    < 1e-9 * gusset.aimed(angle + 0.2, from, way, framing).abs(),
                 "the tip reads {} from {from}",
-                gusset.aimed(angle, from, way),
+                gusset.aimed(angle, from, way, framing),
             );
             for &along in gusset.met_by(from, way).all() {
                 assert!(

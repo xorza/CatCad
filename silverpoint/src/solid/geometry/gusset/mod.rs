@@ -32,7 +32,9 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 /// **Four fields and no more.** Where the two blends touch is the middle of
 /// their axes' common perpendicular, and the plane the first edge is the
 /// section of comes off that and [`Gusset::from`] — so neither is held, and
-/// neither can come to disagree with what it was derived from.
+/// neither can come to disagree with what it was derived from. A call wanting
+/// either of them several times over works them out once into a [`Framing`]
+/// and carries that down.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Gusset {
     /// The blend filled into the concave edge. Every ruling leaves it, and the
@@ -52,6 +54,25 @@ pub(crate) struct Gusset {
     /// Which way round each axis was framed decides it, and a caller does not
     /// choose that.
     pub(crate) turning: bool,
+}
+
+/// What every ruling of one [`Gusset`] shares.
+///
+/// **Worked out once for a call that wants several rulings, and never stored.**
+/// A cast against the patch reads seven angles and then walks up to six
+/// crossings, each of which builds two rulings — so the touch point and the
+/// cutting plane would be found a score of times for a ray where they are the
+/// same two values throughout. Carried as a value the caller makes rather than
+/// as fields on the patch, which is [`Gusset`]'s own rule.
+#[derive(Debug, Clone, Copy)]
+struct Framing {
+    /// Where the two blends touch — see [`Gusset::met`].
+    met: DVec3,
+    /// The normal of the plane the first edge is a section by — see
+    /// [`Gusset::cutting`].
+    cutting: DVec3,
+    /// Which of the two tangents through a head the ruling is, as a sign.
+    side: f64,
 }
 
 /// One ruling of a [`Gusset`], and how fast each of its ends moves.
@@ -94,7 +115,7 @@ impl Gusset {
     /// reach off the face the two picks share and run off it on opposite sides,
     /// so the axes stand two reaches apart and touch nothing but each other's
     /// tube at that one place — `.notes/KERNEL.md` §9.6.
-    pub(crate) fn met(&self) -> DVec3 {
+    fn met(&self) -> DVec3 {
         let (one, two) = (self.filled.axis, self.cut.axis);
         let across = one.direction.cross(two.direction);
         let apart = two.origin - one.origin;
@@ -104,10 +125,24 @@ impl Gusset {
         (head + foot) / 2.0
     }
 
+    /// What every ruling of this patch shares, worked out once — see
+    /// [`Framing`].
+    fn framing(&self) -> Framing {
+        let met = self.met();
+        Framing {
+            met,
+            cutting: self.cutting(met),
+            side: match self.turning {
+                true => 1.0,
+                false => -1.0,
+            },
+        }
+    }
+
     /// Where the parameters `uv` land: `u` radians round the fillet, `v` along
     /// the ruling from it.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
-        let ruling = self.ruled(uv.x, self.side());
+        let ruling = self.ruled(uv.x, self.framing());
         ruling.head + (ruling.foot - ruling.head) * uv.y
     }
 
@@ -120,7 +155,7 @@ impl Gusset {
     /// the blend of them. So the two edges read the two blends' own normals
     /// back, which is the tangency this patch exists to keep.
     pub(crate) fn normal(&self, uv: DVec2) -> DVec3 {
-        let ruling = self.ruled(uv.x, self.side());
+        let ruling = self.ruled(uv.x, self.framing());
         let along = ruling.foot - ruling.head;
         let across = ruling.heading + (ruling.footing - ruling.heading) * uv.y;
         across.cross(along).normalize()
@@ -146,7 +181,8 @@ impl Gusset {
             .clamp(-1.0, 1.0)
             .acos();
         let bearing = round.atan2(out);
-        let held = [bearing - lean, bearing + lean].map(|angle| self.ruled(angle, self.side()));
+        let framing = self.framing();
+        let held = [bearing - lean, bearing + lean].map(|angle| self.ruled(angle, framing));
         let ruling = if held[0].strays(at) <= held[1].strays(at) {
             held[0]
         } else {
@@ -194,16 +230,17 @@ impl Gusset {
     /// rather than this one's — the same ray meets the blend that edge is
     /// shared with on *its* boundary, where a cast is abandoned outright.
     pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
-        let tip = self.filled.axis.angle_of(self.met());
+        let framing = self.framing();
+        let tip = self.filled.axis.angle_of(framing.met);
         let start = tip + PI;
         let mut readings = [0.0; harmonic::READINGS];
         for (step, reading) in readings.iter_mut().enumerate() {
             let angle = start + TAU * step as f64 / harmonic::READINGS as f64;
-            *reading = self.aimed(angle, from, way) / (1.0 - (angle - tip).cos());
+            *reading = self.aimed(angle, from, way, framing) / (1.0 - (angle - tip).cos());
         }
         let mut found = Crossings::none();
         for angle in harmonic::angles(readings, start) {
-            if let Some(along) = self.crossed(angle, from, way) {
+            if let Some(along) = self.crossed(angle, from, way, framing) {
                 found.push(along);
             }
         }
@@ -220,10 +257,10 @@ impl Gusset {
     /// `(o − x)·m = −r` puts the landing angle where the ruling touches, one
     /// harmonic and so one root, and squaring the ruling against the fillet's
     /// normal puts it along the round's axis, which is linear.
-    fn ruled(&self, angle: f64, side: f64) -> Ruling {
+    fn ruled(&self, angle: f64, framing: Framing) -> Ruling {
         let (axis, other) = (self.filled.axis, self.cut.axis);
         let reach = self.filled.radius;
-        let cutting = self.cutting();
+        let cutting = framing.cutting;
         let (facing, turning) = (axis.radial(angle), axis.radial(angle + FRAC_PI_2));
         let leaning = cutting.dot(axis.direction);
         let running = -reach * cutting.dot(turning) / leaning;
@@ -240,8 +277,8 @@ impl Gusset {
         let squaring = other.direction.cross(crossing);
         let root = (spread - reach * reach).max(0.0).sqrt();
         let rooting = across.dot(crossing) / root;
-        let over = across * -reach + square * (side * root);
-        let overing = crossing * -reach + (squaring * root + square * rooting) * side;
+        let over = across * -reach + square * (framing.side * root);
+        let overing = crossing * -reach + (squaring * root + square * rooting) * framing.side;
         let lands = over / spread;
         let landing = (overing * spread - over * spreading) / (spread * spread);
 
@@ -261,16 +298,11 @@ impl Gusset {
         }
     }
 
-    /// Where the patch's first edge stands at the fillet's angle `angle`, given
-    /// the normal `cutting` of the plane that edge is a section by.
+    /// Where the patch's first edge stands at the fillet's angle `angle`.
     ///
-    /// **The fillet's own section by that plane**, which is one division: the
-    /// plane fixes how far along the axis the place stands, and the angle fixes
-    /// the rest of it.
-    ///
-    /// The normal is handed over rather than asked for, both callers holding
-    /// one already — [`Gusset::cutting`] runs [`Gusset::met`] to reach it, and
-    /// a ruling would work the whole of that out twice.
+    /// **The fillet's own section by the plane that edge is cut by**, which is
+    /// one division: the plane fixes how far along the axis the place stands,
+    /// and the angle fixes the rest of it.
     fn headed(&self, angle: f64, cutting: DVec3) -> DVec3 {
         let axis = self.filled.axis;
         let reach = self.filled.radius;
@@ -278,14 +310,6 @@ impl Gusset {
         let run = (cutting.dot(self.from - axis.origin) - reach * cutting.dot(facing))
             / cutting.dot(axis.direction);
         axis.origin + axis.direction * run + facing * reach
-    }
-
-    /// Which of the two tangents through a head the ruling is, as a sign.
-    fn side(&self) -> f64 {
-        match self.turning {
-            true => 1.0,
-            false => -1.0,
-        }
     }
 
     /// How far the ray from `from` running `way` stands from meeting either of
@@ -297,10 +321,10 @@ impl Gusset {
     /// tangents to the round are the roots of a quadratic form on that plane —
     /// so putting the ray's own direction into the form asks about both without
     /// taking the root that would tell them apart.
-    fn aimed(&self, angle: f64, from: DVec3, way: DVec3) -> f64 {
+    fn aimed(&self, angle: f64, from: DVec3, way: DVec3, framing: Framing) -> f64 {
         let (axis, other) = (self.filled.axis, self.cut.axis);
         let turning = axis.radial(angle + FRAC_PI_2);
-        let head = self.headed(angle, self.cutting());
+        let head = self.headed(angle, framing.cutting);
         let leaving = head - from;
         let (axial, across) = (
             leaving.cross(axis.direction).dot(way),
@@ -335,8 +359,8 @@ impl Gusset {
     /// carries. Both are crossings of this patch, so only the *other* tangent
     /// standing strictly nearer turns one away. A head standing inside the
     /// round carries no tangent at all, and is refused before either is read.
-    fn crossed(&self, angle: f64, from: DVec3, way: DVec3) -> Option<f64> {
-        let ruling = self.ruled(angle, self.side());
+    fn crossed(&self, angle: f64, from: DVec3, way: DVec3, framing: Framing) -> Option<f64> {
+        let ruling = self.ruled(angle, framing);
         if self.cut.axis.off(ruling.head) < self.filled.radius {
             return None;
         }
@@ -346,7 +370,7 @@ impl Gusset {
             (ruling.head - from).dot(across).abs() / across.length()
         };
         let mine = apart(&ruling);
-        if mine.is_nan() || apart(&self.ruled(angle, -self.side())) < mine {
+        if mine.is_nan() || apart(&self.ruled(angle, framing.turned())) < mine {
             return None;
         }
         let along = ruling.foot - ruling.head;
@@ -367,12 +391,21 @@ impl Gusset {
     /// face's plane, so an edge running out *along* its own blend would leave
     /// in its neighbour's direction. See `.notes/KERNEL.md` §9.6, where the
     /// choice is named as a choice.
-    fn cutting(&self) -> DVec3 {
+    fn cutting(&self, met: DVec3) -> DVec3 {
         let axis = self.filled.axis;
-        let met = self.met();
         axis.direction
             .cross(met - axis.origin)
             .cross(self.from - met)
+    }
+}
+
+impl Framing {
+    /// The same, reading the other of the two tangents.
+    fn turned(self) -> Self {
+        Self {
+            side: -self.side,
+            ..self
+        }
     }
 }
 

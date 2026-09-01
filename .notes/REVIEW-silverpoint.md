@@ -9,22 +9,7 @@ rewritten to fit a better production shape.
 
 Line numbers are as of the working tree at the time of the review.
 
-## 1. Code kept ahead of any caller
-
-Each is justified in a comment. Each is still production code nothing runs.
-
-- [ ] `number/exact/lazy` is a whole module under `#![allow(dead_code)]`
-  (231 lines plus tests) with no caller and no milestone in `ROADMAP.md`.
-- [ ] `solid/geometry/gusset` is a whole module under `#![allow(dead_code)]`
-  (389 lines plus 362 test lines). It also recomputes `met()` and `cutting()`,
-  two cross products and two divisions, inside every `ruled`, `headed` and
-  `aimed` call. `met_by` alone reaches them about twenty times per ray. When it
-  lands, cache `cutting` at construction.
-- [ ] `Expansion::estimate` is `#[allow(dead_code)]`
-  (`number/exact/expansion/mod.rs:148`) and exists for one test cross-check.
-  Move it into the test module.
-
-## 2. Files and functions past the size they read well at
+## 1. Files and functions past the size they read well at
 
 - [ ] `solid/rounding/mod.rs` is 2639 lines and `Rounding` has 38 fields, most
   of them scratch for one stage. Split by stage the way `boolean/` is split into
@@ -45,7 +30,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   exist in both, with `Raising` and `Spinning` as twin contexts. An extrusion is
   a revolve with a straight spine. At minimum share the cap-loop reversal.
 
-## 3. Smaller things
+## 2. Smaller things
 
 - [ ] `use super::decides::Decides` at `number/exact/filtered.rs:3` and
   `number/exact/rational.rs:3` are the only production `super::` imports in the
