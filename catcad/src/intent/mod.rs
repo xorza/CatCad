@@ -273,6 +273,13 @@ pub(crate) enum Errand {
     SaveAs,
     /// Ask which document to open.
     Open,
+    /// Ask where to write the model out for another program to read.
+    ///
+    /// **A second file beside the document rather than a second document.**
+    /// What goes out is the geometry the kernel already stands on — see
+    /// [`Stepping`](silverpoint::Stepping) — and nothing about where the
+    /// document itself lives moves, so this is not a save under another name.
+    Export,
     /// Aim the camera to take the whole model in.
     ///
     /// Here rather than beside the camera's other moves, because it is the one

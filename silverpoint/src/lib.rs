@@ -69,4 +69,5 @@ pub use solid::merging::Merging;
 pub use solid::mesh::{Mesher, Patch};
 pub use solid::named::{Named, Step};
 pub use solid::rounding::{Bevel, Round, Rounding};
+pub use solid::stepping::Stepping;
 pub use solid::topology::body::Body;

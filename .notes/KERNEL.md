@@ -1531,7 +1531,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, every rim they run down, and their consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, every rim they run down, the export and their consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
@@ -1610,6 +1610,15 @@ to turn away — which is what this section's first sentence means by edges as
 first-class entities. The arithmetic that gets the axis, the corners and the two
 arcs is §7.5.
 
+**And it writes itself out.** A body leaves as ISO 10303-21, every surface as
+the analytic entity it is — plane, cylinder, cone, sphere and torus — and every
+curve the same, with the topology as `ADVANCED_FACE` over `EDGE_LOOP` over
+`EDGE_CURVE`. A cavity is a `BREP_WITH_VOIDS` and nothing is meshed. **Which is
+what §1's third requirement promised**: nothing downstream inherits an
+approximation, so a body whose curves were *walked* is refused rather than
+written with a spline fitted where the walk was, and the caller is told which it
+got. `Stepping::write` is the whole of it, and Ctrl+E in CatCad is the consumer.
+
 **What is not done, in the order §10's first rule puts it:**
 
 - **A corner the picks do not agree about**, one edge cut into and another
@@ -1617,7 +1626,12 @@ arcs is §7.5.
   goes there is a surface with a radius that moves — which is the NURBS the
   fitted tier is still waiting for, and the one thing left here that is blocked
   on a surface class rather than on a routine.
-- **STEP**, which is what the naming and the exactness were always for.
+- **A spline for the curves STEP has no entity for.** A body carrying one this
+  kernel *walked* — or the quartic a general pair of quadrics meets in — is
+  refused whole rather than written with a fit in place of the walk. What it
+  wants is a `B_SPLINE_CURVE_WITH_KNOTS` and the honesty to say the file is
+  fitted where the body already said it was. Every surface goes out analytic
+  today, the torus included, so this is curves alone.
 
 ---
 

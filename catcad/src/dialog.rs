@@ -31,13 +31,21 @@ const EXTENSION: &str = "catcad";
 /// What the filter in the dialog's corner is captioned.
 const KIND: &str = "CatCad document";
 
+/// What a body written out for another program is called, and what the filter
+/// over those is captioned.
+///
+/// The exchange format rather than a picture of one: what leaves here is the
+/// surfaces themselves — see [`Stepping`](silverpoint::Stepping).
+const EXCHANGE: &str = "step";
+const EXCHANGED: &str = "STEP exchange file";
+
 /// Ask which document to open, or `None` where the dialog was dismissed.
 ///
 /// `near` is where the document being worked on lives, which is where the
 /// dialog opens — the next document someone wants is usually beside the last
 /// one. `None` leaves that to the desktop, which remembers where it was.
 pub(crate) fn open(near: Option<&Path>) -> Option<PathBuf> {
-    at(near, "Open a document").pick_file()
+    at(near, "Open a document", [KIND, EXTENSION]).pick_file()
 }
 
 /// Ask where to put the document, or `None` where the dialog was dismissed.
@@ -45,7 +53,7 @@ pub(crate) fn open(near: Option<&Path>) -> Option<PathBuf> {
 /// Seeded with the document's own name as well as its directory, so saving one
 /// that already has a name somewhere else is that name with a word changed.
 pub(crate) fn save(near: Option<&Path>) -> Option<PathBuf> {
-    let mut dialog = at(near, "Save the document");
+    let mut dialog = at(near, "Save the document", [KIND, EXTENSION]);
     if let Some(name) = near.and_then(Path::file_name) {
         dialog = dialog.set_file_name(name.to_string_lossy());
     }
@@ -53,32 +61,55 @@ pub(crate) fn save(near: Option<&Path>) -> Option<PathBuf> {
     // Whether the dialog appends one for the filter is the desktop's business
     // and differs between them, so a name typed bare comes back bare on some
     // and not others; this is what makes the answer the same either way.
-    dialog.save_file().as_deref().map(named)
+    dialog
+        .save_file()
+        .as_deref()
+        .map(|path| named(path, EXTENSION))
 }
 
-/// A dialog over documents, opened wherever `near` lives.
+/// Ask where to put the model as an exchange file, or `None` where the dialog
+/// was dismissed.
 ///
-/// The one place either of the two is built, so both wear the same filter and
-/// neither can be given one the other has not.
-fn at(near: Option<&Path>, title: &str) -> rfd::FileDialog {
+/// Seeded beside the document and with its name, the way saving is: what a
+/// person exports is usually named after what they drew.
+pub(crate) fn export(near: Option<&Path>) -> Option<PathBuf> {
+    let mut dialog = at(near, "Export the model", [EXCHANGED, EXCHANGE]);
+    // The stem alone, unlike the save above: what is exported is named after
+    // the document rather than after the document's own file, so the extension
+    // the filter offers is the one it comes back with.
+    if let Some(name) = near.and_then(Path::file_stem) {
+        dialog = dialog.set_file_name(name.to_string_lossy());
+    }
+    dialog
+        .save_file()
+        .as_deref()
+        .map(|path| named(path, EXCHANGE))
+}
+
+/// A dialog over files of `kind`, opened wherever `near` lives.
+///
+/// The one place any of the three is built, so each wears a filter of exactly
+/// one extension and none can be given a title without one.
+fn at(near: Option<&Path>, title: &str, kind: [&str; 2]) -> rfd::FileDialog {
+    let [called, extension] = kind;
     let mut dialog = rfd::FileDialog::new()
         .set_title(title)
-        .add_filter(KIND, &[EXTENSION]);
+        .add_filter(called, &[extension]);
     if let Some(directory) = near.and_then(Path::parent) {
         dialog = dialog.set_directory(directory);
     }
     dialog
 }
 
-/// `path` with the document extension, if it had none of its own.
+/// `path` with `extension`, if it had none of its own.
 ///
 /// Only where there is no extension at all. A name typed bare is a name and
 /// wants one; `drawing.old.catcad` already has one, and so does `notes.txt` — a
 /// path someone meant, and not this crate's to correct.
-fn named(path: &Path) -> PathBuf {
+fn named(path: &Path, extension: &str) -> PathBuf {
     match path.extension() {
         Some(_) => path.to_path_buf(),
-        None => path.with_extension(EXTENSION),
+        None => path.with_extension(extension),
     }
 }
 
@@ -107,7 +138,7 @@ mod tests {
             ("/tmp/a.b/frame", "/tmp/a.b/frame.catcad"),
         ] {
             assert_eq!(
-                named(Path::new(chosen)),
+                named(Path::new(chosen), EXTENSION),
                 PathBuf::from(want),
                 "chose {chosen:?}"
             );

@@ -271,13 +271,16 @@ STL and OBJ are nearly free — the kernel's tessellator already answers in worl
 triangles — and they are worth landing early as the honest check on item 2: a
 body that cannot be written out is a body that is not really there.
 
-STEP is not free, but it is *possible*, which is a large part of why item 2 went
-the way it did. A face carries an exact surface and a boundary of exact curves,
-which is what STEP asks for; what it does not carry is a NURBS approximation of
-either, so the export writes the analytic surfaces directly and only falls back
-where the body has already declared itself fitted. It wants item 2's kernel
-complete through its boolean, and belongs beside item 10 in effort even though
-it sits here in usefulness.
+**STEP is in**, and it cost less than this said it would. A face carries an
+exact surface and a boundary of exact curves, which is what STEP asks for, so
+the export writes the analytic surfaces directly — the torus included, that
+format carrying one natively. What it does not do yet is fall back: a body
+carrying a curve the kernel *walked* is refused whole rather than written with a
+spline in place of the walk, and a caller is told which it got. Ctrl+E, and
+`silverpoint::Stepping` is the writer.
+
+STL and OBJ are still worth having for the readers that want triangles, and are
+still nearly free.
 
 ## 9. Projected geometry
 

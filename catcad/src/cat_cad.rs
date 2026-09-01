@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use silverpoint::Stepping;
+
 use palantir::{
     App, Configure, HostHandle, Key, KeyFilter, Mods, Panel, Shortcut, Sizing, Ui, WindowToken,
 };
@@ -80,6 +82,11 @@ const SAVE: Shortcut = Shortcut::ctrl('S');
 const SAVE_AS: Shortcut = Shortcut::ctrl_shift('S');
 const OPEN: Shortcut = Shortcut::ctrl('O');
 
+/// Write the model out for another program to read.
+///
+/// Where every modeller binds it, and matched exactly like the three above.
+const EXPORT: Shortcut = Shortcut::ctrl('E');
+
 /// One view of one scene, with the controls and the solve's verdict laid over
 /// it.
 #[derive(Debug)]
@@ -87,6 +94,9 @@ pub struct CatCad {
     /// Everything a session would have to write down to be opened again: the
     /// sketch, and the camera looking at it.
     pub(crate) document: Document,
+    /// The room an export works in, kept for the reason every routine in the
+    /// kernel keeps its own: the second one costs nothing.
+    stepping: Stepping,
     /// How the document came to say what it says. Beside the document rather
     /// than in it: what is in one is what saving writes down, and the way here
     /// belongs to this run of the program.
@@ -203,6 +213,7 @@ impl CatCad {
             icons: None,
             theme,
             filing: Filing::default(),
+            stepping: Stepping::default(),
         }
     }
 
@@ -236,6 +247,9 @@ impl CatCad {
         }
         if ui.key_pressed(OPEN) {
             self.intents.push(Errand::Open);
+        }
+        if ui.key_pressed(EXPORT) {
+            self.intents.push(Errand::Export);
         }
         // Escape backs out of one thing at a time, innermost first: whatever
         // is in hand, and then the sketch it was drawing in. Two steps rather
@@ -476,6 +490,11 @@ impl CatCad {
                         self.read(path);
                     }
                 }
+                Errand::Export => {
+                    if let Some(path) = dialog::export(self.filing.path()) {
+                        self.exported(path);
+                    }
+                }
                 // The one errand that reads the *view*: how far the scene
                 // reaches is the picture's to answer, and walking it is why
                 // this is asked for rather than offered every frame.
@@ -566,6 +585,42 @@ impl CatCad {
         };
         self.took(document);
         self.filing.opened(path, self.document.edits());
+    }
+
+    /// Write the model out to `path` for another program to read.
+    ///
+    /// **Three ways it comes to nothing, and each says a different thing.**
+    /// There may be no solid to write, which is a document that has drawn one
+    /// and not raised it; the kernel may refuse the body, which is geometry the
+    /// format has no entity for — see
+    /// [`Stepping::write`](silverpoint::Stepping); or the file may not be
+    /// written, which is the desktop's answer and not the model's.
+    ///
+    /// **Where the document lives does not move.** An export is a second file
+    /// beside it rather than a second name for it, so nothing here touches what
+    /// the next save writes or where.
+    pub(crate) fn exported(&mut self, path: PathBuf) {
+        let models = self.document.models(&self.build, self.session.editing());
+        let Some((_, body)) = models.model() else {
+            self.filing.said(&path, "has no solid to write");
+            return;
+        };
+        let mut text = String::new();
+        let called = path.file_stem().unwrap_or_default().to_string_lossy();
+        if !self.stepping.write(body, &called, &mut text) {
+            self.filing.said(
+                &path,
+                "was not written: the model stands on geometry the \
+                              format cannot say",
+            );
+            return;
+        }
+        match std::fs::write(&path, text) {
+            Ok(()) => self.filing.said(&path, "written"),
+            Err(error) => self
+                .filing
+                .said(&path, &format!("was not written: {error}")),
+        }
     }
 
     /// A sketch is only as useful as it is determined, so the report reads

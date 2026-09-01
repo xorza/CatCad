@@ -93,12 +93,23 @@ impl Filing {
     /// before this is still saved — and the next Ctrl+S goes where the last one
     /// did rather than where this one was aimed.
     pub(crate) fn refused_write(&mut self, path: &Path, error: SaveError) {
-        self.report = Some(format!("{} {error}", path.display()));
+        self.said(path, &error.to_string());
+    }
+
+    /// Note what became of `path`, which is a sentence rather than a fault.
+    ///
+    /// **What an export leaves behind**, and it says nothing about the document:
+    /// a second file written beside one does not move where that one lives, so
+    /// neither the path nor what it last agreed with is touched here.
+    /// A door apiece for the three, and one room behind them: each takes what
+    /// only its own caller can be holding, so none can be handed the other's.
+    pub(crate) fn said(&mut self, path: &Path, what: &str) {
+        self.report = Some(format!("{} {what}", path.display()));
     }
 
     /// Note that opening `path` did not work, for the same reasons.
     pub(crate) fn refused_read(&mut self, path: &Path, error: LoadError) {
-        self.report = Some(format!("{} {error}", path.display()));
+        self.said(path, &error.to_string());
     }
 }
 

@@ -153,3 +153,39 @@ fn a_file_that_will_not_open_disturbs_nothing() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+/// **The model goes out as an exchange file**, which is what the kernel's
+/// exactness was for: what a person picks in the viewport is a solid standing
+/// on analytic surfaces, and what leaves is those surfaces rather than a mesh
+/// of them.
+///
+/// Through the real application, the dialog stepped around by naming the path —
+/// the same arrangement the save above uses and for the same reason. What the
+/// file *says* is the kernel's own claim and is asserted there; what this adds
+/// is that a model reaches it at all, and that the document is left where it
+/// was.
+#[test]
+fn the_model_is_written_out_for_another_program_to_read() {
+    let mut raised = Raised::new();
+    let path = std::env::temp_dir().join(format!("catcad-{}.step", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+
+    raised.app.exported(path.clone());
+
+    let wrote = std::fs::read_to_string(&path).expect("the export wrote a file");
+    assert!(wrote.starts_with("ISO-10303-21;\n"), "{wrote}");
+    assert!(
+        wrote.contains("MANIFOLD_SOLID_BREP"),
+        "no solid was written"
+    );
+    assert!(
+        raised.app.status().to_string().contains("written"),
+        "the readout said nothing about the export: {}",
+        raised.app.status()
+    );
+    // An export is a second file beside the document rather than a second name
+    // for it, so the document is still where it was — which is nowhere.
+    assert!(raised.app.filing.path().is_none());
+
+    let _ = std::fs::remove_file(&path);
+}

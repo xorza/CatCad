@@ -28,4 +28,5 @@ pub(crate) mod merging;
 pub(crate) mod mesh;
 pub(crate) mod named;
 pub(crate) mod rounding;
+pub(crate) mod stepping;
 pub(crate) mod topology;
