@@ -16,6 +16,7 @@ use crate::solid::build::builder::Extrusion;
 use crate::solid::build::revolving::{MOST, Revolution};
 use crate::solid::build::sector::Sector;
 use crate::solid::mesh::Mesher;
+use crate::solid::rounding::corner::Gusseted;
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -1915,4 +1916,99 @@ fn three_picks_meeting_on_a_body_a_boolean_cut_fill_the_corner_either_way() {
         "a slot right through is a hole, chamfered or not",
     );
     assert!(into.exact(), "three planes crossing in a point stay exact");
+}
+
+/// **The patch two picks that do not agree leave is worked out**, though
+/// nothing raises it yet — `.notes/KERNEL.md` §9.6.
+///
+/// The notch's step corner at a reach of a half. The floor `z = −2` is the face
+/// both picks share: the fillet filled into the reflex edge below it stands its
+/// axis a reach *under* the floor and the round cut into the convex edge above
+/// stands its axis a reach *over* it, so the two axes stand a whole reach apart
+/// and the two cylinders touch at one place on the floor.
+///
+/// Every corner is hand-computed. The two rails on the floor are `y = 0.5` and
+/// `x = 1.5`, so they cross at `(1.5, 0.5, −2)`. The line the two unshared
+/// planes cross in is `x = 2, y = 0`; the fillet's rail on the face it does not
+/// share stands at `z = −2.5` and the round's at `z = −1.5`, so the patch's
+/// other two corners are `(2, 0, −2.5)` and `(2, 0, −1.5)`.
+#[test]
+fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
+    let notched = notch();
+    let picks = [
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(2.0, 4.0, -2.0),
+        ),
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(0.0, 0.0, -2.0),
+        ),
+    ];
+    let mut planning = Planning::default();
+    assert!(
+        !planning.plan(&Round::new(&picks, 0.5, Bevel::Round, ROUND), &notched),
+        "a corner two picks do not agree about was answered",
+    );
+
+    // The blends are worked out before the corner refuses, so what the pair
+    // leaves can be read off them.
+    let corner = DVec3::new(2.0, 0.0, -2.0);
+    let ends: [Swallow; 2] = array::from_fn(|blend| {
+        let at = planning.blends[blend].at.expect("a run with two ends");
+        let end = at
+            .iter()
+            .position(|&held| {
+                notched
+                    .topology()
+                    .vertex(held)
+                    .at
+                    .abs_diff_eq(corner, PLACED)
+            })
+            .expect("the blend runs to the step's corner");
+        Swallow { blend, end }
+    });
+    let gusseted = Gusseted::of(notched.topology(), &planning.blends, &planning.runs, ends)
+        .expect("the pair leaves a patch");
+
+    assert!(
+        !planning.blends[gusseted.ends[0].blend].outward,
+        "the cut blend was taken for the filled one",
+    );
+    let wanted = [
+        DVec3::new(1.5, 0.5, -2.0),
+        DVec3::new(2.0, 0.0, -2.5),
+        DVec3::new(2.0, 0.0, -1.5),
+    ];
+    for (made, want) in gusseted.made.into_iter().zip(wanted) {
+        assert!(made.abs_diff_eq(want, 1e-12), "{made} is not {want}");
+    }
+
+    // And the patch joins the two exactly: it closes at the touch point, its
+    // first edge starts at the far corner, and the ruling from there lands on
+    // the third.
+    let patch = gusseted.patch;
+    assert!(
+        patch.singular(wanted[0]),
+        "the patch does not close at the tip"
+    );
+    assert!(patch.from.abs_diff_eq(wanted[1], 1e-12));
+    let [from, to] = patch.bounds();
+    let landed = patch.at(DVec2::new(from, 1.0));
+    assert!(landed.abs_diff_eq(wanted[2], 1e-9), "{landed}");
+    for step in 0..=8 {
+        let u = from + (to - from) * f64::from(step) / 8.0;
+        let head = patch.at(DVec2::new(u, 0.0));
+        let foot = patch.at(DVec2::new(u, 1.0));
+        assert!(
+            (patch.filled.axis.off(head) - 0.5).abs() < 1e-9,
+            "{head} is off the fillet",
+        );
+        assert!(
+            (patch.cut.axis.off(foot) - 0.5).abs() < 1e-9,
+            "{foot} is off the round",
+        );
+    }
 }

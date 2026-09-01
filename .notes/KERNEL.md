@@ -1394,15 +1394,26 @@ closing flag says.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
   than either surface it joins.
 
-**And the third side is a split rather than a trim**, which is the one thing
-that route has to carry that no other corner does. Two *agreeing* picks cut the
-one unpicked edge back to a single place, both rails crossing it together — so
-`Planning::trimmed` holds one cut per end of an edge and that is enough. A
-disagreeing pair crosses it at two: the fillet's rail on one face, the round's
-rail on the other. The piece between them is an edge of the *patch*, shared with
-whichever face was cut back less, and the rest of the unpicked edge stands
-beyond it. So that edge is cut in two rather than shortened, and no record holds
-that yet.
+**The patch itself is worked out, and every corner of it is measured.**
+`Gusseted::of` reads a disagreeing pair off the plan: the filled blend first,
+which is what `Blend::outward` already says; the touch point from `Met::of`,
+which is where the two rails cross on the shared face; and the other two corners
+where each blend's rail on the face it does *not* share reaches the line the two
+unshared planes cross in, one division apiece. The branch is settled at the far
+end and carried — only one of the two tangents puts the first edge's own ruling
+on the far corner. Held on the notch's step at a reach of a half, where the
+three corners come to `(1.5, 0.5, −2)`, `(2, 0, −2.5)` and `(2, 0, −1.5)`, and
+the patch joins both cylinders to the last bit.
+
+**And the straight side crosses the body's own corner**, which is the piece of
+topology the route still owes. The third edge there runs from `(2, 0, −2)`
+*down*, so the filled blend's corner at `z = −2.5` lies on it and the cut
+blend's at `z = −1.5` stands a reach the other side of it. Part of that side
+cuts the third edge back and part of it runs across the face beyond — which is
+not the single trim `Planning::trimmed` holds for two agreeing picks, where both
+rails cross the one edge together. **And the two blends' own end closures go
+away**: each closes against the patch along one of its curved sides rather than
+across the face beyond the corner.
 
 **The export is done.** A ruled patch has no analytic entity, so it goes out as
 a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.

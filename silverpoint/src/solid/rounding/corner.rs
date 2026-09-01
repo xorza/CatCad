@@ -10,7 +10,12 @@
 //! a blend is is one surface down one run; what is here is what happens where
 //! two of them meet.
 
+use crate::number::predicate::{self, ApproxEq};
+use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::gusset::Gusset;
+use crate::solid::geometry::line::Line;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::rounding::{Blend, PAIRED, SEATED, Spine, Swallow, crossed};
@@ -18,7 +23,7 @@ use crate::solid::topology::Topology;
 use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::vertex::VertexId;
-use glam::DVec3;
+use glam::{DVec2, DVec3};
 
 /// Where two blends meet at one corner of the body.
 ///
@@ -52,6 +57,126 @@ pub(super) struct Junction {
     /// The arc the two cylinders share, from the first corner to the second.
     pub(super) curve: Curve,
     pub(super) bounds: [f64; 2],
+}
+
+/// The patch two picks that do not agree about a corner leave there.
+///
+/// **The one filling of the fitted tier.** Two blends of one reach whose picks
+/// disagree stand off the face they share on opposite sides — a round is cut
+/// into the material where a fillet is filled into the void — so their axes
+/// stand two reaches apart, and the two cylinders touch at one point and cross
+/// along nothing. There is nothing to trim either against, and what goes
+/// between them is a ruled patch tangent to both along its own two edges.
+/// `.notes/KERNEL.md` §9.6 is where no quadric is shown to do the same job.
+#[derive(Debug, Clone, Copy)]
+#[allow(
+    dead_code,
+    reason = "the route in `Rounding` that raises the patch lands next"
+)]
+pub(super) struct Gusseted {
+    /// The two ends meeting, the *filled* blend first — the one the patch's
+    /// first edge lies on.
+    pub(super) ends: [Swallow; 2],
+    /// The corner of the body they swallow between them.
+    pub(super) at: VertexId,
+    pub(super) patch: Gusset,
+    /// Its three corners: where the two blends touch, where the filled blend's
+    /// rail on the face it does not share reaches the third edge's own line,
+    /// and where the cut blend's reaches the same line.
+    pub(super) made: [DVec3; 3],
+}
+
+#[allow(
+    dead_code,
+    reason = "the route in `Rounding` that raises the patch lands next"
+)]
+impl Gusseted {
+    /// What the pair `ends` leaves, or `None` where they leave nothing a body
+    /// can hold.
+    ///
+    /// **The filled blend goes first**, which decides the whole construction:
+    /// the patch's first edge lies on it, and the ruling from that edge's own
+    /// start lands on the cut blend. `Blend::outward` is the pick's own
+    /// convexity, so a pair that does not agree has one of each.
+    ///
+    /// **The other two corners stand on one line** — the one the planes of the
+    /// two faces neither blend shares cross in, which is the third edge's own.
+    /// Each blend's rail on the face it does not share reaches it, and reading
+    /// that rail against the *other* blend's unshared face is one division
+    /// apiece.
+    ///
+    /// **The branch is settled at the far end and carried.** A place on the
+    /// fillet carries two tangent lines to the round and they close on each
+    /// other at the touch point, so nothing read there tells them apart. Only
+    /// one of the two puts the first edge's own ruling on the far corner, and
+    /// that is the reading taken.
+    pub(super) fn of(
+        topology: &Topology,
+        blends: &[Blend],
+        runs: &[Spine],
+        ends: [Swallow; 2],
+    ) -> Option<Self> {
+        let order = [false, true].map(|convex| {
+            ends.iter()
+                .position(|end| blends[end.blend].outward == convex)
+        });
+        let [Some(first), Some(second)] = order else {
+            return None;
+        };
+        let ends = [ends[first], ends[second]];
+        let whole = ends.map(|end| blends[end.blend]);
+        let pair = [0, 1].map(|which| whole[which].tip(runs, ends[which].end));
+        let at = whole[0].at?[ends[0].end];
+        let Met { sides, at: met, .. } = Met::of(topology, whole, pair, topology.vertex(at).at)?;
+        let [
+            Surface::Natural(Natural::Cylinder(filled)),
+            Surface::Natural(Natural::Cylinder(cut)),
+        ] = whole.map(|blend| blend.laid)
+        else {
+            return None;
+        };
+        // **Both straight**, as [`Met::of`] already argues of the rails on the
+        // face the two share: a run that closes lands on no corner at all.
+        let [Curve::Line(one), Curve::Line(two)] =
+            [0, 1].map(|which| whole[which].rails[1 - sides[which]])
+        else {
+            return None;
+        };
+        // Each rail against the *other* blend's unshared face, the two planes
+        // crossing in the third edge's own line.
+        let across = [0, 1].map(|which| {
+            let other = 1 - which;
+            topology.face(pair[other].between[1 - sides[other]]).surface
+        });
+        let [Some(from), Some(onto)] =
+            [(one, across[0]), (two, across[1])].map(|(rail, over)| Self::reaching(rail, over))
+        else {
+            return None;
+        };
+        let patch = [false, true].into_iter().find_map(|turning| {
+            let patch = Gusset::new(filled, cut, from, turning);
+            let landed = patch.at(DVec2::new(patch.bounds()[0], 1.0));
+            landed.approx_eq(onto, PLACED).then_some(patch)
+        })?;
+        Some(Self {
+            ends,
+            at,
+            patch,
+            made: [met, from, onto],
+        })
+    }
+
+    /// Where the line `rail` crosses the plane of `over`, or `None` where it
+    /// runs along it.
+    fn reaching(rail: Line, over: Surface) -> Option<DVec3> {
+        let Surface::Natural(Natural::Plane(plane)) = over else {
+            return None;
+        };
+        let normal = plane.normal();
+        let leaning = rail.direction.dot(normal);
+        (!predicate::touching(leaning.abs(), ALIGNED))
+            .then(|| rail.at((plane.origin - rail.origin).dot(normal) / leaning))
+    }
 }
 
 /// The corner three blend ends land on, before anything is put in it.
