@@ -223,6 +223,31 @@ pub(super) struct Sewing {
     scratch: Scratch,
 }
 
+/// The runs a region's arcs were imprinted on, and the branch its parameters
+/// were laid out in.
+///
+/// **Handed over together because they are read together.** A bound comes off
+/// a curve [`Imprints`] holds and is carried in the turn [`Carried`] names, and
+/// every stage of raising a face wants both — so threading the two in step
+/// through five calls is five chances to read one stage's runs in another
+/// stage's branch.
+#[derive(Debug, Clone, Copy)]
+struct Arcs<'a> {
+    imprints: &'a Imprints,
+    carried: &'a Carried,
+}
+
+/// The last piece of a stretch of arc, and the vertex it leaves.
+///
+/// Every piece before it is put down by [`Sewing::arced`] itself, each break
+/// minting a vertex of its own. This one comes back so that a straight stretch
+/// and an arc are written down in the one place.
+#[derive(Debug, Clone, Copy)]
+struct Stretch {
+    along: Runs,
+    vertex: VertexId,
+}
+
 /// Every list one pass works in, kept so that the next sew need not ask for
 /// them again.
 ///
@@ -278,11 +303,12 @@ impl Sewing {
         } = sewn;
         into.clear();
         self.reset();
-        self.pin(kept, loops, imprints, carried);
+        let arcs = Arcs { imprints, carried };
+        self.pin(kept, loops, arcs);
         for region in kept {
-            self.raise(region, loops, imprints, carried, into);
+            self.raise(region, loops, arcs, into);
         }
-        if !self.join(imprints, carried, into) {
+        if !self.join(arcs, into) {
             into.clear();
             return false;
         }
@@ -334,13 +360,7 @@ impl Sewing {
     /// arc meets a straight edge is on the arc just as much as one where two
     /// arcs meet. Passings are not places: they are where the flattening put a
     /// corner, and no vertex will stand there.
-    fn pin(
-        &mut self,
-        kept: &[Kept],
-        loops: &Loops<Corner>,
-        imprints: &Imprints,
-        carried: &Carried,
-    ) {
+    fn pin(&mut self, kept: &[Kept], loops: &Loops<Corner>, arcs: Arcs<'_>) {
         self.scratch.pinned.clear();
         for region in kept {
             for run in region.loops.clone() {
@@ -365,9 +385,9 @@ impl Sewing {
                             continue;
                         };
                         self.scratch.pinned.push(Pinned {
-                            curve: imprints.on(run),
+                            curve: arcs.imprints.on(run),
                             at,
-                            along: imprints.curve(run).along(at, carried),
+                            along: arcs.imprints.curve(run).along(at, arcs.carried),
                         });
                     }
                 }
@@ -502,15 +522,8 @@ impl Sewing {
     /// [`Sewing::broken`] asks the same question of a run that has two ends.
     /// They cannot be one call: a closed run has no ends to be broken *between*
     /// until it has taken one of these places for a start.
-    fn encircle(
-        &mut self,
-        run: u32,
-        imprints: &Imprints,
-        carried: &Carried,
-        on: Surface,
-        into: &mut Body,
-    ) {
-        let (curve, lies) = (imprints.curve(run), imprints.on(run));
+    fn encircle(&mut self, run: u32, arcs: Arcs<'_>, on: Surface, into: &mut Body) {
+        let (curve, lies) = (arcs.imprints.curve(run), arcs.imprints.on(run));
         let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         // Already in the order the curve runs, which is what [`Sewing::pin`]
@@ -522,14 +535,14 @@ impl Sewing {
         if around.is_empty() {
             around.extend([0.0, PI].map(|along| Pinned {
                 curve: lies,
-                at: curve.at(along, carried),
+                at: curve.at(along, arcs.carried),
                 along,
             }));
         }
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
-        let [from, round] = bounded(&self.scratch.turning, 0, 0, on, curve, carried);
+        let [from, round] = bounded(&self.scratch.turning, 0, 0, on, curve, arcs.carried);
         // A loop of one closed imprint is the whole of that curve, so its lap
         // is a whole turn — and the sign of it is the only thing read below, so
         // a loop that was not would be turned into arcs the wrong way round
@@ -575,14 +588,7 @@ impl Sewing {
     /// its say bounds nothing, and is dropped: a cut running exactly through a
     /// corner leaves two places a hair apart that are one place, and the loop
     /// they were both in is shorter than it looks.
-    fn raise(
-        &mut self,
-        region: &Kept,
-        loops: &Loops<Corner>,
-        imprints: &Imprints,
-        carried: &Carried,
-        into: &mut Body,
-    ) {
+    fn raise(&mut self, region: &Kept, loops: &Loops<Corner>, arcs: Arcs<'_>, into: &mut Body) {
         let from = self.starts.len() - 1;
         let held = self.walks.len();
         for run in region.loops.clone() {
@@ -609,7 +615,7 @@ impl Sewing {
             // at, and is put down whole rather than walked — see
             // [`Sewing::encircle`].
             if let Some(run) = encircled(&self.scratch.turning) {
-                self.encircle(run, imprints, carried, region.surface, into);
+                self.encircle(run, arcs, region.surface, into);
                 continue;
             }
             // Which corners are places rather than the ones a flattening put
@@ -633,53 +639,12 @@ impl Sewing {
                 let along = match corner.came {
                     Came::Edge => Runs::Straight,
                     Came::Arc(run) => {
-                        let upto = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
-                        let curve = imprints.curve(run);
-                        let bounds = bounded(
-                            &self.scratch.turning,
-                            step,
-                            upto,
-                            region.surface,
-                            curve,
-                            carried,
-                        );
-                        // Broken where another face has already broken it — see
-                        // [`Sewing::broken`]. Each place puts down the arc
-                        // reaching it and becomes the head of the next.
-                        let ends = [corner.at, self.scratch.turning[upto].at]
-                            .map(|at| region.surface.at(at));
-                        self.broken(run, imprints, bounds, ends);
-                        // **A stretch of no sweep is no stretch**, which is the
-                        // repeated corner above one level up: two corners of
-                        // one loop at one place of one run are one corner, and
-                        // an edge between them would be a curve from a vertex
-                        // to itself going nowhere. Nothing broke it either:
-                        // the lifting puts a break at or past the low end, and
-                        // with the two bounds together there is nothing under
-                        // the high one.
-                        //
-                        // Exactly nought rather than nearly, the two ends
-                        // coming off one accumulation — see [`bounded`].
-                        if bounds[0] == bounds[1] {
+                        let stretch = self.arced(run, which, region.surface, arcs, vertex, into);
+                        let Some(stretch) = stretch else {
                             continue;
-                        }
-                        let mut from = bounds[0];
-                        for piece in 0..self.scratch.around.len() {
-                            let broke = self.scratch.around[piece];
-                            self.walks.push(Stepped {
-                                vertex,
-                                along: Runs::Arc {
-                                    run,
-                                    bounds: [from, broke.along],
-                                },
-                            });
-                            vertex = self.vertex(broke.at, into);
-                            from = broke.along;
-                        }
-                        Runs::Arc {
-                            run,
-                            bounds: [from, bounds[1]],
-                        }
+                        };
+                        vertex = stretch.vertex;
+                        stretch.along
                     }
                 };
                 self.walks.push(Stepped { vertex, along });
@@ -728,6 +693,75 @@ impl Sewing {
         self.owned.push(from..to);
     }
 
+    /// The stretch of arc `run` leaving the corner `which` of the kept ones,
+    /// with every place another face already broke it at put down on the way.
+    ///
+    /// The stretch runs to the next corner kept, and where that is a whole arc
+    /// it is the whole of the arc: the corners between were dropped, so nothing
+    /// else will say how far round it goes.
+    ///
+    /// Every break but the last is put down here, each minting a vertex of its
+    /// own; the last piece comes back for the caller to put down, so that a
+    /// straight stretch and an arc are written in one place.
+    ///
+    /// **`None` where the stretch has no sweep**, which is the repeated corner
+    /// one level up: two corners of one loop at one place of one run are one
+    /// corner, and an edge between them would be a curve from a vertex to
+    /// itself going nowhere. Nothing broke it either — the lifting puts a break
+    /// at or past the low end, and with the two bounds together there is
+    /// nothing under the high one. Exactly nought rather than nearly, the two
+    /// ends coming off one accumulation — see [`bounded`].
+    fn arced(
+        &mut self,
+        run: u32,
+        which: usize,
+        surface: Surface,
+        arcs: Arcs<'_>,
+        mut vertex: VertexId,
+        into: &mut Body,
+    ) -> Option<Stretch> {
+        let step = self.scratch.kept[which];
+        let upto = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
+        let curve = arcs.imprints.curve(run);
+        let bounds = bounded(
+            &self.scratch.turning,
+            step,
+            upto,
+            surface,
+            curve,
+            arcs.carried,
+        );
+        // Broken where another face has already broken it — see
+        // [`Sewing::broken`]. Each place puts down the arc reaching it and
+        // becomes the head of the next.
+        let ends =
+            [self.scratch.turning[step].at, self.scratch.turning[upto].at].map(|at| surface.at(at));
+        self.broken(run, arcs.imprints, bounds, ends);
+        if bounds[0] == bounds[1] {
+            return None;
+        }
+        let mut from = bounds[0];
+        for piece in 0..self.scratch.around.len() {
+            let broke = self.scratch.around[piece];
+            self.walks.push(Stepped {
+                vertex,
+                along: Runs::Arc {
+                    run,
+                    bounds: [from, broke.along],
+                },
+            });
+            vertex = self.vertex(broke.at, into);
+            from = broke.along;
+        }
+        Some(Stretch {
+            along: Runs::Arc {
+                run,
+                bounds: [from, bounds[1]],
+            },
+            vertex,
+        })
+    }
+
     /// The vertex standing at `at`, made if nothing stands there yet.
     ///
     /// **Through a grid of cells rather than by walking every vertex made so
@@ -761,7 +795,7 @@ impl Sewing {
 
     /// Find the edge every step of every loop walks, and say whether each was
     /// claimed by exactly two faces.
-    fn join(&mut self, imprints: &Imprints, carried: &Carried, into: &Body) -> bool {
+    fn join(&mut self, arcs: Arcs<'_>, into: &Body) -> bool {
         self.steps.clear();
         self.steps.reserve_exact(self.walks.len());
         for which in 0..self.raised.len() {
@@ -777,9 +811,10 @@ impl Sewing {
                     let ends = [self.walks[step].vertex, self.walks[next].vertex];
                     let along = self.walks[step].along;
                     let middle = match along {
-                        Runs::Arc { run, bounds } => imprints
+                        Runs::Arc { run, bounds } => arcs
+                            .imprints
                             .curve(run)
-                            .at((bounds[0] + bounds[1]) / 2.0, carried),
+                            .at((bounds[0] + bounds[1]) / 2.0, arcs.carried),
                         Runs::Straight => {
                             let [from, to] = ends.map(|end| into.topology().vertex(end).at);
                             (from + to) / 2.0

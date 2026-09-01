@@ -17,14 +17,6 @@ Line numbers are as of the working tree at the time of the review.
   `note`, `settle`, `close`), minting (`mint`, `tube`, `rail`, `ended`, `join`,
   `ring`, `point`), writing (`write`, `line`, `wound`, `bounded`), each with its
   own scratch struct.
-- [ ] `Combining::against` (`solid/boolean/combining.rs:272`) is 180 lines with
-  four `return false` paths inside a triple loop. Lift the per-surface body into
-  a method that answers `bool`.
-- [ ] `Sewing::raise` (`solid/boolean/sewing/mod.rs:578`) is 150 lines with a
-  sixty-line match arm inside two loops. The arc case is a method.
-- [ ] `imprinted` (`solid/boolean/combining.rs:848`) is a 300-line match that
-  builds every `Cut` shape. It is a table and should stay one, but it belongs in
-  `splitting/` beside the shapes it builds, with `flared` and `boughed`.
 - [ ] `solid/build/builder.rs` and `solid/build/revolving.rs` are parallel
   implementations: `corner`, `running`, `cap_loops`, `wall_loop` and `gather`
   exist in both, with `Raising` and `Spinning` as twin contexts. An extrusion is
@@ -36,7 +28,7 @@ Line numbers are as of the working tree at the time of the review.
   `number/exact/rational.rs:3` are the only production `super::` imports in the
   crate.
 - [ ] Import order differs in two files: `solid/stepping/mod.rs:26-44` and
-  `solid/boolean/sewing/mod.rs:41-48` put `std` and `glam` before `crate::` and
+  `solid/boolean/sewing/mod.rs:41-47` put `std` and `glam` before `crate::` and
   a second `use` block after the first.
 - [ ] `Merging::whole` flattens every merged loop to ask whether it wraps
   (`solid/merging/mod.rs:245` through `wraps` at `:449`) and `Merging::sorted`
@@ -49,14 +41,14 @@ Line numbers are as of the working tree at the time of the review.
   boxes again per span and per ring (`:182-185`, `:215-222`). Keep them on
   `Reach` and read them.
 - [ ] `Inline<f64, N>` is sorted with `all_mut().sort_by(f64::total_cmp)` at
-  four production sites, and `solid/boolean/splitting/bow.rs:371` has its own
+  four production sites, and `solid/boolean/splitting/bow.rs:372` has its own
   `sorted`. Add a `sorted()` on `Inline<f64, N>`.
 - [ ] `partial_cmp(..).expect("finite")` appears at twelve sites where
   `f64::total_cmp` gives the same order with no panic path (`loops.rs:108`,
   `sketch/arrangement/mod.rs:288`, `sketch/arrangement/departures.rs:58`,
   `sketch/arrangement/curves.rs:78`, `:197`, `:235`, `:302`,
-  `solid/boolean/sewing/mod.rs:407`, `:479`,
-  `solid/boolean/splitting/mod.rs:600`, `math/triangulate/mod.rs:166`, `:334`).
+  `solid/boolean/sewing/mod.rs:427`, `:499`,
+  `solid/boolean/splitting/mod.rs:595`, `math/triangulate/mod.rs:166`, `:334`).
   The two in `number/exact/` are NaN guards and must stay.
 - [ ] `Arena::retain` takes `impl Fn` where `FnMut` is the general bound
   (`arena.rs:196`).
@@ -72,7 +64,7 @@ Line numbers are as of the working tree at the time of the review.
 - [ ] `Checking` is held by `Builder`, `Merging`, `Sewing` and `Rounding`, and
   `Checking` holds a `Mesher` and `Patch` (`solid/topology/validity.rs:43`)
   while `Sewing::Scratch` holds another pair beside it
-  (`solid/boolean/sewing/mod.rs:248`). Three meshers on one path. Let the
+  (`solid/boolean/sewing/mod.rs:273`). Three meshers on one path. Let the
   checker borrow the operation's mesher, or let the caller own one `Checking`.
 - [ ] `if cfg!(debug_assertions) { checking.run(into) }` is written four times
   (`solid/build/builder.rs`, `solid/merging/mod.rs`,
