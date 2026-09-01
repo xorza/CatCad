@@ -411,7 +411,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     assert_eq!(figure.content, "4.00", "the figure is not the measurement");
     assert_eq!(
         figure.color,
-        Theme::default().drawing.ghost,
+        Theme::default().geometry.ghost,
         "a proposal reads as a rubber band"
     );
     assert_eq!(figure.tag, None, "a proposal can be picked out");
@@ -430,11 +430,11 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     for stroke in scene
         .gizmos
         .iter()
-        .filter(|stroke| stroke.width != Theme::default().drawing.sheet)
+        .filter(|stroke| stroke.width != Theme::default().geometry.sheet)
     {
         assert_eq!(
             stroke.color,
-            Theme::default().drawing.ghost,
+            Theme::default().geometry.ghost,
             "the rule and the figure disagree"
         );
         assert_eq!(stroke.tag, None, "a proposal's rule can be picked out");

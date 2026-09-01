@@ -114,7 +114,7 @@ impl Picture {
         let mut layout = Layout::default();
         let scene = paint::scene(models, theme, &mut layout);
         let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
-        renderer.set_ground(theme.drawing.ground);
+        renderer.set_ground(theme.geometry.ground);
         // The gizmo over the drawing, with nowhere to stand until the overlay
         // has arranged once — a pane with no room draws nothing.
         let nth = renderer.push_pane(Pane::new(

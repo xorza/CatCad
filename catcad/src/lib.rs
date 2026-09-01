@@ -764,7 +764,7 @@ pub(crate) mod internals {
         /// On the type rather than beside it, because the module this sits in is
         /// `pub(crate)` and a free function in one reaches nobody.
         pub fn edge_width(&self) -> f32 {
-            self.theme.drawing.edge
+            self.theme.geometry.edge
         }
 
         /// The sRGB bytes the drawing's background is painted in, in a frame

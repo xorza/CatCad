@@ -134,13 +134,13 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     // Pinned reads larger and in its own colour; free is the other way.
     let anchor = &markers[0];
     assert_eq!(anchor.position, Vec3::ZERO);
-    assert_eq!(anchor.color, Theme::default().drawing.pinned);
-    assert_eq!(anchor.size, Theme::default().drawing.fixed_marker);
+    assert_eq!(anchor.color, Theme::default().geometry.pinned);
+    assert_eq!(anchor.size, Theme::default().geometry.fixed_marker);
 
     let free = &markers[1];
     assert_eq!(free.position, Vec3::new(10.0, 0.0, 0.0));
-    assert_eq!(free.color, Theme::default().drawing.free);
-    assert_eq!(free.size, Theme::default().drawing.free_marker);
+    assert_eq!(free.color, Theme::default().geometry.free);
+    assert_eq!(free.size, Theme::default().geometry.free_marker);
     assert!(free.size < anchor.size);
 
     let _ = b;
@@ -171,7 +171,7 @@ fn marker_size_ignores_how_big_the_drawing_is() {
         markers.iter().map(|point| point.size).collect()
     };
     assert_eq!(sizes(small.clone()), sizes(large));
-    assert_eq!(sizes(small), vec![Theme::default().drawing.free_marker; 2]);
+    assert_eq!(sizes(small), vec![Theme::default().geometry.free_marker; 2]);
 }
 
 /// Geometry is drawn in the colour of the freedom its constraints leave it,
@@ -229,43 +229,43 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     // Three markers, three different things to say about them.
     assert_eq!(
         markers[0].color,
-        Theme::default().drawing.pinned,
+        Theme::default().geometry.pinned,
         "the anchor was pinned by hand"
     );
     assert_eq!(
         markers[1].color,
-        Theme::default().drawing.partly,
+        Theme::default().geometry.partly,
         "it can only slide along y = 0"
     );
     assert_eq!(
         markers[2].color,
-        Theme::default().drawing.free,
+        Theme::default().geometry.free,
         "nothing constrains it at all"
     );
 
     // The first edge joins a pinned end to a sliding one, so it slides; the
     // second reaches a point that can go anywhere, so it can too.
-    assert_eq!(strokes[0].color, Theme::default().drawing.partly);
-    assert_eq!(strokes[1].color, Theme::default().drawing.free);
+    assert_eq!(strokes[0].color, Theme::default().geometry.partly);
+    assert_eq!(strokes[1].color, Theme::default().geometry.free);
 
     // A circle on a determined centre is only as settled as its radius.
     assert_eq!(
         rims[0].color,
-        Theme::default().drawing.determined,
+        Theme::default().geometry.determined,
         "centre pinned, radius stated"
     );
     assert_eq!(
         rims[1].color,
-        Theme::default().drawing.free,
+        Theme::default().geometry.free,
         "nothing said how big it is"
     );
 
     // Every state is its own colour, or the drawing says nothing by using them.
     let shades = [
-        Theme::default().drawing.pinned,
-        Theme::default().drawing.determined,
-        Theme::default().drawing.partly,
-        Theme::default().drawing.free,
+        Theme::default().geometry.pinned,
+        Theme::default().geometry.determined,
+        Theme::default().geometry.partly,
+        Theme::default().geometry.free,
     ];
     for (first, one) in shades.iter().enumerate() {
         for other in &shades[first + 1..] {

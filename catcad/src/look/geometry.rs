@@ -19,7 +19,7 @@ use crate::timeline::feature::World;
 /// number it happens to hold, so a second preset is a second table rather than a
 /// rethink.
 #[derive(Debug, Clone)]
-pub(crate) struct Drawing {
+pub(crate) struct Geometry {
     /// What everything is drawn against.
     ///
     /// **Here rather than with the chrome**, though the window is cleared to it
@@ -60,12 +60,12 @@ pub(crate) struct Drawing {
     /// second ladder in the same picture reads as a second *kind* of geometry
     /// rather than as the same kind, set aside.
     ///
-    /// Dimmer than [`Drawing::ghost`], which is the other thing here drawn in no
-    /// state at all: a rubber band is what you are doing now, and this is what
-    /// you are not.
+    /// Dimmer than [`Geometry::ghost`], which is the other thing here drawn in
+    /// no state at all: a rubber band is what you are doing now, and this is
+    /// what you are not.
     pub(crate) dormant: Vec3,
     /// What a face of one is filled with — the same step down from
-    /// [`Drawing::face`].
+    /// [`Geometry::face`].
     pub(crate) dormant_face: Vec3,
 
     /// What a face the drawing encloses is filled with.
@@ -103,7 +103,7 @@ pub(crate) struct Drawing {
     ///
     /// Cool and low, all of them, so a square standing at the origin reads as
     /// chrome rather than as something drawn there. They collide with the
-    /// freedom ladder — [`Drawing::pinned`] is a red and [`Drawing::free`] is
+    /// freedom ladder — [`Geometry::pinned`] is a red and [`Geometry::free`] is
     /// close to it — and what keeps them apart is shape and weight: these are
     /// hairline squares where a pinned point is a small saturated disc.
     pub(crate) sheet_ground: Vec3,
@@ -145,7 +145,7 @@ pub(crate) struct Drawing {
     pub(crate) edge: f32,
     /// How wide a plane's outline is.
     ///
-    /// Under [`Drawing::edge`], so a plane's own edge cannot be taken for
+    /// Under [`Geometry::edge`], so a plane's own edge cannot be taken for
     /// something drawn on it.
     pub(crate) sheet: f32,
     /// How wide a control is.
@@ -160,7 +160,7 @@ pub(crate) struct Drawing {
     pub(crate) free_marker: f32,
 }
 
-impl Drawing {
+impl Geometry {
     /// What geometry with this much freedom left is drawn in.
     pub(crate) fn freedom(&self, freedom: Freedom) -> Vec3 {
         match freedom {

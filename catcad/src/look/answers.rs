@@ -1,4 +1,4 @@
-//! What a form standing on the drawing is set in.
+//! What a form's own two answers are drawn in.
 
 use palantir::Color;
 
@@ -19,7 +19,7 @@ use crate::look::palette::Palette;
 /// for a form to decide is the one thing no chip anywhere else says: that this
 /// press goes through and that one does not.
 #[derive(Debug, Clone)]
-pub(crate) struct Form {
+pub(crate) struct Answers {
     /// Green for the answer that goes through and red for the one that does
     /// not.
     ///
@@ -32,8 +32,8 @@ pub(crate) struct Form {
     pub(crate) stops: Color,
 }
 
-impl Form {
-    /// The form this palette sets.
+impl Answers {
+    /// The answers this palette sets.
     pub(super) fn from_palette(palette: &Palette) -> Self {
         Self {
             goes: palette.goes.color(),

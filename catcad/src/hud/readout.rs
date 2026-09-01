@@ -8,7 +8,7 @@ use palantir::{
 use crate::control::pill::Pill;
 use crate::hud::Shown;
 use crate::look::Theme;
-use crate::look::drawing;
+use crate::look::geometry;
 use crate::status::Solved;
 
 /// Show it.
@@ -97,13 +97,13 @@ fn verdict(solved: Solved) -> &'static str {
 /// same amber, orange and blue the geometry is painted in. The corner and the
 /// drawing then say one thing rather than two that happen to agree.
 fn swatch(ui: &mut Ui, theme: &Theme, solved: Solved) {
-    let drawing = &theme.drawing;
+    let geometry = &theme.geometry;
     let fill = if !solved.converged {
-        drawing.pinned
+        geometry.pinned
     } else if solved.degrees_of_freedom == 0 {
-        drawing.determined
+        geometry.determined
     } else {
-        drawing.free
+        geometry.free
     };
     Panel::hstack()
         .id_salt("verdict")
@@ -113,7 +113,7 @@ fn swatch(ui: &mut Ui, theme: &Theme, solved: Solved) {
         ))
         .align(Align::CENTER)
         .background(Background::rounded(
-            drawing::tint(fill),
+            geometry::tint(fill),
             Corners::all(theme.chrome.verdict_weight * 0.5),
         ))
         .show(ui, |_| {});

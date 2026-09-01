@@ -338,7 +338,7 @@ fn offering(ui: &mut Ui, icons: &Icons, theme: &Theme, what: Marked) -> bool {
 /// geometry is already annotated in. A dimension has no mark, because it is
 /// drawn as its number, so it falls back to its word.
 fn offered(ui: &mut Ui, icons: &Icons, theme: &Theme, constraint: Constraint) -> bool {
-    let named = wording::named(constraint);
+    let named = wording::of(constraint);
     match named.glyph {
         Some(glyph) => Chip::mark(relation_id(named.word), named.word, glyph),
         None => Chip::word(relation_id(named.word), named.word, named.word),

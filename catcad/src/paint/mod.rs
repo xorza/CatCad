@@ -200,7 +200,7 @@ fn shade(theme: &Theme, model: Model<'_>, lit: Vec3) -> Vec3 {
     if model.live() {
         lit
     } else {
-        theme.drawing.dormant
+        theme.geometry.dormant
     }
 }
 
@@ -430,7 +430,7 @@ pub(crate) const DECIMALS: usize = 2;
 /// say which was meant — so there is not one, and asking for it is a caller that
 /// failed to read [`Constraint::value`] first.
 fn symbol(constraint: Constraint) -> &'static str {
-    wording::named(constraint)
+    wording::of(constraint)
         .glyph
         .expect("a dimension is drawn as its number, not as a mark")
 }

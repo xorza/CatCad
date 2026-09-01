@@ -1301,8 +1301,8 @@ impl Prompt {
                                 .align(Align::h(HAlign::Right))
                                 .show(ui, |ui| {
                                     for (marked, means, answer) in [
-                                        (marked::CANCEL, theme.form.stops, Done::Cancel),
-                                        (marked::CONFIRM, theme.form.goes, Done::Commit),
+                                        (marked::CANCEL, theme.answers.stops, Done::Cancel),
+                                        (marked::CONFIRM, theme.answers.goes, Done::Commit),
                                     ] {
                                         // Named like every other id on this
                                         // form, where it was salted: a caller

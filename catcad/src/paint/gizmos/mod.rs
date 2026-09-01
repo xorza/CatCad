@@ -136,7 +136,7 @@ pub(crate) fn write(
             .map(move |sheeted| {
                 (
                     Some(Part::Step(sheeted.at)),
-                    Piece::Sheet(sheeted.plane, theme.drawing.sheet_ink(sheeted.world)),
+                    Piece::Sheet(sheeted.plane, theme.geometry.sheet_ink(sheeted.world)),
                 )
             })
             .chain(handled.map(|(part, handle)| (Some(part), Piece::Handle(handle))))
@@ -292,7 +292,7 @@ impl Piece {
     /// The tag is not here: a name is minted out of the list the caller is
     /// appending to, and this is handed a `Curve` rather than the walk.
     fn stroke(self, curve: &mut Curve, theme: &Theme, lens: Lens) {
-        let drawing = &theme.drawing;
+        let geometry = &theme.geometry;
         curve.points.clear();
         match self {
             Piece::Sheet(plane, ink) => {
@@ -301,7 +301,7 @@ impl Piece {
                 // the square is a symbol for a plane before it is something to
                 // grab, and at a handle's weight it would read as a thing to
                 // take hold of everywhere it passed.
-                curve.width = drawing.sheet;
+                curve.width = geometry.sheet;
                 // **Aside**, so it yields a click to anything drawn on the plane
                 // it stands for. Not a frame: a frame does not merely lose the
                 // click, it *hides* what is behind it from a pick — right for a
@@ -315,7 +315,7 @@ impl Piece {
             Piece::Handle(carried) => {
                 // Standing out of a plane rather than lying in one, so it takes
                 // no plane's depth — see [`Carried`].
-                control(curve, theme, drawing.depth_arrow, None);
+                control(curve, theme, geometry.depth_arrow, None);
                 // **The one control that does not yield.** A plane's square
                 // stands aside, being what the drawing is done *on*. This is
                 // what the gesture is *for* — a form is open and the arrow is
@@ -359,11 +359,11 @@ impl Piece {
                 // case that is already loud. A proposal has no state to report
                 // at all, so it wears the grey a rubber band does.
                 curve.color = if proposed {
-                    drawing.ghost
+                    geometry.ghost
                 } else {
-                    drawing.mark
+                    geometry.mark
                 };
-                curve.width = drawing.edge;
+                curve.width = geometry.edge;
                 curve.closed = stroke.closes();
                 curve.plane_normal = Some(plane.normal().as_vec3());
                 curve.precedence = Precedence::Frame;
@@ -379,7 +379,7 @@ impl Piece {
 ///
 /// What the controls share, which is everything but their outline, their colour
 /// and how hard they compete for a click: the width a handle is stroked at — see
-/// [`Drawing::gizmo`](crate::look::drawing::Drawing) — and closed, because
+/// [`Drawing::gizmo`](crate::look::geometry::Geometry) — and closed, because
 /// every control is a filled outline.
 ///
 /// **Not the standing.** No two controls here want the same one and each says
@@ -392,7 +392,7 @@ impl Piece {
 /// drawing does. `None` is the arrow that stands *out* of a plane instead.
 fn control(curve: &mut Curve, theme: &Theme, ink: Vec3, plane: Option<Plane>) {
     curve.color = ink;
-    curve.width = theme.drawing.gizmo;
+    curve.width = theme.geometry.gizmo;
     curve.closed = true;
     curve.plane_normal = plane.map(|plane| plane.normal().as_vec3());
 }

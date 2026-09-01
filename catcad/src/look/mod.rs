@@ -10,10 +10,10 @@
 //! tooltips, the form's text edit, the scrollbars — resolves against whatever
 //! palette it is handed, and one it was never given is one nobody chose.
 
+pub(crate) mod answers;
 pub(crate) mod chrome;
-pub(crate) mod drawing;
 pub(crate) mod dressed;
-pub(crate) mod form;
+pub(crate) mod geometry;
 pub(crate) mod icons;
 pub(crate) mod lighting;
 pub(crate) mod motion;
@@ -24,10 +24,10 @@ use std::cell::OnceCell;
 
 use palantir::{Color, Spacing, TextStyle};
 
+use crate::look::answers::Answers;
 use crate::look::chrome::Chrome;
-use crate::look::drawing::Drawing;
 use crate::look::dressed::Dressed;
-use crate::look::form::Form;
+use crate::look::geometry::Geometry;
 use crate::look::lighting::Lighting;
 use crate::look::motion::Motion;
 use crate::look::palette::Palette;
@@ -46,9 +46,9 @@ use crate::look::palette::Palette;
 /// interface decides rather than a colour anybody would write down.
 #[derive(Debug)]
 pub(crate) struct Theme {
-    pub(crate) drawing: Drawing,
+    pub(crate) geometry: Geometry,
     pub(crate) chrome: Chrome,
-    pub(crate) form: Form,
+    pub(crate) answers: Answers,
     pub(crate) lighting: Lighting,
     pub(crate) motion: Motion,
     /// Everything this theme implies rather than states, worked out on the frame
@@ -150,9 +150,9 @@ impl Theme {
     /// Everything this palette dresses the application in.
     fn from_palette(palette: &Palette) -> Self {
         Self {
-            drawing: Drawing::from_palette(palette),
+            geometry: Geometry::from_palette(palette),
             chrome: Chrome::from_palette(palette),
-            form: Form::from_palette(palette),
+            answers: Answers::from_palette(palette),
             lighting: Lighting::from_palette(palette),
             motion: Motion::default(),
             dressed: OnceCell::new(),
@@ -185,7 +185,7 @@ impl Theme {
             font_size_px: readout_text,
             ..TextStyle::default()
         };
-        theme.window_clear = drawing::tint(self.drawing.ground);
+        theme.window_clear = geometry::tint(self.geometry.ground);
         // Tighter than the stock recipe, which is sized for a dialog: a control
         // standing on a pill takes its breathing room from the pill.
         theme.button.defaults.padding = Spacing::new(gap, 4.0, gap, 4.0);
@@ -224,7 +224,7 @@ impl Theme {
             text: ink_lit,
             text_muted: ink,
             text_disabled: ink_dim,
-            terminal_bg: drawing::tint(self.drawing.ground),
+            terminal_bg: geometry::tint(self.geometry.ground),
             elem: chip,
             elem_mid: chip_lit,
             elem_strong: chip_active,
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(roles.text, chrome.ink_lit);
         assert_eq!(roles.text_muted, chrome.ink);
         assert_eq!(roles.text_disabled, chrome.ink_dim);
-        assert_eq!(roles.terminal_bg, drawing::tint(theme.drawing.ground));
+        assert_eq!(roles.terminal_bg, geometry::tint(theme.geometry.ground));
         // The surface ladder is the chip's own three states, in that order: what
         // palantir calls a clickable surface is what this crate calls a chip.
         assert_eq!(roles.elem, chrome.chip);
@@ -288,7 +288,7 @@ mod tests {
         let palantir = &theme.dressed().palantir;
         // The window's clear and the scene's are one colour, which is what
         // keeps the sliver of window beside the viewport from being a seam.
-        assert_eq!(palantir.window_clear, drawing::tint(theme.drawing.ground));
+        assert_eq!(palantir.window_clear, geometry::tint(theme.geometry.ground));
         assert_eq!(palantir.text.color, theme.chrome.ink_lit);
         assert_eq!(palantir.text.font_size_px, theme.chrome.readout_text);
         assert_eq!(
@@ -328,17 +328,17 @@ mod tests {
 
         let theme = Theme::from_palette(&palette);
         assert_eq!(theme.chrome.chip, palette.chip.color());
-        assert_eq!(theme.drawing.pinned, palette.pinned.ink());
+        assert_eq!(theme.geometry.pinned, palette.pinned.ink());
         assert_eq!(theme.lighting.selected, palette.selected.ink());
-        assert_eq!(theme.form.goes, palette.goes.color());
+        assert_eq!(theme.answers.goes, palette.goes.color());
 
         // And all four moved off what the shipped table says, so an assertion
         // above cannot be passing because the two happened to agree.
         let shipped = Theme::default();
         assert_ne!(theme.chrome.chip, shipped.chrome.chip);
-        assert_ne!(theme.drawing.pinned, shipped.drawing.pinned);
+        assert_ne!(theme.geometry.pinned, shipped.geometry.pinned);
         assert_ne!(theme.lighting.selected, shipped.lighting.selected);
-        assert_ne!(theme.form.goes, shipped.form.goes);
+        assert_ne!(theme.answers.goes, shipped.answers.goes);
     }
 
     /// The surfaces that stack inside one pill stay far enough apart to read as
@@ -366,8 +366,8 @@ mod tests {
     /// markers.
     fn layers_stay_separable(dressed: &str, theme: &Theme) {
         let chrome = &theme.chrome;
-        let form = &theme.form;
-        let ground = drawing::tint(theme.drawing.ground);
+        let answers = &theme.answers;
+        let ground = geometry::tint(theme.geometry.ground);
         let slab = ground.lerp(chrome.pill, chrome.pill.a);
         for (what, top, under) in [
             ("a chip on its pill", chrome.chip, slab),
@@ -402,7 +402,7 @@ mod tests {
         // decision rather than a shortfall: the least opacity that clears 4.5
         // there is 0.98, and a slab that opaque is a form you cannot see what
         // it is about through. See [`Chrome::pill_over`].
-        let over = drawing::tint(theme.drawing.solid);
+        let over = geometry::tint(theme.geometry.solid);
         let slab_over = over.lerp(chrome.pill_over, chrome.pill_over.a);
         assert!(
             separation(chrome.pill_over, over) > separation(chrome.pill, over),
@@ -425,7 +425,7 @@ mod tests {
         // shipped table has moved it well across the ramp — a green that clears
         // 4.9 against a chip one week and 3.3 the next is one no ink floor
         // above this could be written for.
-        for (what, means) in [("confirm", form.goes), ("cancel", form.stops)] {
+        for (what, means) in [("confirm", answers.goes), ("cancel", answers.stops)] {
             for (state, wearing) in [
                 ("resting", Wearing::answer(theme, means, false)),
                 ("pointed-at", Wearing::answer(theme, means, true)),

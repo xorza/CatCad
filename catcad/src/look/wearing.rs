@@ -139,7 +139,7 @@ impl Wearing {
         // already differ by their fill and nothing else. One red, because the
         // application has one for refusing and this is that.
         if doomed {
-            let stops = theme.form.stops;
+            let stops = theme.answers.stops;
             return Self {
                 fill: match picked {
                     true => stops,

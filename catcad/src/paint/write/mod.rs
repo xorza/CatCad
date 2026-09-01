@@ -85,7 +85,7 @@ pub(super) fn curves(
     band: Option<Band>,
     into: &mut Batch<Curve>,
 ) {
-    let drawing = &theme.drawing;
+    let geometry = &theme.geometry;
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. That is also why all three kinds
@@ -109,14 +109,15 @@ pub(super) fn curves(
             })
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
-            curve.width = drawing.edge;
+            curve.width = geometry.edge;
             match stroke {
                 Stroke::Edge(model, id, edge) => {
                     let (sketch, plane) = (model.sketch(), model.plane());
                     let a = plane.point(sketch.point(edge.a).position).as_vec3();
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     curve.set_segment(a, b);
-                    curve.color = shade(theme, model, drawing.freedom(model.outcome().segment(id)));
+                    curve.color =
+                        shade(theme, model, geometry.freedom(model.outcome().segment(id)));
                     curve.precedence = standing(model);
                     curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(model.part(id)));
@@ -127,7 +128,7 @@ pub(super) fn curves(
                 // resolves against the geometry behind it.
                 Stroke::Band(band) => {
                     curve.set_segment(band.ends.from, band.ends.to);
-                    curve.color = drawing.ghost;
+                    curve.color = geometry.ghost;
                     curve.precedence = Precedence::Shaped;
                     curve.plane_normal = Some(band.normal);
                     curve.tag = None;
@@ -161,7 +162,7 @@ pub(super) fn rings(
     band: Option<Band>,
     into: &mut Batch<Ring>,
 ) {
-    let drawing = &theme.drawing;
+    let geometry = &theme.geometry;
     into.refill(
         models
             .iter()
@@ -186,7 +187,7 @@ pub(super) fn rings(
                     .colored(shade(
                         theme,
                         model,
-                        drawing.freedom(model.outcome().circle(id)),
+                        geometry.freedom(model.outcome().circle(id)),
                     ))
                     .precedence(standing(model))
                     .tagged(names.tag(model.part(id)))
@@ -199,9 +200,9 @@ pub(super) fn rings(
                     band.ends.from.distance(band.ends.to),
                     band.normal,
                 )
-                .colored(drawing.ghost),
+                .colored(geometry.ghost),
             }
-            .width(drawing.edge);
+            .width(geometry.edge);
         },
     );
 }
@@ -226,7 +227,7 @@ pub(super) fn points(
     names: &mut Names,
     into: &mut Batch<Point>,
 ) {
-    let drawing = &theme.drawing;
+    let geometry = &theme.geometry;
     into.refill(
         models
             .iter()
@@ -237,11 +238,11 @@ pub(super) fn points(
             // determined too, but saying so in the same colour would lose the
             // one thing about it the user chose.
             let (color, size) = if point.fixed {
-                (drawing.pinned, drawing.fixed_marker)
+                (geometry.pinned, geometry.fixed_marker)
             } else {
                 (
-                    drawing.freedom(model.outcome().point(id)),
-                    drawing.free_marker,
+                    geometry.freedom(model.outcome().point(id)),
+                    geometry.free_marker,
                 )
             };
             // Assigned whole where a stroke is edited in place: a marker owns
@@ -286,7 +287,7 @@ pub(super) fn texts(
     typed: Option<Part>,
     into: &mut Batch<Text>,
 ) {
-    let drawing = &theme.drawing;
+    let geometry = &theme.geometry;
     // **The open sketch alone.** A constraint is a statement *about* a drawing,
     // and one you are not in is not a drawing you can argue with: its marks can
     // neither be selected into a relation nor typed into, so all they do is
@@ -335,7 +336,7 @@ pub(super) fn texts(
                 // what it is stated as, where a symbol would say only the first and
                 // leave the drawing unreadable.
                 Some(value) => {
-                    let prefix = wording::named(constraint).prefix;
+                    let prefix = wording::of(constraint).prefix;
                     write!(mark.content, "{prefix}{value:.*}", DECIMALS)
                         .expect("writing to a string cannot fail");
                 }
@@ -356,11 +357,11 @@ pub(super) fn texts(
                 // been asked about it, so it cannot be redundant and cannot be
                 // anything else either. The grey a rubber band wears, and for
                 // the same reason — it is not in the drawing yet.
-                Marked::Proposed(..) => drawing.ghost,
+                Marked::Proposed(..) => geometry.ghost,
                 Marked::Stated(stated) if live.outcome().is_redundant(stated.of) => {
-                    shade(theme, live, drawing.redundant)
+                    shade(theme, live, geometry.redundant)
                 }
-                Marked::Stated(..) => shade(theme, live, drawing.mark),
+                Marked::Stated(..) => shade(theme, live, geometry.mark),
             };
             mark.precedence = standing(live);
             // Lettered on the drawing rather than pinned over it: set along the
@@ -431,7 +432,7 @@ fn named_planes(models: Models<'_>, theme: &Theme, names: &mut Names, into: &mut
             text.facing = Facing::Turned(
                 Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()).lifted(SHEET_NAME_LIFT),
             );
-            text.color = theme.drawing.sheet_ink(sheeted.world);
+            text.color = theme.geometry.sheet_ink(sheeted.world);
             // A frame, which does two things and both matter. It yields a
             // click to anything ordinary, so a name lying over the model cannot
             // take one; and it is left out of how far the scene reaches — so a
@@ -536,9 +537,9 @@ pub(super) fn faces(
             );
             object.transform = Mat4::IDENTITY;
             object.color = if model.live() {
-                theme.drawing.face
+                theme.geometry.face
             } else {
-                theme.drawing.dormant_face
+                theme.geometry.dormant_face
             };
             object.precedence = standing(model);
             object.tag = Some(names.tag(model.region(at)));
@@ -654,7 +655,7 @@ pub(super) fn solids(
             &patch.triangles,
         );
         object.transform = Mat4::IDENTITY;
-        object.color = theme.drawing.solid;
+        object.color = theme.geometry.solid;
         object.precedence = Precedence::Shaped;
         // **A face carries the step that grew it, so the tag follows the
         // name.** What is being decided has no step — see [`UNTAKEN`] — so it

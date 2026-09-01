@@ -17,7 +17,7 @@ use silverpoint::{Along, Constraint};
 /// answer all of them: a row per thing a reader can be shown, naming together
 /// everything they can be shown of it.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Named {
+pub(crate) struct Wording {
     /// What a control offering it is captioned with — a word, because a button
     /// is read once and deliberately.
     ///
@@ -49,7 +49,7 @@ pub(crate) struct Named {
     pub(crate) prefix: &'static str,
 }
 
-impl Named {
+impl Wording {
     /// A relation, which has a mark and no figure to prefix.
     const fn relation(word: &'static str, glyph: &'static str) -> Self {
         Self {
@@ -81,49 +81,49 @@ impl Named {
 /// The words are the drawing's rather than the solver's: a segment reads as an
 /// *edge*, because what the drawing shows is the boundary of something and
 /// "segment" is the word for what solves it.
-pub(crate) fn named(constraint: Constraint) -> Named {
+pub(crate) fn of(constraint: Constraint) -> Wording {
     match constraint {
         // A coincidence makes two points one, so it is drawn as the one.
-        Constraint::Coincident { .. } => Named::relation("Coincident", "\u{2022}"),
+        Constraint::Coincident { .. } => Wording::relation("Coincident", "\u{2022}"),
         // The three readings of one pair are three different things to offer,
         // so each is captioned for the span it measures — see
         // [`Along`](silverpoint::Along).
         Constraint::Distance {
             along: Along::Shortest,
             ..
-        } => Named::dimension("Distance", ""),
+        } => Wording::dimension("Distance", ""),
         Constraint::Distance {
             along: Along::Horizontal,
             ..
-        } => Named::dimension("Horizontal distance", ""),
+        } => Wording::dimension("Horizontal distance", ""),
         Constraint::Distance {
             along: Along::Vertical,
             ..
-        } => Named::dimension("Vertical distance", ""),
+        } => Wording::dimension("Vertical distance", ""),
         // A standoff and a spacing are a distance to a reader: what differs is
         // what they are measured between, which is plain from what was picked.
         Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
-            Named::dimension("Distance", "")
+            Wording::dimension("Distance", "")
         }
-        Constraint::Radius { .. } => Named::dimension("Radius", "R"),
-        Constraint::Horizontal { .. } => Named::relation("Horizontal", "\u{2015}"),
-        Constraint::Vertical { .. } => Named::relation("Vertical", "\u{2502}"),
-        Constraint::Parallel { .. } => Named::relation("Parallel", "\u{2225}"),
-        Constraint::Perpendicular { .. } => Named::relation("Perpendicular", "\u{22A5}"),
+        Constraint::Radius { .. } => Wording::dimension("Radius", "R"),
+        Constraint::Horizontal { .. } => Wording::relation("Horizontal", "\u{2015}"),
+        Constraint::Vertical { .. } => Wording::relation("Vertical", "\u{2502}"),
+        Constraint::Parallel { .. } => Wording::relation("Parallel", "\u{2225}"),
+        Constraint::Perpendicular { .. } => Wording::relation("Perpendicular", "\u{22A5}"),
         // One mark and two words. "Is on" is the same relation whether what it
         // is on is straight or curved, and the drawing says so at a glance —
         // where a button has room to say which, and a reader choosing between
         // two of them wants it.
-        Constraint::PointOnSegment { .. } => Named::relation("On edge", "\u{2208}"),
-        Constraint::PointOnCircle { .. } => Named::relation("On circle", "\u{2208}"),
+        Constraint::PointOnSegment { .. } => Wording::relation("On edge", "\u{2208}"),
+        Constraint::PointOnCircle { .. } => Wording::relation("On circle", "\u{2208}"),
         // Likewise: what the drawing has to say is that two things match, and
         // which two is plain from what the mark sits between.
         Constraint::EqualLength { .. } | Constraint::EqualRadius { .. } => {
-            Named::relation("Equal", "=")
+            Wording::relation("Equal", "=")
         }
         // A letter, like the `R` a radius is prefixed with. Tangency has no
         // draughtsman's mark that carries into a font — the drawings that need
         // one letter it too.
-        Constraint::Tangent { .. } => Named::relation("Tangent", "T"),
+        Constraint::Tangent { .. } => Wording::relation("Tangent", "T"),
     }
 }

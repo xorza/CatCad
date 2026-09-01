@@ -10,7 +10,7 @@ use crate::control::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
 use crate::look::Theme;
-use crate::look::drawing;
+use crate::look::geometry;
 use crate::look::icons::{Glyph, Icons};
 use crate::look::wearing::{Standing, Wearing};
 use crate::marked::{self, Marked};
@@ -143,7 +143,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
                 // than a mark on every row below it: what is rolled back is a
                 // *tail*, so where it starts is the whole of what there is to show.
                 if models.rolled() == Some(at) {
-                    rolled(ui, theme, shown.theme.drawing.free);
+                    rolled(ui, theme, shown.theme.geometry.free);
                     built = false;
                 }
             }
@@ -256,7 +256,7 @@ const BAR_ARM: f32 = 0.18;
 /// there is to show.
 fn rolled(ui: &mut Ui, theme: &Theme, free: Vec3) {
     let chrome = &theme.chrome;
-    let tint = drawing::tint(free);
+    let tint = geometry::tint(free);
     let full = chrome.card - (chrome.pad + BAR_INSET) * 2.0;
     Panel::hstack()
         .id_salt("rolled")

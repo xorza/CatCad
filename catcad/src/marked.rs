@@ -41,8 +41,8 @@ pub(crate) struct Marked {
     /// a form calls itself.
     ///
     /// A caption rather than a noun, on the terms
-    /// [`Named::word`](crate::wording::Named::word) states: it heads a control
-    /// of its own rather than being read inside a sentence.
+    /// [`Wording::word`](crate::wording::Wording::word) states: it heads a
+    /// control of its own rather than being read inside a sentence.
     pub(crate) word: &'static str,
 }
 
@@ -114,7 +114,7 @@ pub(crate) const CHAMFER: Marked = Marked::new(Glyph::Chamfer, "Chamfer");
 ///
 /// **"Fillet" and "Chamfer" where the timeline says one kind of step**, because
 /// those are the words a draughtsman uses — the same split
-/// [`wording::named`](crate::wording::named) already makes over a segment and
+/// [`wording::of`](crate::wording::of) already makes over a segment and
 /// an edge. What tells the two apart is the one field they differ in.
 pub(crate) fn making(feature: &Feature) -> Marked {
     match feature {

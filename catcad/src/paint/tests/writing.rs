@@ -114,7 +114,7 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
 /// records are built, the quads are laid out, and the sheet has no ink to give
 /// them.
 ///
-/// The first half guards the table itself. [`wording::named`] states a
+/// The first half guards the table itself. [`wording::of`] states a
 /// relation's word and its mark on one line and a dimension's word and the
 /// prefix its figure carries on another, and which of the two a constraint is
 /// has to be the same answer [`Constraint::value`] gives — a dimension written
@@ -131,7 +131,7 @@ fn every_relation_is_named_both_ways_and_every_mark_has_a_glyph() {
 
     // Which of the two each is, against the one thing that decides it.
     for constraint in every_statable() {
-        let named = crate::wording::named(constraint);
+        let named = crate::wording::of(constraint);
         assert!(
             !named.word.is_empty(),
             "{constraint:?} has no word to caption a control with"
@@ -499,11 +499,11 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     // in what a wholly free edge is drawn in.
     assert_eq!(
         drawn(&scene, &layout, here),
-        [Theme::default().drawing.free]
+        [Theme::default().geometry.free]
     );
     assert_eq!(
         drawn(&scene, &layout, there),
-        [Theme::default().drawing.dormant]
+        [Theme::default().geometry.dormant]
     );
 
     // The same layout, so the only thing that has changed is which sketch is
@@ -518,12 +518,12 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     );
     assert_eq!(
         drawn(&scene, &layout, here),
-        [Theme::default().drawing.dormant],
+        [Theme::default().geometry.dormant],
         "the picture did not follow the open sketch"
     );
     assert_eq!(
         drawn(&scene, &layout, there),
-        [Theme::default().drawing.free]
+        [Theme::default().geometry.free]
     );
 }
 
