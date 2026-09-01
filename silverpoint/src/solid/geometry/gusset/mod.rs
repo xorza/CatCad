@@ -50,6 +50,21 @@ const DOUBLINGS: usize = 12;
 /// once and is as fine as its caller asked.
 const BOXED: usize = 16;
 
+/// How many angles the search for the nearest place reads at each round, and
+/// how many rounds it narrows for.
+///
+/// Each round keeps the bracket either side of the best reading, so the arc it
+/// searches shrinks by `2/SOUGHT` a round — sixteen and six leave a millionth
+/// of it, which is finer than the walk that laid the patch's own edge down.
+const SOUGHT: usize = 16;
+const ROUNDS: usize = 6;
+
+const _: () = assert!(
+    SOUGHT.is_multiple_of(2),
+    "an odd count leaves the last round's best off the next round's grid, so a \
+     search could answer worse than a round it had already reached",
+);
+
 /// The patch between two blends of one reach whose picks do not agree.
 ///
 /// **Parameterized by the fillet's own angle and the run along the ruling**, in
@@ -275,6 +290,75 @@ impl Gusset {
             low: fills.low - strayed,
             high: fills.high + strayed,
         }
+    }
+
+    /// The nearest place of the patch to `at`.
+    ///
+    /// **Sought rather than solved**, which is what a ruled patch has where a
+    /// quadric has a formula. The nearest place on the ruling at one angle is a
+    /// projection onto a segment and closed form; *which* angle carries the
+    /// nearest of all is a minimum over the arc, and nothing isolates its roots
+    /// — the reading has a derivative, [`Ruling`] carrying the rate of both
+    /// ends, but no fence to bracket one between. So the arc is read at
+    /// [`SOUGHT`] angles, the bracket either side of the best is kept, and that
+    /// is narrowed [`ROUNDS`] times.
+    ///
+    /// **Every round re-reads the last one's best**, an even [`SOUGHT`] putting
+    /// it at the middle of the bracket it left — so a search never answers
+    /// worse than a round it has already reached.
+    ///
+    /// **A reading and not a proof**, which is the whole difference §4.1 draws
+    /// between the tiers — and what puts this patch in the fitted one although
+    /// both of its joins are exact.
+    ///
+    /// A hundred rulings a call, which is what a caller asking per correction
+    /// of a march should know it is spending.
+    pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
+        let framing = self.framing();
+        let [mut from, mut to] = framing.bounds;
+        let mut best = self.onto(from, framing, at);
+        for _ in 0..ROUNDS {
+            let step = (to - from) / SOUGHT as f64;
+            let mut which = 0;
+            let mut off = f64::INFINITY;
+            for at_angle in 0..=SOUGHT {
+                let onto = self.onto(from + step * at_angle as f64, framing, at);
+                let reach = onto.distance_squared(at);
+                if reach < off {
+                    (off, which, best) = (reach, at_angle, onto);
+                }
+            }
+            // Either side of the best, which is where the true one lies: the
+            // distance to a ruling moves smoothly with the angle, so a reading
+            // beaten by both its neighbours has the minimum between them.
+            let near = from + step * (which.saturating_sub(1)) as f64;
+            to = from + step * (which + 1).min(SOUGHT) as f64;
+            from = near;
+        }
+        best
+    }
+
+    /// How far `at` stands from the patch, never signed.
+    ///
+    /// A reading, on the terms [`Gusset::nearest`] states.
+    pub(crate) fn off(&self, at: DVec3) -> f64 {
+        at.distance(self.nearest(at))
+    }
+
+    /// The nearest place of the ruling at `angle` to `at`.
+    ///
+    /// **The segment and not the line it runs along**, the patch running out
+    /// where its two blends do — a place past either end of a ruling is nearest
+    /// that end. At the tip the ruling has closed to nothing and the touch
+    /// point is the whole of it.
+    fn onto(&self, angle: f64, framing: Framing, at: DVec3) -> DVec3 {
+        let ruling = self.ruled(angle, framing);
+        let along = ruling.foot - ruling.head;
+        let reach = along.length_squared();
+        if reach == 0.0 {
+            return ruling.head;
+        }
+        ruling.head + along * ((at - ruling.head).dot(along) / reach).clamp(0.0, 1.0)
     }
 
     /// Whether any of the patch passes within `slack` of `fills`.

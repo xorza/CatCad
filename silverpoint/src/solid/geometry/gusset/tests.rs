@@ -579,3 +579,43 @@ fn a_box_is_spanned_where_the_patch_reaches_it() {
         "clear of it by less than the slack"
     );
 }
+
+/// **A place on the patch reads no distance from it, and one moved along the
+/// normal reads how far it was moved.**
+///
+/// Sought rather than solved — see [`Gusset::nearest`] — so what is held is
+/// that the search finds the ruling the place actually stands off. Asked at
+/// nine places across the patch, because a search right at one corner and
+/// wrong between them is exactly how it could fail.
+///
+/// **And what comes back is always on the patch**, wherever it was asked from
+/// — which is what a march leans on when it corrects a place onto a surface.
+#[test]
+fn a_place_off_the_patch_reads_the_distance_it_was_moved() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let bounds = gusset.bounds();
+        for round in 1..4 {
+            let u = bounds[0] + (bounds[1] - bounds[0]) * f64::from(round) / 4.0;
+            for along in 1..4 {
+                let uv = DVec2::new(u, f64::from(along) / 4.0);
+                let at = gusset.at(uv);
+                assert!(gusset.off(at) < 1e-6, "{named}: {uv} is on the patch");
+                // A fifth of a reach out along the normal, which is the one
+                // direction the answer is the whole of the move.
+                let off = at + gusset.normal(uv) * 0.2;
+                assert!(
+                    (gusset.off(off) - 0.2).abs() < 1e-6,
+                    "{named}: {uv} moved a fifth reads {}",
+                    gusset.off(off),
+                );
+            }
+        }
+        for from in CAST {
+            let onto = gusset.nearest(from);
+            assert!(
+                gusset.off(onto) < 1e-6,
+                "{named}: {from} was answered {onto}, which is off the patch",
+            );
+        }
+    }
+}

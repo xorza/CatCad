@@ -1857,17 +1857,26 @@ so.
   culling off the patch's own box rather than by halving the caller's. `fills`
   is the boundary's own box and needs nothing, every ruling having both ends on
   the boundary. `offset` and `walked` answer nothing, as a torus's do.
-- **`off` is what the arm mostly waits on, and the inversion is not it.**
-  Tried: `at(uv(at))` for a place off the patch lands on a *different* ruling,
-  because `uv` answers the ruling whose line the place stands nearest and a
-  place moved off the surface is nearest another's. Measured on the square
-  corner, a place a fifth of a reach along the normal read `0.454` rather than
-  `0.2`. Three callers want a true one: `Checking` holds every edge against
-  both its faces by it, `Surface::nearest` reads it, and `Fitted::uv` promises
-  the nearest place for anything off the surface. A *lower* bound — the
-  distance to the patch's own box — keeps `Surface::narrowed` sound but weakens
-  the checker rather than breaking it: it would pass an edge that should fail
-  and never fail one that should pass.
+- **`off` and `nearest` — done, and sought rather than solved.** The nearest
+  place on the ruling at one angle is a projection onto a segment and closed
+  form; *which* angle carries the nearest of all is a minimum over the arc that
+  nothing writes down. So the arc is read at sixteen angles, the bracket either
+  side of the best is kept, and that is narrowed six times — a millionth of the
+  arc, finer than the walk that lays the patch's own edge down. A reading and
+  not a proof, which is what §4.1's tier says of everything here.
+  **The inversion was not it.** Tried first: `at(uv(at))` for a place off the
+  patch lands on a *different* ruling, `uv` answering the ruling whose line the
+  place stands nearest and a place moved off the surface being nearest
+  another's. Measured on the square corner, a place a fifth of a reach along
+  the normal read `0.454` rather than `0.2`.
+  **A sharper route exists and is not taken.** The reading has a derivative in
+  closed form — [`Ruling`] carries the rate of both ends — so the minimum is a
+  root of something written down. What it has no fence for is bracketing that
+  root: `math/polynomial.rs` fences a polynomial at the roots of its own
+  derivative, and this is neither a polynomial nor a harmonic. A search that
+  isolated it would answer exactly and cost a handful of rulings rather than a
+  hundred, which is worth taking when a march over a corner patch turns out to
+  want it.
 - **`straying`, and its head half is written.** A place of the patch is
   `(1 − v)·head + v·foot`, so a triangle leaves its chord by at most the
   greater of what the two edges leave theirs by. The first edge is the ellipse
