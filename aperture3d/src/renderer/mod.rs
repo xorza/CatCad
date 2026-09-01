@@ -315,7 +315,7 @@ mod shaping {
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::renderer::Renderer;
-    use palantir::{App, Configure, GpuPaint, GpuView, Sizing, Ui, WindowToken};
+    use palantir::{App, Configure, GpuView, Sizing, Ui, WindowToken};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -342,8 +342,7 @@ pub(crate) mod internals {
 
     impl App for SceneApp {
         fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-            let paint: Rc<RefCell<dyn GpuPaint>> = Rc::<RefCell<Renderer>>::clone(&self.view);
-            GpuView::new(paint)
+            GpuView::new(&self.view)
                 .auto_id()
                 .size((Sizing::FILL, Sizing::FILL))
                 .show(ui);

@@ -74,7 +74,7 @@ fn field(roles: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
         disabled,
     } = &mut theme.looks;
     for state in [normal, hovered, active, disabled] {
-        state.text = Some(text.clone());
+        state.text = Some(text);
     }
     theme
 }

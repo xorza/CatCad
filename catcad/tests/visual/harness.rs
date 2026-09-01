@@ -11,7 +11,7 @@ use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
-use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
+use palantir::{App, Configure, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use std::sync::{OnceLock, mpsc};
@@ -158,8 +158,7 @@ pub(crate) struct SceneApp {
 
 impl App for SceneApp {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = Rc::<RefCell<Renderer>>::clone(&self.view);
-        GpuView::new(paint)
+        GpuView::new(&self.view)
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui);

@@ -1115,7 +1115,7 @@ impl Prompt {
         };
         let caption = TextStyle {
             font_size_px: chrome.caption_text,
-            ..label.clone()
+            ..label
         };
         let mut said = Said::default();
         let mut answered = None;

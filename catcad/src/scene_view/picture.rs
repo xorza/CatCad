@@ -10,7 +10,7 @@ use crate::hud::cube::Gizmo;
 use crate::scene_view::GIZMO;
 
 use glam::Vec3;
-use palantir::{GpuPaint, Rect};
+use palantir::Rect;
 use silverpoint::ConstraintId;
 
 use crate::lens::Lens;
@@ -136,8 +136,8 @@ impl Picture {
     /// *widget* — an id, what it senses, whether it takes focus — and none of
     /// that is the picture's. What is the picture's is that the thing painted
     /// from is the very renderer these calls write into.
-    pub(super) fn painting(&self) -> Rc<RefCell<dyn GpuPaint>> {
-        Rc::<RefCell<Renderer>>::clone(&self.renderer)
+    pub(super) fn painting(&self) -> &Rc<RefCell<Renderer>> {
+        &self.renderer
     }
 
     /// Lay the drawing out again if it has moved, and cut the controls against

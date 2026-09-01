@@ -17,8 +17,7 @@
 //! scene.texts.push(Text::new(Vec3::X, "1.0", 12.0));
 //! let mut view = Renderer::new(Pane::new(scene, Placement::Fill));
 //!
-//! let paint: Rc<RefCell<dyn GpuPaint>> = renderer.clone();
-//! GpuView::new(paint)
+//! GpuView::new(&renderer)
 //!     .auto_id()
 //!     .size((Sizing::FILL, Sizing::FILL))
 //!     .show(ui);
