@@ -481,7 +481,7 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 /// runs from testing every corner in it.
 fn best(corners: &[DVec2], contour: &[u32], standing: &[bool], proud: usize) -> Option<usize> {
     let len = contour.len();
-    let mut shortest = (len, f64::INFINITY);
+    let mut shortest: Option<(usize, f64)> = None;
     // Walked with the neighbours carried along rather than looked up, because
     // this runs once per corner per ear cut and a wrap taken with `%` is a
     // division in the innermost loop of the whole triangulation.
@@ -500,13 +500,12 @@ fn best(corners: &[DVec2], contour: &[u32], standing: &[bool], proud: usize) -> 
         if !standing[at] {
             // Squared, because only the order of these matters.
             let reach = before.distance_squared(beyond);
-            if reach < shortest.1 {
-                shortest = (at, reach);
+            if shortest.is_none_or(|(_, held)| reach < held) {
+                shortest = Some((at, reach));
             }
         }
         before = corner;
     }
-    let shortest = (shortest.0 < len).then_some((shortest.0, shortest.1));
     if let Some((at, _)) = shortest
         && ear(corners, contour, at, standing, proud)
     {

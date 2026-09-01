@@ -633,16 +633,24 @@ impl Sketch {
     /// better answer than where it currently happens to be.
     fn spare_points(&self) -> Vec<PointId> {
         let carried = self.carried_points();
-        // Gathered once rather than asked per pair, because the walk below asks
-        // it of every spare against every keeper.
-        let joins: Vec<(PointId, PointId)> = self
+        // **Gathered once and sorted**, because the walk below asks it of every
+        // spare against every keeper — a walk of the joins per pair is the
+        // count of the joins times the square of the points.
+        //
+        // By slot, and each pair put in the one order: a coincidence says
+        // nothing about which of its two came first, and every point named here
+        // is one the arena still holds, so a slot names it as well as a whole
+        // handle would.
+        let paired = |a: PointId, b: PointId| [a.slot().min(b.slot()), a.slot().max(b.slot())];
+        let mut joins: Vec<[usize; 2]> = self
             .constraints
             .iter()
             .filter_map(|(_, constraint)| match *constraint {
-                Constraint::Coincident { a, b } => Some((a, b)),
+                Constraint::Coincident { a, b } => Some(paired(a, b)),
                 _ => None,
             })
             .collect();
+        joins.sort_unstable();
         spares(
             &self.points,
             |id| carried[id.slot()],
@@ -650,9 +658,7 @@ impl Sketch {
                 self.point(a)
                     .position
                     .approx_eq(self.point(b).position, PLACED)
-                    || joins
-                        .iter()
-                        .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+                    || joins.binary_search(&paired(a, b)).is_ok()
             },
         )
     }
