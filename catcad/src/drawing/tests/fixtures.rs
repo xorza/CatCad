@@ -2,7 +2,8 @@
 
 use crate::build::Build;
 use crate::drawing::*;
-use crate::model::{Model, Models};
+use crate::model::Model;
+use crate::model::models::Models;
 use crate::timeline::Timeline;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, PointId};

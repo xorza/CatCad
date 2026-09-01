@@ -1,9 +1,9 @@
 //! What a press finds, what a move lights, and what one part takes from
 //! another.
 
+use crate::cat_cad::internals::HARNESS_SIZE;
 use crate::drawing::Grip;
 use crate::intent::Opening;
-use crate::internals::HARNESS_SIZE;
 use crate::part::Part;
 use crate::scene_view::click::dimension;
 use crate::scene_view::gesture::{Gesture, label};

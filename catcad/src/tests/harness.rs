@@ -7,11 +7,11 @@ use palantir::internals::UiHarness;
 use palantir::{App, InputDelta, Key, Modifiers, WidgetId, WindowToken};
 
 use crate::CatCad;
+use crate::cat_cad::internals::HARNESS_SIZE;
 use crate::drawing::Drawing;
 use crate::intent::{Choice, Intent, Intents, Opening};
-use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::part::Part;
 
 /// One recorded frame of the real application.

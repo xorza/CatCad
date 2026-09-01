@@ -25,7 +25,8 @@ use silverpoint::Constraint;
 
 use crate::lens::Lens;
 use crate::look::Theme;
-use crate::model::{Model, Models};
+use crate::model::Model;
+use crate::model::models::Models;
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 use crate::preview::Preview;
@@ -39,6 +40,8 @@ pub(crate) mod marks;
 pub(crate) mod names;
 pub(crate) mod showing;
 pub(crate) mod write;
+
+use crate::paint::write::{curves, faces, points, rings, solids, texts};
 
 /// How far a face's edge may sit from the curve it was cut from, in sketch
 /// units.
@@ -345,19 +348,19 @@ pub(crate) fn redraw(
     // list, so it says the same thing twice rather than being a case of its own.
     if from <= Stage::Drawing {
         names.opened(Stage::Drawing);
-        write::points(models, theme, names, &mut into.points);
-        write::faces(models, theme, names, sheets, &mut into.faces);
+        points::write(models, theme, names, &mut into.points);
+        faces::write(models, theme, names, sheets, &mut into.faces);
     }
     if from <= Stage::Solid {
         names.opened(Stage::Solid);
-        write::solids(
+        solids::write(
             models,
             theme,
             names,
             sheets,
             showing.growing,
             made.chorded.sagitta(),
-            write::Shaping {
+            solids::Shaping {
                 solid: &mut into.solids,
                 ghost: &mut into.ghosts,
             },
@@ -375,7 +378,7 @@ pub(crate) fn redraw(
             .open()
             .zip(showing.band.and_then(Preview::dimension))
             .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
-        write::texts(
+        texts::write(
             models,
             theme,
             names,
@@ -391,14 +394,14 @@ pub(crate) fn redraw(
         // that draw one — see [`write::Band`]. A band is a stroke or a rim and
         // never both, so at most one of the calls below is handed anything and
         // the other has read nothing by the time it answers `None`.
-        write::curves(
+        curves::write(
             models,
             theme,
             names,
             write::Band::new(models, showing.band.and_then(Preview::line)),
             &mut into.curves,
         );
-        write::rings(
+        rings::write(
             models,
             theme,
             names,
@@ -446,7 +449,7 @@ fn symbol(constraint: Constraint) -> &'static str {
 /// the history's tests and the view's, one asking the opening sketch and the
 /// other the open one, and neither able to see the other's copy.
 #[cfg(test)]
-pub(crate) fn markers(models: crate::model::Models<'_>) -> Vec<glam::Vec3> {
+pub(crate) fn markers(models: crate::model::models::Models<'_>) -> Vec<glam::Vec3> {
     let mut scene = Scene::default();
     redraw(
         models,

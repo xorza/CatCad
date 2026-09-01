@@ -28,7 +28,7 @@ use silverpoint::{Constraint, Measurement, Plane};
 
 use crate::lens::Lens;
 use crate::look::Theme;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};

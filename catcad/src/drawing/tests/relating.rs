@@ -3,7 +3,7 @@
 use crate::build::Build;
 use crate::drawing::tests::fixtures::{Assorted, on};
 use crate::drawing::*;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::part::Part;
 use crate::timeline::Timeline;
 use crate::tool::dimensioning::Dimensioning;

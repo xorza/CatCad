@@ -1,16 +1,16 @@
 //! The view raised over the demo, and what a test reads off one.
 
 use crate::build::Build;
+use crate::cat_cad::internals::HARNESS_SIZE;
 use crate::demo;
 use crate::document::Document;
 use crate::drawing::{Drawing, Grip};
 use crate::history::History;
 use crate::hud::cube::Gizmo;
 use crate::intent::{Choice, Intent, Intents};
-use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
 use crate::look::Theme;
-use crate::model::Sheeted;
+use crate::model::sheeted::Sheeted;
 use crate::paint;
 use crate::part::Part;
 use crate::scene_view::SceneView;

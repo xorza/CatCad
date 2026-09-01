@@ -2,7 +2,7 @@
 
 use silverpoint::{Arrangement, Bound};
 
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::timeline::FeatureId;
 
 /// The regions of a sketch a feature is grown from, named so that they survive

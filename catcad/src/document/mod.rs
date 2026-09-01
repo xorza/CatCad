@@ -13,7 +13,7 @@ use crate::document::file::saved::Saved;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::change::{About, Change};
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline, Uprooted};
 use silverpoint::Sketch;
@@ -632,7 +632,7 @@ impl Document {
             // what it said, and which regions the extrudes resolve to is worked
             // out for all of them whatever the bar. What changes is only how
             // much of the answer is *read* — see
-            // [`Models::at`](crate::model::Models).
+            // [`Models::at`](crate::model::models::Models).
             //
             // Revised all the same, unlike the camera below it: what is drawn
             // has changed, so a picture laid out before this is out of date.
@@ -726,7 +726,7 @@ impl Edits {
 /// Turning the camera by hand is standing outside a frame: the application only
 /// ever moves it through an intent, so a caller wanting the camera itself is a
 /// test or a bench aiming one without a pointer to aim it with. The shape and
-/// both its gates are argued at [`CatCad::internals`](crate::internals).
+/// both its gates are argued at [`CatCad::internals`](crate::cat_cad::internals).
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::document::Document;
@@ -743,7 +743,7 @@ pub(crate) mod internals {
         /// [`Document::drawing_at`] with the answer unwrapped. That one is an
         /// `Option` because a handle to the sketch being edited outlives the
         /// edits that can take it away — see
-        /// [`Models::new`](crate::model::Models) — and a fixture naming a step
+        /// [`Models::new`](crate::model::models::Models) — and a fixture naming a step
         /// it just made is in no such position. One helper rather than the same
         /// `expect` written at forty call sites, and the message says which
         /// assumption broke.

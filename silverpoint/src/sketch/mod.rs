@@ -15,20 +15,11 @@ use crate::math::direction::Direction;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::sketch::constraint::{Constraint, ConstraintId};
-use crate::sketch::entity::Entity;
+use crate::sketch::entity::{Circle, CircleId, Entity, Point, PointId, Segment, SegmentId};
 use crate::sketch::measurement::Measurement;
 use crate::sketch::params::Params;
 use crate::sketch::snapshot::Snapshot;
 use glam::DVec2;
-
-/// Handle to a point in a [`Sketch`].
-pub type PointId = Id<Point>;
-
-/// Handle to a segment in a [`Sketch`].
-pub type SegmentId = Id<Segment>;
-
-/// Handle to a circle in a [`Sketch`].
-pub type CircleId = Id<Circle>;
 
 // What a handle to something the sketch no longer holds reports — all four of
 // them. Reaching one means a caller kept a handle across a removal, which is a
@@ -37,31 +28,6 @@ const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
 const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
-
-/// A point's position, and whether the solver may move it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Point {
-    pub position: DVec2,
-    /// The solver leaves it where it is. Anchors the sketch so a
-    /// well-constrained system isn't still free to translate and rotate.
-    pub fixed: bool,
-}
-
-/// A straight edge between two points. Carries no parameters of its own — it
-/// is entirely defined by its endpoints.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Segment {
-    pub a: PointId,
-    pub b: PointId,
-}
-
-/// A circle about a point. The radius is a solver parameter, so a
-/// [`Constraint::Radius`] can pin it or a tangency can drive it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Circle {
-    pub center: PointId,
-    pub radius: f64,
-}
 
 /// What a cleanup took out of a sketch.
 ///

@@ -31,12 +31,14 @@ use crate::intent::{Choice, Intents, Opening, Step};
 use crate::look::Theme;
 use crate::look::icons::Icons;
 use crate::marked::{self, Marked};
-use crate::model::{Model, Models};
+use crate::model::Model;
+use crate::model::models::Models;
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
-use crate::timeline::{Axle, FeatureId, Sweep};
+use crate::timeline::axle::Axle;
+use crate::timeline::{FeatureId, Sweep};
 use crate::tool::Tool;
 
 /// What a form is about, and so what committing it asks for.
@@ -1355,7 +1357,7 @@ impl Form {
 /// Gated on `test` alone rather than on `internals` beside it: the one caller
 /// is a unit test, and the wider gate would leave this dead in every build that
 /// turned the feature on without turning tests on. Which gate means what is
-/// argued at [`CatCad::internals`](crate::internals).
+/// argued at [`CatCad::internals`](crate::cat_cad::internals).
 #[cfg(test)]
 pub(crate) mod internals {
     use palantir::WidgetId;

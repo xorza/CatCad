@@ -6,13 +6,14 @@ use silverpoint::{Body, Builder, Extrusion, Operation, Revolution, Sector, Step}
 
 use crate::build::putting::Putting;
 use crate::lens::Lens;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::LIVE_FACES;
 use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
 use crate::profile::Profile;
 use crate::prompt::Form;
-use crate::timeline::{Reading, Spindle, Sweep};
+use crate::timeline::Sweep;
+use crate::timeline::spindle::{Reading, Spindle};
 
 /// The frame a turn is read in: the line it spins about, the way out to the
 /// region from it, and where the region sits on that way out.

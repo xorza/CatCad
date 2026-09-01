@@ -17,7 +17,9 @@ use crate::scene_view::aimed::Aimed;
 use crate::scene_view::picture::{Picture, Under};
 use crate::session::Session;
 use crate::timeline::along::Along;
-use crate::timeline::{Axle, FeatureId, Movable, Spindle};
+use crate::timeline::axle::Axle;
+use crate::timeline::spindle::Spindle;
+use crate::timeline::{FeatureId, Movable};
 use crate::tool::Tool;
 use std::f64::consts::{PI, TAU};
 

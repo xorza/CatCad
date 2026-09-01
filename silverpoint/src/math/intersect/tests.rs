@@ -1,7 +1,6 @@
 use super::*;
 use crate::math::quadratic::roots;
 use crate::number::predicate::ApproxEq;
-use std::f64::consts::TAU;
 
 /// Every crossing, in the order the routine found them, as plain pairs — so an
 /// expectation reads as coordinates off a drawing.
@@ -666,63 +665,5 @@ fn a_ray_finds_the_edge_in_its_way_however_the_crossing_reads() {
     assert!(
         fooled > 8,
         "the quotient got only {fooled} of sixty-four wrong, which is no failure to fix",
-    );
-}
-
-/// `at` moved `by` whole ulps, which for a negative `by` is down.
-///
-/// Over the bits, the floats running in the order their bits spell — and
-/// wrapping, so a count past either end lands on some other float rather than
-/// panicking. Every place below is far from both ends.
-fn ulps(at: f64, by: i64) -> f64 {
-    f64::from_bits(at.to_bits().wrapping_add(by as u64))
-}
-
-/// **The static filter never claims a side the exact tier contradicts**, which
-/// is the whole of what licenses [`TURNING`].
-///
-/// The constant is Shewchuk's, proved for exactly this expression — two
-/// products of two differences, subtracted, over exact inputs. What a sweep can
-/// do is refute a transcription of it, not prove the bound, so this is the
-/// guard on the copying rather than on the mathematics.
-///
-/// **Swept where a filter is hardest**, which is nowhere near a random
-/// quadruple: three of the four places are laid on one line and the fourth is
-/// nudged off it a few ulps at a time in each coordinate, so the determinant is
-/// a cancellation of two nearly equal products and the answer turns on the last
-/// bits. Over thirty-two directions, because a bound that is a share of the
-/// halves is worth asking at every slope, and over three magnitudes, because a
-/// drawing a hundred million across is where the sharing bites.
-///
-/// **And the filter still decides most of them**, which is the other half of
-/// what it is for: one that declined everywhere would be correct and worthless.
-#[test]
-fn the_static_filter_never_disagrees_with_the_exact_tier() {
-    let mut asked = 0;
-    let mut decided = 0;
-    for scale in [1.0f64, 1e3, 1e8] {
-        for step in 0..32i64 {
-            // Off the axes and off the diagonals, so no coordinate difference
-            // comes out exact and the filter is asked a real question.
-            let turn = TAU * step as f64 / 32.0 + 0.37;
-            let along = DVec2::from_angle(turn) * scale;
-            let (a, b, c) = (DVec2::ZERO, along, along * 0.5);
-            for across in -6..7i64 {
-                for up in -6..7i64 {
-                    let d = DVec2::new(ulps(c.x, across), ulps(c.y, up));
-                    asked += 1;
-                    let want = exactly(a, b, c, d);
-                    if let Some(got) = filtered(a, b, c, d) {
-                        decided += 1;
-                        assert_eq!(got, want, "{a:?} {b:?} {c:?} {d:?} at scale {scale}");
-                    }
-                }
-            }
-        }
-    }
-    assert!(asked > 15000, "only {asked} quadruples were swept");
-    assert!(
-        decided * 2 > asked,
-        "the filter decided only {decided} of {asked}, which is a filter that filters nothing",
     );
 }

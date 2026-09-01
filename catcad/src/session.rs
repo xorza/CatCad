@@ -1,7 +1,8 @@
 //! What the user is working *with*, as against what they are working *on*.
 
 use crate::intent::{Choice, Intent, Intents};
-use crate::model::{Model, Models};
+use crate::model::Model;
+use crate::model::models::Models;
 use crate::prompt::{Form, Prompt};
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -107,7 +108,7 @@ impl Session {
     ///
     /// `models` is the document as the frame's asking was read against, and two
     /// intents want it: picking something out opens the sketch it came from,
-    /// which is [`Models::opens`](crate::model::Models)' to answer. So this is
+    /// which is [`Models::opens`](crate::model::models::Models)' to answer. So this is
     /// called before the history writes — afterwards a pick would be resolved
     /// against a timeline it was never read from.
     pub(crate) fn apply(&mut self, models: Models<'_>, intents: &Intents) {
@@ -382,7 +383,7 @@ mod tests {
     use super::*;
     use crate::build::Build;
     use crate::intent::Choice;
-    use crate::model::Models;
+    use crate::model::models::Models;
     use crate::part::Part;
     use crate::timeline::Timeline;
     use crate::timeline::feature::{Datum, Feature, World};

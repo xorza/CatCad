@@ -4,7 +4,7 @@ use glam::{DVec2, Vec3};
 use silverpoint::Fill;
 
 use crate::build::Revision;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::FACE_SAGITTA;
 use crate::paint::layout::Sheets;
 use crate::timeline::FeatureId;

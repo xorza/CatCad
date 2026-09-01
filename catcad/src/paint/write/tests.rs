@@ -1,8 +1,14 @@
-use super::*;
+use aperture::{Batch, Facing, Text};
+use silverpoint::Sketch;
+
 use crate::look::Theme;
 use crate::paint::marks::mark::STACK_STEP;
+use crate::paint::names::Names;
 use crate::paint::tests::fixtures::drawn;
-use glam::{DVec2, Vec3};
+use crate::paint::write::{curves, points, rings, texts};
+use crate::paint::{MARK_FONT, symbol};
+use crate::part::Part;
+use glam::{DVec2, Vec2, Vec3};
 use silverpoint::{Along, Dimension, Entity};
 
 #[test]
@@ -19,7 +25,7 @@ fn every_entity_becomes_a_curve() {
     // screen, so it is cut with the handles against the camera.
     let mut strokes = Batch::default();
     let one = drawn(sketch);
-    curves(
+    curves::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -55,7 +61,7 @@ fn every_entity_becomes_a_curve() {
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
     let two = drawn(fewer);
-    curves(
+    curves::write(
         two.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -73,7 +79,7 @@ fn every_entity_becomes_a_curve() {
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    curves(
+    curves::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -91,7 +97,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rims = Batch::default();
-    rings(
+    rings::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -121,7 +127,7 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
 
     let mut markers = Batch::default();
     let one = drawn(sketch);
-    points(
+    points::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -162,7 +168,7 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     let sizes = |sketch: Sketch| -> Vec<f32> {
         let mut markers = Batch::default();
         let one = drawn(sketch);
-        points(
+        points::write(
             one.models(),
             &Theme::default(),
             &mut Names::default(),
@@ -205,20 +211,20 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut markers = Batch::default();
     let mut strokes = Batch::default();
     let mut rims = Batch::default();
-    points(
+    points::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
         &mut markers,
     );
-    curves(
+    curves::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
         None,
         &mut strokes,
     );
-    rings(
+    rings::write(
         one.models(),
         &Theme::default(),
         &mut Names::default(),
@@ -305,7 +311,7 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut names = Names::default();
     let mut figures = Batch::default();
     let mut placed = Vec::new();
-    texts(
+    texts::write(
         one.models(),
         &Theme::default(),
         &mut names,
@@ -391,7 +397,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
-        texts(
+        texts::write(
             one.models(),
             &Theme::default(),
             names,

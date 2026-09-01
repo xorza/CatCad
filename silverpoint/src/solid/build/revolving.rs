@@ -4,6 +4,7 @@ use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{EXACT, PLACED, WRAPPING};
 use crate::sketch::arrangement::Arrangement;
+use crate::solid::build::sector::Sector;
 use crate::solid::build::strip::{Strip, Strips, Turn};
 use crate::solid::build::{Running, Walled, shelled};
 use crate::solid::geometry::axis::Axis;
@@ -94,32 +95,6 @@ impl<'a> Revolution<'a> {
             by,
         }
     }
-}
-
-/// How much of a turn a revolve sweeps, and where round the line it starts.
-///
-/// Both in radians, about the line's own direction and right-handed about it —
-/// so which way it goes is the sign of the one number rather than a second
-/// field, on the terms [`Extrusion`](super::builder::Extrusion) states for a
-/// signed distance.
-///
-/// **An angle of nought is where the drawing itself stands.** The frame a
-/// revolve spins in is built with the region at nought, so a sector starting
-/// there puts one seam on the profile as it was drawn.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Sector {
-    pub from: f64,
-    /// Signed, and at most a whole turn: more than one would sweep the same
-    /// space twice, which is not a solid.
-    pub sweep: f64,
-}
-
-impl Sector {
-    /// The whole way round from the drawing's own place.
-    pub const WHOLE: Self = Self {
-        from: 0.0,
-        sweep: TAU,
-    };
 }
 
 /// The frame a revolve spins in, and what its passes hand each other.

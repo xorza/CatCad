@@ -1,7 +1,43 @@
-//! One nameable thing in a sketch, whichever kind it is.
+//! The three things a drawing is made of, and the one name over all four kinds.
 
+use crate::arena::Id;
 use crate::sketch::constraint::ConstraintId;
-use crate::sketch::{CircleId, PointId, SegmentId};
+use glam::DVec2;
+
+/// Handle to a point in a [`Sketch`](crate::Sketch).
+pub type PointId = Id<Point>;
+
+/// Handle to a segment in a [`Sketch`](crate::Sketch).
+pub type SegmentId = Id<Segment>;
+
+/// Handle to a circle in a [`Sketch`](crate::Sketch).
+pub type CircleId = Id<Circle>;
+
+/// A point's position, and whether the solver may move it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Point {
+    pub position: DVec2,
+    /// The solver leaves it where it is. Anchors the sketch so a
+    /// well-constrained system isn't still free to translate and rotate.
+    pub fixed: bool,
+}
+
+/// A straight edge between two points. Carries no parameters of its own — it
+/// is entirely defined by its endpoints.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Segment {
+    pub a: PointId,
+    pub b: PointId,
+}
+
+/// A circle about a point. The radius is a solver parameter, so a
+/// [`Constraint::Radius`](crate::Constraint) can pin it or a tangency can drive
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Circle {
+    pub center: PointId,
+    pub radius: f64,
+}
 
 /// Anything in a [`Sketch`](crate::Sketch) that can be named, picked out, or
 /// removed.

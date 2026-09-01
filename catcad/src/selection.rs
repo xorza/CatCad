@@ -94,7 +94,7 @@ impl Selection {
 mod tests {
     use super::*;
     use crate::build::Build;
-    use crate::model::Models;
+    use crate::model::models::Models;
     use crate::timeline::Timeline;
     use glam::DVec2;
     use silverpoint::Sketch;

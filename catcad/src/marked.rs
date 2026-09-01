@@ -157,7 +157,7 @@ pub(crate) fn doing(operation: Operation) -> Marked {
 /// here is exactly the fault the check is for.
 ///
 /// Gated on `test` alone rather than on `internals` beside it, on the terms
-/// [`CatCad::internals`](crate::internals) argues: the one reader is a unit
+/// [`CatCad::internals`](crate::cat_cad::internals) argues: the one reader is a unit
 /// test, and the wider gate would leave this dead in every build that turned
 /// the feature on without turning tests on.
 #[cfg(test)]

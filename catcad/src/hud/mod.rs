@@ -8,7 +8,7 @@ use crate::hud::cube::{Cube, Gizmo};
 use crate::intent::Intents;
 use crate::look::Theme;
 use crate::look::icons::Icons;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::selection::Selection;
 use crate::status::Solved;
 use crate::timeline::FeatureId;

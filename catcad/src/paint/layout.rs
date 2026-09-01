@@ -5,7 +5,7 @@ use silverpoint::{Body, Builder, ConstraintId, Fill, Filler, Mesher, Operation, 
 use crate::build::Revision;
 use crate::build::putting::Putting;
 use crate::lens::Lens;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;

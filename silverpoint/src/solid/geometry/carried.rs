@@ -1,7 +1,7 @@
 //! Everything a body's curves are made of and cannot hold.
 
 use crate::solid::geometry::marchings::Marchings;
-use crate::solid::geometry::quartic::Quartics;
+use crate::solid::geometry::quartics::Quartics;
 
 /// The stores a [`Curve`](super::curve::Curve) names a place in.
 ///

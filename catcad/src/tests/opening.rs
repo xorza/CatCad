@@ -1,7 +1,7 @@
 //! What the demo solves to, how the app opens on it, and what the readout
 //! says about it.
 
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::tests::harness::Raised;
 use crate::timeline::Timeline;
 use aperture::Camera;

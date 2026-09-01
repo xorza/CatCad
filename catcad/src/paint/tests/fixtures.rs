@@ -2,7 +2,7 @@
 //! back.
 
 use crate::build::Build;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::part::Part;
 use crate::timeline::Timeline;
 use aperture::Scene;

@@ -93,7 +93,7 @@ impl Part {
     /// reads as: this asks what a part belongs to, and a sketch belongs to
     /// nothing. What sketch picking one puts you *in* is a different question,
     /// and one this cannot answer — telling a sketch step from a plane wants the
-    /// timeline. See [`Models::opens`](crate::model::Models).
+    /// timeline. See [`Models::opens`](crate::model::models::Models).
     pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
             Part::Entity { sketch, .. } | Part::Region { sketch, .. } => Some(sketch),

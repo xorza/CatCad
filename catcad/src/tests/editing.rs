@@ -661,7 +661,7 @@ fn ctrl_arrows_move_the_picked_step_and_stop_at_the_ends_of_its_run() {
 /// longer there to be in, and rolling forward puts it all back.
 ///
 /// **What one field on the timeline reaches.** The bar is applied in
-/// [`Models::at`](crate::model::Models) and in the walks beside it, so nothing
+/// [`Models::at`](crate::model::models::Models) and in the walks beside it, so nothing
 /// else was told about it: what is drawn, what is open, what a pick opens and
 /// what a prune keeps all come through those. The half worth pinning is being
 /// dropped *out* of a sketch — that is the guard `Session::prune` grew when a
@@ -743,7 +743,7 @@ fn rolling_back_stops_the_tail_being_built_and_rolling_forward_restores_it() {
 ///
 /// **The prune is what leaves the sketch, not what keeps the frame up.** Those
 /// were one thing and are now two: every reading of a dead handle answers
-/// rather than panicking — [`Models::new`](crate::model::Models) forgets one
+/// rather than panicking — [`Models::new`](crate::model::models::Models) forgets one
 /// the timeline no longer holds, and `Document::drawing_at` hands back an
 /// `Option` where `Timeline::drawing` used to panic — so a frame drawn before
 /// the prune ran is a frame that draws nothing rather than one that dies. What

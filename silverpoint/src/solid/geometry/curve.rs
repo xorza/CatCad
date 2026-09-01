@@ -12,7 +12,7 @@ use crate::solid::geometry::hyperbola::Hyperbola;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::parabola::Parabola;
-use crate::solid::geometry::quartic::Quartered;
+use crate::solid::geometry::quartics::Quartered;
 use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
 

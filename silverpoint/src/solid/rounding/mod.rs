@@ -1,5 +1,7 @@
 //! Putting a blend where an edge of a body was.
 
+mod corner;
+
 use crate::inline::Inline;
 use crate::math::plane::Plane;
 use crate::number::predicate;
@@ -21,6 +23,9 @@ use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
 use crate::solid::named::{Named, Step};
+use crate::solid::rounding::corner::{
+    Cornered, Joined, Junction, Met, Pointed, Ringed, Starred, Trihedral,
+};
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -276,234 +281,6 @@ enum Filled {
     Corner(usize),
     /// The star three flat ones left — see [`Starred`].
     Star(usize),
-}
-
-/// Where two blends meet at one corner of the body.
-///
-/// **One record for the pair**, because what the two leave is one arc between
-/// two corners: worked out twice it could come out two ways round, and the two
-/// faces would walk edges that were not the same edge.
-///
-/// **And no face between them.** Two cylinders of one radius, each tangent to
-/// the face they share, cross in an ellipse and nothing is left over — which is
-/// what tells this from the corner a *third* picked edge runs to, where the
-/// three leave a patch between them. See [`Cornered`], and
-/// `.notes/KERNEL.md` §7.5.
-#[derive(Debug, Clone, Copy)]
-struct Junction {
-    /// The two ends meeting, the blend found first at its head.
-    ends: [Swallow; 2],
-    /// Which of each blend's two faces the other also runs out onto, in step
-    /// with `ends`.
-    ///
-    /// What puts this junction's own two corners on that blend's sides — see
-    /// [`Ending::Against`].
-    shared: [usize; 2],
-    /// The corner of the body they swallow between them.
-    at: VertexId,
-    /// Where the two rails cross on the face both blends run out onto, and
-    /// where the edge neither of them replaces is cut back to.
-    made: [DVec3; 2],
-    /// That edge, and how far along it the cut lands.
-    along: EdgeId,
-    cut: f64,
-    /// The arc the two cylinders share, from the first corner to the second.
-    curve: Curve,
-    bounds: [f64; 2],
-}
-
-/// The corner three blend ends land on, before anything is put in it.
-///
-/// **Three faces between them, one apiece, and one side of the material.**
-/// Both fillings below want exactly that much settled and neither can do
-/// without it: a corner where the three divide other than three faces is not
-/// the trihedral one either fills, and one where they do not agree which way
-/// the material lies is a corner no single surface answers.
-#[derive(Debug, Clone, Copy)]
-struct Trihedral {
-    /// The three ends meeting, in the order the blends were found.
-    ends: [Swallow; 3],
-    /// The spine at each of them, in the same order.
-    tips: [Spine; 3],
-    /// The three faces they divide between them, the first blend's two first.
-    faces: [FaceId; 3],
-    /// Which side of each blend the material is on, which all three share.
-    outward: bool,
-}
-
-impl Trihedral {
-    /// What the three ends have in common, or `None` where they have not
-    /// enough.
-    fn of(blends: &[Blend], runs: &[Spine], ends: [Swallow; 3]) -> Option<Self> {
-        let tips = ends.map(|end| blends[end.blend].tip(runs, end.end));
-        // The first blend divides two of them and the second brings the third,
-        // every blend already dividing two that differ — see
-        // [`Rounding::blended`].
-        let first = tips[0].between;
-        let &across = tips[1].between.iter().find(|face| !first.contains(face))?;
-        let faces = [first[0], first[1], across];
-        if tips
-            .iter()
-            .any(|tip| !tip.between.iter().all(|face| faces.contains(face)))
-        {
-            return None;
-        }
-        // **A corner the three do not agree about is neither filling's.** A
-        // rolling ball is on one side of the material throughout, so a corner
-        // where one edge is convex and another concave wants a surface whose
-        // radius moves — which §9.5 names and neither of these is.
-        let outward = blends[ends[0].blend].outward;
-        ends.iter()
-            .all(|end| blends[end.blend].outward == outward)
-            .then_some(Self {
-                ends,
-                tips,
-                faces,
-                outward,
-            })
-    }
-
-    /// Which of the three faces is `face`.
-    fn seat(&self, face: FaceId) -> usize {
-        self.faces
-            .iter()
-            .position(|&held| held == face)
-            .expect(SEATED)
-    }
-
-    /// Which of the three ends is the blend at `at`'s.
-    fn which(&self, at: usize) -> usize {
-        self.ends
-            .iter()
-            .position(|end| end.blend == at)
-            .expect(SEATED)
-    }
-}
-
-/// The patch put in at a corner where three round picked edges met.
-///
-/// **A sphere of the blends' own radius**, which is what a rolling ball leaves:
-/// the ball rolls along each of the three edges and pivots in place at the
-/// corner, sweeping the sphere tangent to all three faces. Its centre stands a
-/// radius off every one of them, which is the one point all three cylinder axes
-/// run through — so the sphere is inscribed in each of them and touches it
-/// along a whole circle. The patch is the triangle those three circles cut out.
-///
-/// **And not where the three cylinders themselves cross.** They do cross
-/// pairwise, and the three curves even meet at a point — but that point stands
-/// `r√(3/2)` off the centre where the answer stands `r`, so trimming the three
-/// against each other would keep material the ball had taken. See
-/// `.notes/KERNEL.md` §7.5.
-#[derive(Debug, Clone, Copy)]
-struct Cornered {
-    held: Trihedral,
-    /// The sphere it lies on. Whether the material is inside it is
-    /// [`Trihedral::outward`], the patch facing the way the blends it fills
-    /// between do.
-    sphere: Sphere,
-    /// The three picks that met there, in order — see [`Grown::Cornered`].
-    picks: [u32; 3],
-    /// Where the sphere touches each of [`Trihedral::faces`], in that order.
-    made: [DVec3; 3],
-}
-
-/// What one corner patch came to in the answer.
-#[derive(Debug, Clone, Copy)]
-struct Ringed {
-    /// The corner where the sphere touches each face, in
-    /// [`Trihedral::faces`]'s own order.
-    made: [VertexId; 3],
-    /// The arc each of the three blends closes against, in
-    /// [`Trihedral::ends`]'s own order.
-    arcs: [EdgeId; 3],
-}
-
-/// The star put in at a corner where three flat picked edges met.
-///
-/// **Three planes meet at a point, so there is nothing left to fill.** That is
-/// the whole of what tells this from [`Cornered`] beside it: three *cylinders*
-/// of one radius do not meet — their own triple point stands where the answer
-/// does not — so the round corner wants a patch and the flat one wants none.
-/// What goes in is that point, and one line to it from each of the three places
-/// a pair of the blends cross on the face they share.
-///
-/// **So a blend closing here bounds two edges and not one**, which is the one
-/// place the routine's four-sided loop grows. See `.notes/KERNEL.md` §7.5.
-#[derive(Debug, Clone, Copy)]
-struct Starred {
-    held: Trihedral,
-    /// Where the three planes cross, which every leg runs to.
-    at: DVec3,
-    /// Where the two blends a leg divides cross on the face they share, one per
-    /// leg: leg `which` divides the ends `which` and `which + 1`.
-    met: [DVec3; 3],
-    /// Which leg lies on each side of each end, in [`Trihedral::ends`]'s own
-    /// order.
-    on: [[usize; 2]; 3],
-}
-
-/// What one star came to in the answer.
-#[derive(Debug, Clone, Copy)]
-struct Pointed {
-    /// The corner each leg runs to the point from, and the leg itself, in
-    /// [`Starred::met`]'s own order.
-    ///
-    /// **The point itself is not here**, and nothing wants it: it is a corner
-    /// of no loop but the three blends' own, and each of those reaches it by
-    /// walking one of its legs.
-    met: [VertexId; 3],
-    legs: [EdgeId; 3],
-}
-
-/// Where two blends meeting at one corner cross on the face they share.
-///
-/// **The one corner of the answer that lies on no edge the body had.** Both
-/// blends reach out onto the face the two of them share, and their rulings on
-/// it cross at one place. That place is a corner of the junction two of them
-/// leave, and the far end of a leg of the star three leave.
-#[derive(Debug, Clone, Copy)]
-struct Met {
-    /// Which of each blend's two faces the other also reaches, in the order the
-    /// pair was asked about.
-    sides: [usize; 2],
-    /// The surface of the face they share.
-    shared: Surface,
-    at: DVec3,
-}
-
-impl Met {
-    /// Where the two blends `pair` cross, meeting at the body's `corner`, or
-    /// `None` where they share no face or their rulings do not cross on it.
-    fn of(topology: &Topology, pair: [Blend; 2], tips: [Spine; 2], corner: DVec3) -> Option<Self> {
-        let found = [0, 1].map(|which| {
-            let other = tips[1 - which].between;
-            (0..2).find(|&side| other.contains(&tips[which].between[side]))
-        });
-        let sides = [found[0]?, found[1]?];
-        let shared = topology.face(tips[0].between[sides[0]]).surface;
-        // **Both straight**, which two blends meeting at a corner are: a run
-        // that closes lands on no corner at all, so nothing round ever reaches
-        // here.
-        let [Curve::Line(one), Curve::Line(two)] =
-            [pair[0].rails[sides[0]], pair[1].rails[sides[1]]]
-        else {
-            return None;
-        };
-        Some(Self {
-            sides,
-            shared,
-            at: one.at(crossed(one, two, shared.normal(shared.uv(corner)))?),
-        })
-    }
-}
-
-/// What one junction came to in the answer.
-#[derive(Debug, Clone, Copy)]
-struct Joined {
-    /// The two corners, in [`Junction::made`]'s own order.
-    made: [VertexId; 2],
-    /// The arc between them, which both blends walk.
-    arc: EdgeId,
 }
 
 /// Where a run crosses a corner of the body between two of its own spines.
@@ -2442,18 +2219,6 @@ impl Rounding {
     }
 }
 
-impl Junction {
-    /// Which of the blend at `at`'s two faces the blend it meets also runs out
-    /// onto.
-    fn shared(&self, at: usize) -> usize {
-        self.shared[self
-            .ends
-            .iter()
-            .position(|end| end.blend == at)
-            .expect(PAIRED)]
-    }
-}
-
 /// Where one edge of the body is cut back to, and where that lands.
 #[derive(Debug, Clone, Copy)]
 struct CutBack {
@@ -2584,11 +2349,11 @@ fn through(curves: &[Curve], made: [DVec3; 2], carried: &Carried) -> Option<Curv
 
 // Two blends of a junction share exactly one face, which is what raising the
 // junction established.
-const PAIRED: &str = "two blends meeting at a corner share one face";
+pub(super) const PAIRED: &str = "two blends meeting at a corner share one face";
 
 // Three blends of a corner patch cover three faces between them, one apiece,
 // which is what raising the patch established.
-const SEATED: &str = "a corner patch names the face and the blend asked of it";
+pub(super) const SEATED: &str = "a corner patch names the face and the blend asked of it";
 
 /// Every face of the body is raised before anything names one.
 const RAISED: &str = "every face of the body was raised";
@@ -2782,7 +2547,7 @@ fn paired(names: [Named; 2]) -> u64 {
 ///
 /// `None` where they run alongside each other, which two edges of one face
 /// meeting at a corner never do.
-fn crossed(run: Line, rail: Line, normal: DVec3) -> Option<f64> {
+pub(super) fn crossed(run: Line, rail: Line, normal: DVec3) -> Option<f64> {
     let under = run.direction.cross(rail.direction).dot(normal);
     if predicate::touching(under.abs(), ALIGNED) {
         return None;

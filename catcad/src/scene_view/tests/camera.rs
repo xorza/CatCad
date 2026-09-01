@@ -1,7 +1,7 @@
 //! Turning, panning and zooming the view, and what that must not edit.
 
+use crate::cat_cad::internals::HARNESS_SIZE;
 use crate::hud::cube::Gizmo;
-use crate::internals::HARNESS_SIZE;
 use crate::look::Theme;
 use crate::scene_view::pointing::ZOOM_RATE;
 use crate::scene_view::tests::harness::{RaisedView, open_markers};

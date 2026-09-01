@@ -140,9 +140,11 @@ impl Checking {
     ///
     /// **Chorded, and that is the whole of what it costs.** A loop is walked at
     /// [`CHORDED`] into the surface's parameters, exactly as the boolean and the
-    /// mesher walk it, and a chorded loop that crosses itself is a true loop
-    /// that does too — the chords lie within a sagitta of the curve, and a
-    /// crossing is not a thing a sagitta hides.
+    /// mesher walk it, and the chords lie within a sagitta of the curve. A
+    /// crossing is not a thing a sagitta hides, and neither is a sign: a chorded
+    /// loop shuts in a little less than the true one and shuts it the same way
+    /// round, which is what [`Checking::volumes_are_signed`] leans on one
+    /// dimension up.
     ///
     /// **Through [`intersect::spans`], which decides it exactly.** Two chords
     /// that meet at a shared corner are the adjacent pair every loop has and
@@ -151,12 +153,6 @@ impl Checking {
     /// another is caught as well — that is a pinch rather than a crossing, and
     /// a boundary that touches itself is no more a boundary than one that
     /// crosses.
-    ///
-    /// **And the chording costs the sign nothing.** A chord lies within a
-    /// sagitta of the curve, so a chorded loop shuts in a little less than the
-    /// true one and shuts it in the same way round —
-    /// [`Checking::volumes_are_signed`] leans on the same fact one dimension
-    /// up.
     fn loops_bound_their_face(&mut self, topology: &Topology) {
         let Self {
             traced, flattened, ..

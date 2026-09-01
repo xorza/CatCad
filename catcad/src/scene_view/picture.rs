@@ -15,7 +15,7 @@ use silverpoint::ConstraintId;
 
 use crate::lens::Lens;
 use crate::look::Theme;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint;
 use crate::paint::cut::Cut;
 use crate::paint::layout::Layout;
@@ -387,7 +387,7 @@ pub(super) struct Under {
     pub(super) part: Part,
 }
 
-/// The reach-ins two layers in — see [`CatCad::internals`](crate::internals),
+/// The reach-ins two layers in — see [`CatCad::internals`](crate::cat_cad::internals),
 /// where the shape and both its gates are argued.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
@@ -449,7 +449,7 @@ pub(crate) mod internals {
         }
     }
 
-    /// The `test`-only half — see [`CatCad::internals`](crate::internals).
+    /// The `test`-only half — see [`CatCad::internals`](crate::cat_cad::internals).
     #[cfg(test)]
     mod looking {
         use aperture::Lit;

@@ -70,7 +70,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
             );
             let (mut planes, mut sketches, mut solids) = (0, 0, 0);
             // Whether the walk has passed the last step the document built —
-            // see [`Models::rolled`](crate::model::Models::rolled), which names
+            // see [`Models::rolled`](crate::model::models::Models::rolled), which names
             // that step rather than marking the tail below it.
             let mut built = true;
             for (at, feature) in models.chosen() {
@@ -136,7 +136,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
                     // Picked out and nothing else. What follows from picking a step
                     // is decided where everything else about a selection is — a
                     // sketch opens, a plane does not — see
-                    // [`Models::opens`](crate::model::Models).
+                    // [`Models::opens`](crate::model::models::Models).
                     intents.push(Choice::Select(Some(Part::Step(at))));
                 }
                 // **The bar, drawn between the rows it divides.** One marker rather

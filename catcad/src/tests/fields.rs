@@ -1,8 +1,8 @@
 //! The form that opens over a dimension: where it stands, what it takes, and
 //! what it does with what it was given.
 
+use crate::cat_cad::internals::HARNESS_SIZE;
 use crate::intent::Intents;
-use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
 use crate::tests::harness::Raised;
 use crate::tests::harness::Stated;
@@ -16,7 +16,7 @@ use crate::CatCad;
 use crate::hud::internals;
 use crate::intent::Choice;
 use crate::prompt::{Prompt, Stands};
-use crate::timeline::Axle;
+use crate::timeline::axle::Axle;
 use std::f64::consts::FRAC_PI_2;
 
 /// **A field opens over the dimension's own mark, takes what is typed, and

@@ -6,17 +6,19 @@
 
 use std::ops::Range;
 
-use glam::{DVec2, DVec3};
-use silverpoint::{Bevel, Named, Operation, Plane, Sector, SegmentId, Sketch, Step};
+use silverpoint::{Bevel, Named, Operation, Plane, Sector, SegmentId, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::profile::Profile;
 use crate::timeline::along::Along;
+use crate::timeline::axle::Axle;
 use crate::timeline::feature::{Datum, Feature, World};
 
 pub(crate) mod along;
+pub(crate) mod axle;
 pub(crate) mod feature;
+pub(crate) mod spindle;
 
 /// The recipe the document is: what was done, in order.
 ///
@@ -87,7 +89,7 @@ pub(crate) struct Timeline {
     /// Not part of what the timeline *holds*: a rolled-back step is still there,
     /// still deletable and still a row of the tree. What it is not is *built*,
     /// which is a question about the drawing rather than about the recipe — so
-    /// the gate is in [`Models`](crate::model::Models) and not in
+    /// the gate is in [`Models`](crate::model::models::Models) and not in
     /// [`Timeline::held`].
     rolled: Option<FeatureId>,
 }
@@ -631,7 +633,7 @@ impl Timeline {
 
     /// The same, where there may be nothing of the kind there to read.
     ///
-    /// What [`Models::at`](crate::model::Models::at) asks, being the one caller
+    /// What [`Models::at`](crate::model::models::Models::at) asks, being the one caller
     /// that does not already know: a name is kept across the edits that could
     /// take what it names away — a form outlives several — so a handle that no
     /// longer fits a sketch is a state rather than a mistake. Both ways it can
@@ -921,121 +923,6 @@ pub(crate) enum Sweep {
     Spun { axle: Option<Axle>, sector: Sector },
 }
 
-/// A line of a drawing to spin about, in that drawing's own coordinates.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Axle {
-    pub(crate) at: DVec2,
-    /// Tail to head, and not unit — which is the kernel's to normalize.
-    pub(crate) along: DVec2,
-}
-
-impl Axle {
-    /// The same line in the world, on the plane its drawing lies on.
-    ///
-    /// Here rather than at either reader, because two want it and they must not
-    /// answer differently: the handle that turns a sweep stands on the circle
-    /// this line is the axis of, and the drag that moves it is resolved about
-    /// the very same line.
-    ///
-    /// `None` where the segment has no length, which names no line at all —
-    /// the same refusal the kernel makes of one.
-    pub(crate) fn borne(self, plane: Plane) -> Option<Spindle> {
-        let along = self.along.try_normalize()?;
-        Some(Spindle {
-            origin: plane.point(self.at),
-            direction: plane.x * along.x + plane.y * along.y,
-        })
-    }
-
-    /// The line the segment at `axis` of `sketch` is, or `None` where that
-    /// drawing no longer holds it.
-    ///
-    /// **Asked before it is read**, a handle outliving what it names whenever a
-    /// step that drew geometry is taken back — and a restore puts the sketch
-    /// back arenas and all, so the next line drawn takes the very handle the
-    /// rubbed-out one had. See [`Sketch::holds`], which is the one accessor
-    /// that answers rather than expecting a live handle.
-    ///
-    /// Here rather than at either caller because two want it: the timeline,
-    /// resolving a step, and the form still deciding what a revolve does.
-    pub(crate) fn of(sketch: &Sketch, axis: SegmentId) -> Option<Self> {
-        let segment = sketch.holds(axis).then(|| sketch.segment(axis))?;
-        let [at, to] = [segment.a, segment.b].map(|end| sketch.point(end).position);
-        Some(Self { at, along: to - at })
-    }
-}
-
-/// A line in the world to spin about: a point on it, and the unit way it runs.
-///
-/// [`Axle`] borne onto the plane its drawing lies on — see [`Axle::borne`].
-/// Named apart from that one because the two are read in different frames, and
-/// a reader holding the wrong one would spin a solid about a line of the
-/// drawing's own two coordinates.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Spindle {
-    pub(crate) origin: DVec3,
-    /// Unit, unlike [`Axle::along`], which the kernel normalizes for itself.
-    pub(crate) direction: DVec3,
-}
-
-impl Spindle {
-    /// Where `at` stands about the line: how far along it, how far out, and at
-    /// what angle from `reference`.
-    ///
-    /// The angle is measured the way a revolve sweeps — right-handed about the
-    /// direction — so what it hands back is the sector's own vocabulary.
-    pub(crate) fn reads(self, reference: DVec3, at: DVec3) -> Reading {
-        let across = self.across(at);
-        Reading {
-            up: self.direction.dot(at - self.origin),
-            radius: across.length(),
-            angle: across
-                .dot(self.square(reference))
-                .atan2(across.dot(reference)),
-        }
-    }
-
-    /// Where the place `up` along the line and `radius` out from it stands at
-    /// `angle` from `reference`.
-    pub(crate) fn spun(self, reference: DVec3, reading: Reading, angle: f64) -> DVec3 {
-        let round = reference * angle.cos() + self.square(reference) * angle.sin();
-        self.origin + self.direction * reading.up + round * reading.radius
-    }
-
-    /// The way the spin goes at `angle`, unit — which is the circle's own
-    /// tangent there, and so the way a handle riding it points.
-    pub(crate) fn tangent(self, reference: DVec3, angle: f64) -> DVec3 {
-        self.square(reference) * angle.cos() - reference * angle.sin()
-    }
-
-    /// The unit way out to `at`, or `None` where it stands *on* the line and
-    /// there is no way out to it.
-    pub(crate) fn out(self, at: DVec3) -> Option<DVec3> {
-        self.across(at).try_normalize()
-    }
-
-    /// How far out from the line `at` stands, as a direction and a length in
-    /// one.
-    fn across(self, at: DVec3) -> DVec3 {
-        let out = at - self.origin;
-        out - self.direction * self.direction.dot(out)
-    }
-
-    /// A quarter turn on from `reference`, which is what an angle about the
-    /// line is read against and turned through.
-    fn square(self, reference: DVec3) -> DVec3 {
-        self.direction.cross(reference)
-    }
-}
-
-/// Where a place stands about a [`Spindle`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Reading {
-    pub(crate) up: f64,
-    pub(crate) radius: f64,
-    pub(crate) angle: f64,
-}
-
 /// One step of a timeline, and the handle that names it.
 ///
 /// Named for having been taken rather than for being a step, which
@@ -1112,7 +999,7 @@ mod internals {
         ///
         /// [`Timeline::sketched`] with the answer unwrapped. That one is an
         /// `Option` because a handle to a sketch outlives the edits that can
-        /// take it away — see [`Models::new`](crate::model::Models) — and a
+        /// take it away — see [`Models::new`](crate::model::models::Models) — and a
         /// fixture naming a step it just made is in no such position. One
         /// helper rather than the same `expect` written at forty call sites,
         /// and the message says which assumption broke.

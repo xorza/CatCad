@@ -260,7 +260,7 @@ impl Build {
     /// Takes the walk rather than the timeline, because the timeline is
     /// [`Document`](crate::document::Document)'s: what crosses between the two
     /// is what each step names and nothing else, which is the same line
-    /// [`Models`](crate::model::Models) sits on.
+    /// [`Models`](crate::model::models::Models) sits on.
     pub(crate) fn rebuild<'a>(&mut self, making: impl Iterator<Item = Making<'a>>) {
         let Self {
             settled,

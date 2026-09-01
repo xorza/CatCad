@@ -15,6 +15,7 @@ use crate::solid::topology::shell::{Shell, ShellId};
 
 pub(crate) mod builder;
 pub(crate) mod revolving;
+pub(crate) mod sector;
 mod strip;
 
 #[cfg(test)]

@@ -54,7 +54,7 @@ pub(crate) struct Bodied {
     /// and the honest place is beside the model rather than nowhere: the step
     /// is flagged, both solids are on screen, and the step after this one goes
     /// on building from the model that *was* worked out. See
-    /// [`Models::model`](crate::model::Models).
+    /// [`Models::model`](crate::model::models::Models).
     body: Body,
     /// The same solid with the pieces of every face put back together.
     ///
@@ -62,7 +62,7 @@ pub(crate) struct Bodied {
     /// measures: the splits one boolean makes are part of its answer's contract
     /// for the next one. So the step after this is built on `body`, and the
     /// drawing, the picker and the mesher read this — see
-    /// [`Putting::tidy`] and [`Models::solids`](crate::model::Models).
+    /// [`Putting::tidy`] and [`Models::solids`](crate::model::models::Models).
     shown: Body,
     /// Bumped whenever `body` is rewritten, so the step after this one can tell
     /// whether what it was built on has moved.
@@ -168,7 +168,7 @@ impl Bodied {
         // the same as taking everything away: what stands goes on standing,
         // because a step that did not merge does not become what the step after
         // it builds on. The tree says which step lost its footing — see
-        // [`Models::lost`](crate::model::Models).
+        // [`Models::lost`](crate::model::models::Models).
         if regions.is_empty() {
             self.came_to(Built::Lost);
             return;
@@ -567,7 +567,7 @@ mod internals {
         /// standing beside it.
         ///
         /// What a test counting the recipe asks — see
-        /// [`Models::grown`](crate::model::Models). Production reads
+        /// [`Models::grown`](crate::model::models::Models). Production reads
         /// [`Built::modelled`] and [`Built::unmerged`], which are about what
         /// the step did to the model rather than about what it raised.
         pub(crate) fn raised(self) -> bool {

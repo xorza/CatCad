@@ -3,7 +3,7 @@
 use crate::build::Build;
 use crate::document::Document;
 use crate::look::Theme;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::growing::*;
 use crate::paint::{Layout, Showing, redraw};
 use crate::profile::Profile;

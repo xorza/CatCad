@@ -11,7 +11,7 @@ use crate::intent::Intents;
 use crate::intent::change::Change;
 use crate::lens::Lens;
 use crate::look::Theme;
-use crate::model::Models;
+use crate::model::models::Models;
 use crate::paint::showing::Showing;
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt, Stands};
@@ -359,7 +359,7 @@ impl SceneView {
     }
 }
 
-/// The reach-ins one layer in — see [`CatCad::internals`](crate::internals),
+/// The reach-ins one layer in — see [`CatCad::internals`](crate::cat_cad::internals),
 /// where the shape and both its gates are argued.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
@@ -408,7 +408,7 @@ pub(crate) mod internals {
         }
     }
 
-    /// The `test`-only half — see [`CatCad::internals`](crate::internals).
+    /// The `test`-only half — see [`CatCad::internals`](crate::cat_cad::internals).
     ///
     /// Named for looking rather than for picking, which is what it held when
     /// there was one of them: what a tag stands for and what a gesture is
