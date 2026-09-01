@@ -1877,15 +1877,28 @@ so.
   isolated it would answer exactly and cost a handful of rulings rather than a
   hundred, which is worth taking when a march over a corner patch turns out to
   want it.
-- **`straying`, and its head half is written.** A place of the patch is
-  `(1 − v)·head + v·foot`, so a triangle leaves its chord by at most the
-  greater of what the two edges leave theirs by. The first edge is the ellipse
-  `middle + cos u·one + sin u·two`, which is the image of a unit circle under
+- **`straying` — done, and probed for the third time.** Four places: the
+  triangle's three edge middles and its centroid, each held against the flat
+  triangle. Across `v` the patch is exactly linear, so a triangle standing on
+  one ruling strays nowhere at all — which is the one reading here that has to
+  come back nought and does. Across `u` it bends by both edges at once, and the
+  second edge's rate about the round's axis is what no bound is written for.
+  **A triangle spanning a whole ruling strays linearly in the angle**, not as
+  its square: what it reads is the *twist* between two skew rulings rather than
+  either edge's bend. Measured on the square corner at half, a quarter and an
+  eighth of the arc: `0.294`, `0.157`, `0.080`.
+- **`strides` is the last reading, and the grid is load-bearing.** `Refining`
+  measures a triangle only where the cells say it might be too far — a triangle
+  every side of which stands inside one cell is taken as within the sagitta and
+  never asked — so a stride has to be a *bound* where `straying` may be a
+  probe. Along `v` the patch is exactly linear and wants no subdivision for
+  straightness at all, so the whole grid is `u`'s. The head's half of that
+  bound is written: the first edge is the ellipse
+  `middle + cos u·one + sin u·two`, the image of a unit circle under
   `[one two]`, so its arc leaves its chord by at most
-  `(|one| + |two|)·arc::bulge(span)`. The second edge's rate about the round's
-  axis is not `u`'s, and that rate is what the other half wants. `strides`
-  falls out of it: along `v` the patch is exactly linear, so it wants no
-  subdivision for straightness at all and the whole grid is `u`'s.
+  `(|one| + |two|)·arc::bulge(span)`. The foot's half wants the same rate the
+  stray does. **And the twist above is a third term neither edge carries**,
+  which a stride over a cell has to hold as well.
 - The *filing* of the second edge: handing the walk to `Marchings::add` and
   carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`

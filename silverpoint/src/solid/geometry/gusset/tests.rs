@@ -619,3 +619,43 @@ fn a_place_off_the_patch_reads_the_distance_it_was_moved() {
         }
     }
 }
+
+/// **A triangle standing on one ruling strays nowhere, and one spanning the
+/// angle strays less the smaller it is.**
+///
+/// The first is derived rather than measured: the patch is exactly linear
+/// across a ruling, so three corners at one angle lie on a straight line the
+/// flat triangle holds exactly. It is the one reading here that has to come
+/// back nought, and a probe that missed the linearity would not.
+///
+/// The second is what a mesher leans on, and it falls *linearly* in the angle
+/// rather than as its square. A triangle spanning a whole ruling reads the
+/// twist between two skew rulings, which grows with the angle between them; a
+/// chord of either edge would read that edge's bend and quarter instead.
+/// Measured on the square corner at half, a quarter and an eighth of the arc:
+/// `0.294`, `0.157`, `0.080`.
+#[test]
+fn a_triangle_on_one_ruling_strays_nowhere_and_a_smaller_one_strays_less() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let [from, to] = gusset.bounds();
+        let u = from + (to - from) * 0.5;
+        let along = gusset.straying([DVec2::new(u, 0.0), DVec2::new(u, 0.5), DVec2::new(u, 1.0)]);
+        assert!(along < 1e-12, "{named}: a ruling strayed {along}");
+
+        let mut last = f64::INFINITY;
+        for share in [0.5, 0.25, 0.125] {
+            let span = (to - from) * share;
+            let strayed = gusset.straying([
+                DVec2::new(u, 0.0),
+                DVec2::new(u + span, 0.0),
+                DVec2::new(u + span, 1.0),
+            ]);
+            assert!(
+                strayed < last * 0.6,
+                "{named}: halving the angle left {strayed} against {last}",
+            );
+            last = strayed;
+        }
+        assert!(last > 0.0, "{named}: nothing was measured at all");
+    }
+}
