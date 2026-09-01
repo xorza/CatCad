@@ -2,6 +2,7 @@
 
 use crate::camera::Camera;
 use crate::camera::Projection;
+use crate::primitive::Primitive;
 use crate::renderer::tests::harness::{FRAME, Framed, Ink, run, square_on};
 use crate::tag::Tag;
 use crate::text::turn::{Facing, Turn};

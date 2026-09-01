@@ -1,6 +1,7 @@
 //! What everything a scene holds has in common.
 
-use crate::hit::Precedence;
+use crate::aim::Aim;
+use crate::hit::{Hit, Precedence};
 use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -23,19 +24,13 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 /// marker, a label.
 ///
 /// The five are different shapes, picked by different arithmetic and drawn by
-/// different shaders, and none of that is here. What is here is what a scene
-/// does to all five alike — name what a pick reports, say what it is for, and
-/// measure how far each reaches — so that those are written once rather than
-/// once per kind.
+/// different shaders, and none of that is here. What is here is every question
+/// a scene asks all five alike — name what a pick reports, say what it is for,
+/// answer a pick, and measure how far each reaches — so that each is asked
+/// once rather than once per kind.
 ///
 /// Turning one into records is [`Flatten`], a second trait rather than two more
 /// methods on this one, because it is the one thing the five do not share.
-///
-/// Picking is deliberately absent, though a scene asks all five for it. Those
-/// are five different algorithms wearing a three-line frame — take the tag,
-/// compare against the reach, build the hit — and the frame is the cheap part:
-/// what each kind hands back differs, so hoisting it costs a named result per
-/// kind and buys three lines.
 pub(crate) trait Primitive {
     /// What a pick that lands on it reports, and what a highlight names.
     fn tag(&self) -> Option<Tag>;
@@ -43,6 +38,19 @@ pub(crate) trait Primitive {
     /// What it is for, which decides both what a click meant for two things at
     /// once lands on and whether it counts toward how far the scene reaches.
     fn standing(&self) -> Precedence;
+
+    /// Whether the cursor landed on it, and where.
+    ///
+    /// Five different algorithms behind one answer — a ray cast at triangles, a
+    /// cursor dropped onto a segment, a walk of a rim, a screen distance, a box
+    /// brought into a plane — and the answer is the same [`Hit`] whichever was
+    /// asked. That is what lets a scene walk its batches through one shape, so a
+    /// kind cannot be picked by a walk of its own that forgets a rule the other
+    /// four keep.
+    ///
+    /// `None` for scenery, which is anything left untagged, and for anything
+    /// the aim did not reach.
+    fn pick(&self, aim: &Aim) -> Option<Hit>;
 
     /// Hand `include` every world point the primitive reaches.
     ///

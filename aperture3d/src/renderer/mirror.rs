@@ -95,31 +95,43 @@ impl Mirror {
             cpu,
             highlights,
             relight,
-            ..
+            held: _,
         } = self;
+        // Both sides destructured, on the terms [`Held::upload`] states: the
+        // only thing there is to write with the pair is the line that flattens
+        // one into the other.
+        let Scene {
+            solids,
+            faces,
+            ghosts,
+            gizmos,
+            curves,
+            rings,
+            points,
+            texts,
+        } = scene;
+        let Cpu {
+            solids: solid_records,
+            faces: face_records,
+            ghosts: ghost_records,
+            gizmos: gizmo_records,
+            curves: curve_records,
+            rings: ring_records,
+            points: point_records,
+            texts: text_records,
+        } = cpu;
         let relight = std::mem::take(relight);
-        cpu.solids
-            .refresh(&mut scene.solids, highlights, relight, Order::Given);
+        solid_records.refresh(solids, highlights, relight, Order::Given);
         // Whatever the faces' own opacity asks for — see [`Gpu::faces_order`].
         // The camera is this frame's rather than the last: a scene sorted
         // against the camera it was drawn through a frame ago would lag a drag
         // by one.
-        cpu.faces.refresh(
-            &mut scene.faces,
-            highlights,
-            relight,
-            Gpu::faces_order(camera.eye()),
-        );
-        cpu.ghosts.refresh(
-            &mut scene.ghosts,
-            highlights,
-            relight,
-            Gpu::ghosts_order(camera.eye()),
-        );
-        cpu.gizmos.refresh(&mut scene.gizmos, highlights, relight);
-        cpu.curves.refresh(&mut scene.curves, highlights, relight);
-        cpu.rings.refresh(&mut scene.rings, highlights, relight);
-        cpu.points.refresh(&mut scene.points, highlights, relight);
+        face_records.refresh(faces, highlights, relight, Gpu::faces_order(camera.eye()));
+        ghost_records.refresh(ghosts, highlights, relight, Gpu::ghosts_order(camera.eye()));
+        gizmo_records.refresh(gizmos, highlights, relight);
+        curve_records.refresh(curves, highlights, relight);
+        ring_records.refresh(rings, highlights, relight);
+        point_records.refresh(points, highlights, relight);
         // Nothing to lay out, and nothing left over from when there was. The
         // first half is what lets a scene with no text in it be flattened
         // without a window having handed a font stack over.
@@ -130,14 +142,14 @@ impl Mirror {
         // being drawn for the rest of the run. Records outliving what they were
         // flattened from is the one failure a retained renderer has to answer
         // for, and emptying is the only way to reach it.
-        if scene.texts.is_empty() && cpu.texts.is_empty() {
+        if texts.is_empty() && text_records.is_empty() {
             // Taken on the way out, because a mark is a claim that someone
             // wrote to the batch and this is the one path that answers that
             // claim by doing nothing. Left standing it would outlive the edit
             // it stands for — a batch refilled to empty while no text is drawn
             // would still be reporting that write on whatever later frame first
             // had a run to lay out.
-            scene.texts.take_dirty();
+            texts.take_dirty();
             return;
         }
         let shaper = shaper.expect("laying text out needs the shaper `init` is handed");
@@ -150,8 +162,7 @@ impl Mirror {
             glyphs: &mut glyphs,
             scale: raster_scale,
         };
-        cpu.texts
-            .refresh(&mut scene.texts, &mut laying, highlights, relight);
+        text_records.refresh(texts, &mut laying, highlights, relight);
     }
 
     /// Hand the device whatever the last refresh rewrote, building this

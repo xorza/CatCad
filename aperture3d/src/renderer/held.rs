@@ -126,9 +126,15 @@ impl Held {
     /// **The list every drawn kind has to appear on, and [`Held::draw`] below is
     /// the other one.** A kind uploaded and never drawn is invisible — it
     /// flattens, it uploads, and nothing asks for it — and a kind drawn without
-    /// being uploaded goes on showing whatever it last held. Nothing checks
-    /// that the two agree, so they are written one after the other beside the
-    /// fields they walk, which is the most that can be done about it.
+    /// being uploaded goes on showing whatever it last held.
+    ///
+    /// **Both sides destructured, which is what checks that the two agree.** A
+    /// buffer added to a [`Cpu`] and a pass added to a [`Held`] each have to be
+    /// named here before this compiles, and the only thing there is to write
+    /// with the pair is the line that hands one to the other. The same shape
+    /// holds a [`Scene`](crate::Scene) to its `Cpu` in
+    /// [`Mirror::refresh`](super::mirror::Mirror::refresh), and this list to the
+    /// one below.
     ///
     /// Unconditional, all of them: each takes what it is owed and does nothing
     /// when that is nothing, which is what a still frame costs.
@@ -139,15 +145,37 @@ impl Held {
         cpu: &mut Cpu,
         uniforms: &Uniforms,
     ) {
-        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(uniforms));
-        self.solids.upload_mesh(device, queue, &mut cpu.solids);
-        self.faces.upload_mesh(device, queue, &mut cpu.faces);
-        self.ghosts.upload_mesh(device, queue, &mut cpu.ghosts);
-        self.gizmos.upload(device, queue, &mut cpu.gizmos);
-        self.curves.upload(device, queue, &mut cpu.curves);
-        self.rings.upload(device, queue, &mut cpu.rings);
-        self.points.upload(device, queue, &mut cpu.points);
-        self.texts.upload(device, queue, &mut cpu.texts.records);
+        let Self {
+            solids,
+            faces,
+            ghosts,
+            gizmos,
+            curves,
+            rings,
+            points,
+            texts,
+            uniforms: buffer,
+            bind: _,
+        } = self;
+        let Cpu {
+            solids: solid_records,
+            faces: face_records,
+            ghosts: ghost_records,
+            gizmos: gizmo_records,
+            curves: curve_records,
+            rings: ring_records,
+            points: point_records,
+            texts: text_records,
+        } = cpu;
+        queue.write_buffer(buffer, 0, bytemuck::bytes_of(uniforms));
+        solids.upload_mesh(device, queue, solid_records);
+        faces.upload_mesh(device, queue, face_records);
+        ghosts.upload_mesh(device, queue, ghost_records);
+        gizmos.upload(device, queue, gizmo_records);
+        curves.upload(device, queue, curve_records);
+        rings.upload(device, queue, ring_records);
+        points.upload(device, queue, point_records);
+        texts.upload(device, queue, &mut text_records.records);
     }
 
     /// Draw this mirror into the pass already open.
@@ -167,21 +195,36 @@ impl Held {
     /// drawn into one — which is what keeps the multisampled buffer discarded
     /// rather than stored.
     pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
-        pass.set_bind_group(0, &self.bind, &[]);
-        self.solids.draw(pass);
+        // Destructured on the terms [`Held::upload`] above states: a pass has to
+        // be given a place in this order before the crate compiles, rather than
+        // being uploaded every frame and never drawn.
+        let Self {
+            solids,
+            faces,
+            ghosts,
+            gizmos,
+            curves,
+            rings,
+            points,
+            texts,
+            uniforms: _,
+            bind,
+        } = self;
+        pass.set_bind_group(0, bind, &[]);
+        solids.draw(pass);
         // The ghosts straight after the solids, which is what they are shown
         // *through*: a blend mixes with what is already in the target, so the
         // model has to be there first. Before the drawing's own strokes and
         // markers rather than after, because what a preview must never do is
         // dim the thing being drawn — a ghost takes no depth test, so nothing
         // else could put those back over it.
-        self.ghosts.draw(pass);
+        ghosts.draw(pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.
         //
         // Named once and walked twice, so the two halves cannot disagree.
-        let opaque = [&self.gizmos, &self.curves, &self.rings, &self.points];
+        let opaque = [gizmos, curves, rings, points];
         for kind in opaque {
             kind.ordinary.draw(pass);
         }
@@ -195,11 +238,11 @@ impl Held {
         // front of shows through it shaded, and a stroke of its *own* sketch —
         // coplanar, and a ladder rung above — beats it on depth and reads over
         // it untouched.
-        self.faces.draw(pass);
+        faces.draw(pass);
         // Text last of all. It is the one alpha-blended pass, so what it reads
         // over has to be there already — and it writes no depth, so nothing
         // after it could be sorted against it anyway.
-        self.texts.ordinary.draw(pass);
-        self.texts.lit.draw(pass);
+        texts.ordinary.draw(pass);
+        texts.lit.draw(pass);
     }
 }

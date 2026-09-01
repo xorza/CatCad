@@ -7,6 +7,7 @@ use crate::extent::{Extent, Reach};
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::object::Object;
 use crate::point::Point;
+use crate::primitive::Primitive;
 use crate::ring::Ring;
 use crate::text::Text;
 
@@ -22,6 +23,16 @@ use crate::text::Text;
 /// What there is, and not where it is seen from — [`Scene::nearest`] takes the
 /// camera it queries through, so a caller picking and a caller drawing cannot
 /// silently use two.
+///
+/// **Every walk of these batches destructures rather than naming the fields it
+/// wants**, and a batch it leaves out is named `_` rather than left unmentioned.
+/// A kind is the whole of what a scene is made of, and a walk that quietly
+/// skipped one would be a kind that cannot be aimed at, or cannot be framed, or
+/// is never drawn — none of which shows as anything but the kind not being
+/// there. Written this way, a batch added here has to be decided about at each
+/// walk before the crate compiles. The renderer holds its own lists to this one
+/// the same way, and holds them in this order, so a scene and what it flattens
+/// to read as one table wherever the two are paired.
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
     pub solids: Batch<Object>,
@@ -49,10 +60,6 @@ pub struct Scene {
     /// would be a press on the thing being decided rather than on the drawing —
     /// and the form's own controls are what decide it.
     pub ghosts: Batch<Object>,
-    pub curves: Batch<Curve>,
-    pub rings: Batch<Ring>,
-    pub points: Batch<Point>,
-    pub texts: Batch<Text>,
     /// The controls: a datum's axes, an arrowhead on a leader — the things a
     /// drawing puts on screen to be *used* rather than measured.
     ///
@@ -69,6 +76,10 @@ pub struct Scene {
     /// drawing is ranked by shape like anything else, where a control outranks
     /// every kind there is. See [`Scene::grabbed`](Scene).
     pub gizmos: Batch<Curve>,
+    pub curves: Batch<Curve>,
+    pub rings: Batch<Ring>,
+    pub points: Batch<Point>,
+    pub texts: Batch<Text>,
 }
 
 /// How much farther than something a hit has to be before it counts as being
@@ -143,20 +154,31 @@ impl Scene {
         // width, a marker's glyph and the box a label or a field is drawn in
         // are screen-space quantities, and the distance that would satisfy one
         // of those is the distance being solved for.
-        let mut reach = Reach::default();
-        reach.cover(&self.solids);
-        reach.cover(&self.faces);
-        reach.cover(&self.ghosts);
-        reach.cover(&self.curves);
-        reach.cover(&self.rings);
-        reach.cover(&self.points);
-        reach.cover(&self.texts);
+        //
         // Not the controls. Everything in that batch is built against the camera
         // and holds its size on screen — see [`Scene::gizmos`] — so its world
         // coordinates are an *answer* to where the camera stands, and aiming the
         // camera at them would be aiming it at its own output. Structural rather
         // than left to [`Reach::cover`]'s standing filter, because it is true of
         // the batch whatever a control says it is for.
+        let Self {
+            solids,
+            faces,
+            ghosts,
+            gizmos: _,
+            curves,
+            rings,
+            points,
+            texts,
+        } = self;
+        let mut reach = Reach::default();
+        reach.cover(solids);
+        reach.cover(faces);
+        reach.cover(ghosts);
+        reach.cover(curves);
+        reach.cover(rings);
+        reach.cover(points);
+        reach.cover(texts);
         reach.extent()
     }
 
@@ -266,11 +288,22 @@ impl Scene {
     /// worth halving.
     fn occluders(&self, aim: &Aim) -> Occluders {
         // The ghosts are left out: a preview is what a form is deciding, not
-        // something to take hold of — see [`Scene::ghosts`].
-        let meshes = || self.faces.iter().chain(self.solids.iter());
+        // something to take hold of — see [`Scene::ghosts`]. The overlays are
+        // not surfaces at all.
+        let Self {
+            solids,
+            faces,
+            ghosts: _,
+            gizmos: _,
+            curves: _,
+            rings: _,
+            points: _,
+            texts: _,
+        } = self;
+        let meshes = || faces.iter().chain(solids.iter());
         let mut front = f32::INFINITY;
         let mut ranked: Option<Hit> = None;
-        for hit in meshes().filter_map(|mesh| mesh.pick(aim, HitAt::Surface)) {
+        for hit in meshes().filter_map(|mesh| mesh.pick(aim)) {
             front = front.min(hit.distance);
             if ranked.is_none_or(|best| hit.aim_order(&best).is_lt()) {
                 ranked = Some(hit);
@@ -284,7 +317,7 @@ impl Scene {
             // the answer is whichever of the rest it prefers — and that is the
             // only question this second walk is here to settle.
             meshes()
-                .filter_map(|mesh| mesh.pick(aim, HitAt::Surface))
+                .filter_map(|mesh| mesh.pick(aim))
                 .filter(|hit| shows(front, hit.distance))
                 .min_by(Hit::aim_order)
         });
@@ -294,29 +327,29 @@ impl Scene {
         }
     }
 
-    /// A stroke of the *gizmo* batch, which counts as a control however it is
-    /// shaped.
+    /// A hit on a stroke of the *gizmo* batch, which counts as a control however
+    /// it is shaped.
     ///
     /// The rewrite is the whole of it, and it belongs here rather than in
-    /// [`Curve::pick`]: which batch a stroke is in decides what it *is*, exactly
-    /// as it does for an [`Object`], and nothing on the stroke says so. A
-    /// control is the one thing in a scene put there to be taken hold of, so it
-    /// outranks every kind of drawn thing — where the same stroke among the
-    /// drawing's own would be ranked as the edge it looks like.
-    fn grabbed(gizmo: &Curve, aim: &Aim) -> Option<Hit> {
-        let mut hit = gizmo.pick(aim)?;
+    /// [`Curve`]'s own pick: which batch a stroke is in decides what it *is*,
+    /// and nothing on the stroke says so. A control is the one thing in a scene
+    /// put there to be taken hold of, so it outranks every kind of drawn thing —
+    /// where the same stroke among the drawing's own would be ranked as the edge
+    /// it looks like.
+    fn grabbed(mut hit: Hit) -> Hit {
         hit.at = HitAt::Gizmo;
-        Some(hit)
+        hit
     }
 
-    /// Every overlay the aim reaches whose standing `keep` admits — the
-    /// markers, labels, strokes and rims a drawing is made of — in no
-    /// particular order.
+    /// Every hit among `items` whose standing `keep` admits, in the order they
+    /// are held.
     ///
-    /// **The one statement of what the overlays are.** Both phases of a pick
-    /// walk these five batches by these five rules, and they walk them through
-    /// here: a kind this list forgets is a kind that can neither take a click
-    /// nor hide one, and there is nowhere else for either half to remember it.
+    /// **One walk, five kinds.** All five answer
+    /// [`Primitive::pick`](crate::primitive::Primitive) — the arithmetic behind
+    /// it is each kind's own and the answer is one [`Hit`] — so what a batch is
+    /// made of reaches no further than the type parameter. A kind walked by a
+    /// copy of this would be a kind free to forget the standing filter, or to
+    /// answer a scene's pick by a rule the other four do not keep.
     ///
     /// The standing is a parameter rather than a filter over what comes back,
     /// and that is what keeps the second walk from costing what the first does.
@@ -325,42 +358,52 @@ impl Scene {
     /// by sweeping its circumference and then bisecting, so a walk that picked
     /// every rim in the drawing to find out none of them was a frame would
     /// double the cost of every pick to learn nothing. Standing is a field on
-    /// the primitive and reading it is free, so the five kinds are filtered
-    /// where they lie.
+    /// the primitive and reading it is free, so a kind is filtered where it
+    /// lies.
+    fn among<P: Primitive>(
+        items: &[P],
+        aim: &Aim,
+        keep: impl Fn(Precedence) -> bool + Copy,
+    ) -> impl Iterator<Item = Hit> {
+        items
+            .iter()
+            .filter(move |item| keep(item.standing()))
+            .filter_map(move |item| item.pick(aim))
+    }
+
+    /// Every overlay the aim reaches whose standing `keep` admits — the
+    /// markers, labels, strokes and rims a drawing is made of — in no
+    /// particular order.
+    ///
+    /// **The one statement of which batches are overlays.** Both phases of a
+    /// pick walk them, and they walk them through here: a kind this list forgets
+    /// is a kind that can neither take a click nor hide one, and there is
+    /// nowhere else for either half to remember it.
     ///
     /// Never a backdrop, which is what lets [`Scene::nearest`] take the least of
-    /// these and fall through to the ground only when there is none.
+    /// these and fall through to the ground only when there is none — and never
+    /// a preview, which is what a form is deciding rather than something to take
+    /// hold of. See [`Scene::ghosts`].
     fn overlays(
         &self,
         aim: &Aim,
         keep: impl Fn(Precedence) -> bool + Copy,
     ) -> impl Iterator<Item = Hit> {
-        let points = self
-            .points
-            .iter()
-            .filter(move |point| keep(point.precedence))
-            .filter_map(move |point| point.pick(aim));
-        let texts = self
-            .texts
-            .iter()
-            .filter(move |text| keep(text.precedence))
-            .filter_map(move |text| text.pick(aim));
-        let gizmos = self
-            .gizmos
-            .iter()
-            .filter(move |gizmo| keep(gizmo.precedence))
-            .filter_map(move |gizmo| Self::grabbed(gizmo, aim));
-        let curves = self
-            .curves
-            .iter()
-            .filter(move |curve| keep(curve.precedence))
-            .filter_map(move |curve| curve.pick(aim));
-        let rings = self
-            .rings
-            .iter()
-            .filter(move |ring| keep(ring.precedence))
-            .filter_map(move |ring| ring.pick(aim));
-        points.chain(texts).chain(gizmos).chain(curves).chain(rings)
+        let Self {
+            solids: _,
+            faces: _,
+            ghosts: _,
+            gizmos,
+            curves,
+            rings,
+            points,
+            texts,
+        } = self;
+        Self::among(points, aim, keep)
+            .chain(Self::among(texts, aim, keep))
+            .chain(Self::among(gizmos, aim, keep).map(Self::grabbed))
+            .chain(Self::among(curves, aim, keep))
+            .chain(Self::among(rings, aim, keep))
     }
 }
 
@@ -384,20 +427,20 @@ mod emptying {
                 solids,
                 faces,
                 ghosts,
+                gizmos,
                 curves,
                 rings,
                 points,
                 texts,
-                gizmos,
             } = self;
             solids.clear();
             faces.clear();
             ghosts.clear();
+            gizmos.clear();
             curves.clear();
             rings.clear();
             points.clear();
             texts.clear();
-            gizmos.clear();
         }
     }
 }

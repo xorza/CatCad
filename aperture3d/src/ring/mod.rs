@@ -97,33 +97,6 @@ impl Ring {
         self.center + (self.x_axis * cos + self.y_axis * sin) * self.radius
     }
 
-    /// Whether the cursor landed on this rim, and where round it.
-    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
-        let tag = self.tag?;
-        let reach = aim.reach(self.width);
-        // Dismissed before the walk wherever the whole rim lands clear of the
-        // cursor, which in a drawing of many circles is nearly every one of
-        // them. A rim with no bound is not a rim that can be dismissed, which
-        // is why this reads as "said so" rather than "did not say otherwise" —
-        // see [`Ring::bound_on_screen`].
-        if self
-            .bound_on_screen(aim)
-            .is_some_and(|bound| aim::reach_to_box(aim.cursor, bound) > reach)
-        {
-            return None;
-        }
-        let near = self.nearest_to(aim)?;
-        (near.screen <= reach).then(|| {
-            aim.hit(
-                tag,
-                HitAt::Ring { angle: near.angle },
-                self.precedence,
-                self.at(near.angle),
-                near.screen,
-            )
-        })
-    }
-
     /// A box on screen the whole rim lands inside, or `None` where it has no
     /// bound at all.
     ///
@@ -283,6 +256,7 @@ impl Ring {
             screen,
         })
     }
+
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
@@ -334,6 +308,32 @@ impl Primitive for Ring {
 
     fn standing(&self) -> Precedence {
         self.precedence
+    }
+
+    fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let reach = aim.reach(self.width);
+        // Dismissed before the walk wherever the whole rim lands clear of the
+        // cursor, which in a drawing of many circles is nearly every one of
+        // them. A rim with no bound is not a rim that can be dismissed, which
+        // is why this reads as "said so" rather than "did not say otherwise" —
+        // see [`Ring::bound_on_screen`].
+        if self
+            .bound_on_screen(aim)
+            .is_some_and(|bound| aim::reach_to_box(aim.cursor, bound) > reach)
+        {
+            return None;
+        }
+        let near = self.nearest_to(aim)?;
+        (near.screen <= reach).then(|| {
+            aim.hit(
+                tag,
+                HitAt::Ring { angle: near.angle },
+                self.precedence,
+                self.at(near.angle),
+                near.screen,
+            )
+        })
     }
 
     /// A circle reaches its radius along every world axis except in so far as

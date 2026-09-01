@@ -55,17 +55,6 @@ impl Point {
         }
     }
 
-    /// Whether the cursor landed on this marker, and where.
-    ///
-    /// The glyph takes its depth from the anchor, so the anchor clipping is
-    /// the whole glyph clipping — there is no part of it drawn once that is
-    /// gone.
-    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
-        let tag = self.tag?;
-        let screen = aim.reach_to(self.position)?;
-        (screen <= aim.reach(self.size))
-            .then(|| aim.hit(tag, HitAt::Point, self.precedence, self.position, screen))
-    }
     /// Set the diameter in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
@@ -112,6 +101,15 @@ impl Primitive for Point {
 
     fn standing(&self) -> Precedence {
         self.precedence
+    }
+
+    /// The glyph takes its depth from the anchor, so the anchor clipping is the
+    /// whole glyph clipping — there is no part of it drawn once that is gone.
+    fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let screen = aim.reach_to(self.position)?;
+        (screen <= aim.reach(self.size))
+            .then(|| aim.hit(tag, HitAt::Point, self.precedence, self.position, screen))
     }
 
     fn reaches(&self, mut include: impl FnMut(Vec3)) {

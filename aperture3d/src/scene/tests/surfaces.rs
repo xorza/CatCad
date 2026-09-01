@@ -486,7 +486,7 @@ fn nothing_answers_from_behind_a_surface_the_aim_crosses() {
                     .faces
                     .iter()
                     .chain(scene.solids.iter())
-                    .filter_map(|mesh| mesh.pick(&aim, HitAt::Surface))
+                    .filter_map(|mesh| mesh.pick(&aim))
                     .fold(f32::INFINITY, |front, surface| front.min(surface.distance));
                 assert!(
                     shows(front, hit.distance),

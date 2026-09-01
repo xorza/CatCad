@@ -235,7 +235,7 @@ fn a_hit_is_reported_no_further_from_the_cursor_than_it_claims() {
             scene.curves[0].pick(&aim),
             scene.rings[0].pick(&aim),
             scene.texts[0].pick(&aim),
-            scene.solids[0].pick(&aim, HitAt::Surface),
+            scene.solids[0].pick(&aim),
         ];
         for (nth, hit) in found.into_iter().enumerate() {
             let Some(hit) = hit else { continue };

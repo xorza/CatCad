@@ -81,28 +81,6 @@ impl Curve {
         self.closed = false;
     }
 
-    /// Whether the cursor landed on this stroke, and on which segment.
-    ///
-    /// The nearest segment wins outright rather than every segment answering:
-    /// a polyline is one thing to grab, and a corner where two segments meet
-    /// would otherwise report itself twice.
-    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
-        let tag = self.tag?;
-        let reach = aim.reach(self.width);
-        let mut best: Option<Hit> = None;
-        for (index, (a, b)) in self.segments().enumerate() {
-            let Some(near) = nearest_on_segment(a, b, aim) else {
-                continue;
-            };
-            if near.screen > reach || best.is_some_and(|best| best.screen <= near.screen) {
-                continue;
-            }
-            let at = HitAt::Segment { index, t: near.t };
-            best = Some(aim.hit(tag, at, self.precedence, a.lerp(b, near.t), near.screen));
-        }
-        best
-    }
-
     /// How many segments this curve strokes.
     pub(crate) fn segment_count(&self) -> usize {
         let open = self.points.len().saturating_sub(1);
@@ -123,6 +101,7 @@ impl Curve {
     fn wraps(&self) -> bool {
         self.closed && self.points.len() > 2
     }
+
     /// Join the last point back to the first.
     pub fn closed(mut self) -> Self {
         self.closed = true;
@@ -253,6 +232,26 @@ impl Primitive for Curve {
 
     fn standing(&self) -> Precedence {
         self.precedence
+    }
+
+    /// The nearest segment wins outright rather than every segment answering: a
+    /// polyline is one thing to grab, and a corner where two segments meet would
+    /// otherwise report itself twice.
+    fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let reach = aim.reach(self.width);
+        let mut best: Option<Hit> = None;
+        for (index, (a, b)) in self.segments().enumerate() {
+            let Some(near) = nearest_on_segment(a, b, aim) else {
+                continue;
+            };
+            if near.screen > reach || best.is_some_and(|best| best.screen <= near.screen) {
+                continue;
+            }
+            let at = HitAt::Segment { index, t: near.t };
+            best = Some(aim.hit(tag, at, self.precedence, a.lerp(b, near.t), near.screen));
+        }
+        best
     }
 
     fn reaches(&self, mut include: impl FnMut(Vec3)) {

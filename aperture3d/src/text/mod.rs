@@ -279,27 +279,6 @@ impl Text {
         ray.origin + ray.direction * ((hangs - ray.origin).dot(normal) / along)
     }
 
-    /// Whether the cursor landed on this run.
-    ///
-    /// Anywhere inside the box counts, and counts equally: a label is an opaque
-    /// thing, not an outline to be aimed at, so the whole of it is the target.
-    /// Outside it, the distance to the nearest edge is what the reach is
-    /// measured against, which is what lets a cursor a pixel off a small label
-    /// still find it.
-    ///
-    /// **`None` for a run nothing has measured**, which is a coupling worth
-    /// stating outright: a box is filled by the pass that lays the glyphs out —
-    /// [`Text::measure`] — so a run that has been recorded and never drawn is
-    /// on screen in no sense and cannot be clicked in. An application paints
-    /// every frame and never meets it; a harness that records without painting
-    /// meets it for every label it has, and `Text::reaches` is how it stands
-    /// one up.
-    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
-        let tag = self.tag?;
-        let reach = self.reach_from(aim)?;
-        (reach.screen <= aim.radius)
-            .then(|| aim.hit(tag, HitAt::Text, self.precedence, reach.at, reach.screen))
-    }
     /// Put `position` at this fraction of the run's own box — see
     /// [`Text::anchor`].
     pub fn anchored(mut self, anchor: Vec2) -> Self {
@@ -373,6 +352,26 @@ impl Primitive for Text {
 
     fn standing(&self) -> Precedence {
         self.precedence
+    }
+
+    /// Anywhere inside the box counts, and counts equally: a label is an opaque
+    /// thing, not an outline to be aimed at, so the whole of it is the target.
+    /// Outside it, the distance to the nearest edge is what the reach is
+    /// measured against, which is what lets a cursor a pixel off a small label
+    /// still find it.
+    ///
+    /// **`None` for a run nothing has measured**, which is a coupling worth
+    /// stating outright: a box is filled by the pass that lays the glyphs out —
+    /// [`Text::measure`] — so a run that has been recorded and never drawn is
+    /// on screen in no sense and cannot be clicked in. An application paints
+    /// every frame and never meets it; a harness that records without painting
+    /// meets it for every label it has, and `Text::reaches` is how it stands
+    /// one up.
+    fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let reach = self.reach_from(aim)?;
+        (reach.screen <= aim.radius)
+            .then(|| aim.hit(tag, HitAt::Text, self.precedence, reach.at, reach.screen))
     }
 
     fn reaches(&self, mut include: impl FnMut(Vec3)) {

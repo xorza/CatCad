@@ -55,80 +55,6 @@ impl Object {
         self.transform.w_axis = position.extend(1.0);
         self
     }
-
-    /// Where the aim's ray first goes through this mesh, or `None` where it
-    /// misses or the mesh is scenery.
-    ///
-    /// `at` is what a hit here counts as, and the caller's rather than the
-    /// object's for the same reason culling and bias are: which batch an object
-    /// is in decides what it *is*, and nothing on the object says so. A solid
-    /// and a face are [`HitAt::Surface`] — backdrops, ranked against each other
-    /// and never against what is drawn on them — where a gizmo is
-    /// [`HitAt::Gizmo`], a target that beats everything. Same geometry, same
-    /// arithmetic, opposite ends of the ladder.
-    ///
-    /// Every triangle tested, front and back alike. A sheet has no outside to
-    /// be culled from — see [`Scene::faces`](crate::Scene) — and one that could
-    /// only be picked from the side it happens to face would be one that stops
-    /// answering as the view goes round it. A solid is tested by the same rule
-    /// rather than a stricter one: which batch an object is in decides how it
-    /// is drawn, and picking asks only where the mesh is.
-    ///
-    /// The screen distance comes back zero, because a surface is not something
-    /// the cursor is *near*: it is either over it or it is not, and a face
-    /// reported at some distance would beat a nearer one for no reason a user
-    /// could see. What separates two faces under one cursor is depth alone.
-    ///
-    /// **The ray is brought into the mesh's own space rather than the mesh into
-    /// the world.** A triangle list is read three corners at a time and shares
-    /// nearly every corner with a neighbour, so carrying the mesh across costs
-    /// three transforms per triangle — about six per vertex on a closed mesh,
-    /// and a sketch face is retriangulated every frame the drawing moves. The
-    /// ray is one origin and one direction whatever the mesh is, so this way
-    /// costs an inverse and two transforms and then no matrix work at all — and
-    /// for a mesh already standing where it is drawn, not even those.
-    ///
-    /// What comes back is still a world distance, and that is what makes the
-    /// swap free rather than merely cheap: the inverse is applied to the
-    /// direction *as a direction and unnormalized*, so a point `t` along the
-    /// object-space ray is the image of the point `t` along the world one, for
-    /// the same `t`. A normalized object-space direction would measure in
-    /// whatever units the transform scales to, and hits from two objects would
-    /// stop being comparable.
-    pub(crate) fn pick(&self, aim: &Aim, at: HitAt) -> Option<Hit> {
-        let tag = self.tag?;
-        let ray = aim.ray();
-        let (origin, direction) = if self.transform == Mat4::IDENTITY {
-            // A mesh already standing where it is drawn, which is what an
-            // application that bakes its own geometry hands over — and both of
-            // this crate's mesh batches are filled that way. Sixteen floats
-            // compared against inverting a matrix that was never going to move
-            // anything.
-            (ray.origin, ray.direction)
-        } else {
-            // A singular transform inverts to non-finite, which every comparison
-            // in `crossed` then refuses — so a mesh scaled flat answers with
-            // nothing rather than with nonsense, which is also what it draws.
-            let inverse = self.transform.inverse();
-            (
-                inverse.transform_point3(ray.origin),
-                inverse.transform_vector3(ray.direction),
-            )
-        };
-        if !self.mesh.bounds().crossed(origin, direction) {
-            return None;
-        }
-        let mut along = f32::INFINITY;
-        for triangle in self.mesh.triangles() {
-            let corners = triangle.map(|index| self.mesh.vertices()[index as usize].position);
-            if let Some(travelled) = crossed(origin, direction, corners) {
-                along = along.min(travelled);
-            }
-        }
-        along
-            .is_finite()
-            .then(|| aim.hit(tag, at, self.precedence, ray.at(along), 0.0))
-    }
 }
 
 impl Styled for Object {
@@ -214,6 +140,75 @@ impl Primitive for Object {
 
     fn standing(&self) -> Precedence {
         self.precedence
+    }
+
+    /// **Always a [`HitAt::Surface`]**, which is the one kind a mesh can be: a
+    /// backdrop, ranked against other backdrops and never against what is drawn
+    /// on it. The kind that beats every other is [`HitAt::Gizmo`], and no mesh
+    /// is ever one — a control is a stroke of [`crate::Scene::gizmos`], and
+    /// which batch a *stroke* is in is the [`crate::Scene`]'s to say.
+    ///
+    /// Every triangle tested, front and back alike. A sheet has no outside to
+    /// be culled from — see [`Scene::faces`](crate::Scene) — and one that could
+    /// only be picked from the side it happens to face would be one that stops
+    /// answering as the view goes round it. A solid is tested by the same rule
+    /// rather than a stricter one: which batch an object is in decides how it
+    /// is drawn, and picking asks only where the mesh is.
+    ///
+    /// The screen distance comes back zero, because a surface is not something
+    /// the cursor is *near*: it is either over it or it is not, and a face
+    /// reported at some distance would beat a nearer one for no reason a user
+    /// could see. What separates two faces under one cursor is depth alone.
+    ///
+    /// **The ray is brought into the mesh's own space rather than the mesh into
+    /// the world.** A triangle list is read three corners at a time and shares
+    /// nearly every corner with a neighbour, so carrying the mesh across costs
+    /// three transforms per triangle — about six per vertex on a closed mesh,
+    /// and a sketch face is retriangulated every frame the drawing moves. The
+    /// ray is one origin and one direction whatever the mesh is, so this way
+    /// costs an inverse and two transforms and then no matrix work at all — and
+    /// for a mesh already standing where it is drawn, not even those.
+    ///
+    /// What comes back is still a world distance, and that is what makes the
+    /// swap free rather than merely cheap: the inverse is applied to the
+    /// direction *as a direction and unnormalized*, so a point `t` along the
+    /// object-space ray is the image of the point `t` along the world one, for
+    /// the same `t`. A normalized object-space direction would measure in
+    /// whatever units the transform scales to, and hits from two objects would
+    /// stop being comparable.
+    fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let ray = aim.ray();
+        let (origin, direction) = if self.transform == Mat4::IDENTITY {
+            // A mesh already standing where it is drawn, which is what an
+            // application that bakes its own geometry hands over — and both of
+            // this crate's mesh batches are filled that way. Sixteen floats
+            // compared against inverting a matrix that was never going to move
+            // anything.
+            (ray.origin, ray.direction)
+        } else {
+            // A singular transform inverts to non-finite, which every comparison
+            // in `crossed` then refuses — so a mesh scaled flat answers with
+            // nothing rather than with nonsense, which is also what it draws.
+            let inverse = self.transform.inverse();
+            (
+                inverse.transform_point3(ray.origin),
+                inverse.transform_vector3(ray.direction),
+            )
+        };
+        if !self.mesh.bounds().crossed(origin, direction) {
+            return None;
+        }
+        let mut along = f32::INFINITY;
+        for triangle in self.mesh.triangles() {
+            let corners = triangle.map(|index| self.mesh.vertices()[index as usize].position);
+            if let Some(travelled) = crossed(origin, direction, corners) {
+                along = along.min(travelled);
+            }
+        }
+        along
+            .is_finite()
+            .then(|| aim.hit(tag, HitAt::Surface, self.precedence, ray.at(along), 0.0))
     }
 
     /// Measured after the transform, so this is where the geometry actually
@@ -306,9 +301,8 @@ mod tests {
             pitch,
             ..Camera::head_on()
         };
-        let pick = |camera: &Camera, cursor: Vec2| {
-            sheet.pick(&Aim::new(camera, cursor, viewport, 6.0), HitAt::Surface)
-        };
+        let pick =
+            |camera: &Camera, cursor: Vec2| sheet.pick(&Aim::new(camera, cursor, viewport, 6.0));
 
         // Ten pixels to the world unit at the target, so the quad spans the
         // middle twenty pixels and a cursor at 95 is four units clear of it.
