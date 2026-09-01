@@ -566,8 +566,9 @@ impl Stepping {
     /// fit would read better and claim more, where this claims exactly what was
     /// laid down.
     ///
-    /// **The whole turn**, all three closing, so the curve goes out whole and
-    /// the vertices trim it — exactly as a circle does.
+    /// **The whole turn**, so a curve that closes goes out whole and the
+    /// vertices trim it, exactly as a circle does. One that does not comes back
+    /// from its own two ends, and the entity says which it is.
     ///
     /// **Written once and named by every edge on it.** A curve is cut into
     /// several edges wherever the faces it divides are split — §4.4 — and a
@@ -576,7 +577,6 @@ impl Stepping {
     /// because a saddle has none: a body holds a handful of these, and a walk
     /// over that handful beats a key over every curve in it.
     fn polylined(&mut self, of: &Curve, sagitta: f64, carried: &Carried, into: &mut String) -> u32 {
-        debug_assert!(of.closed(), "a curve written whole has to close");
         if let Some(laid) = self.laid.iter().find(|laid| laid.of == *of) {
             return laid.entity;
         }
@@ -591,25 +591,26 @@ impl Stepping {
             self.gathered.push(place);
         }
         self.places = places;
-        let entity = self.polyline(from, into);
+        let entity = self.polyline(from, of.closed(), into);
         self.laid.push(Laid { of: *of, entity });
         entity
     }
 
     /// The places gathered from `from` on, as a polyline through every one.
     ///
-    /// **Degree one, closed, and its ends doubled** — the one knot vector a
-    /// degree of one takes, over knots that are the places counted off.
-    fn polyline(&mut self, from: usize, into: &mut String) -> u32 {
+    /// **Degree one, its ends doubled** — the one knot vector a degree of one
+    /// takes, over knots that are the places counted off. `closed` is the
+    /// curve's own answer: a run that comes back lays its first place down
+    /// again at the end, and one that does not stops at its second corner.
+    fn polyline(&mut self, from: usize, closed: bool, into: &mut String) -> u32 {
         let held = self.gathered.len() - from;
-        // Both callers lay the curve's own start down again where it closed, so
-        // a run is three places at the very least. Two would give a knot vector
-        // the multiplicities below do not spell.
+        // Two places would give a knot vector the multiplicities below do not
+        // spell.
         debug_assert!(held > 1, "a run of {held} places has no chord");
         let made = self.opened(into);
         into.push_str("B_SPLINE_CURVE_WITH_KNOTS('',1,(");
         listed(into, &self.gathered[from..]);
-        into.push_str("),.POLYLINE_FORM.,.T.,.U.,");
+        let _ = write!(into, "),.POLYLINE_FORM.,{},.U.,", flag(closed));
         doubled(into, held);
         into.push(',');
         counted(into, held);

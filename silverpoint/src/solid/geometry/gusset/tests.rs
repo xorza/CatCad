@@ -1,5 +1,6 @@
 use super::*;
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::marchings::Marchings;
 use std::f64::consts::PI;
 
 /// The corner of `.notes/KERNEL.md` §9.6, at the origin and square.
@@ -895,5 +896,53 @@ fn a_grid_at_a_sagitta_holds_every_triangle_inside_a_cell() {
             cells[1].x < cells[0].x && cells[1].y < cells[0].y,
             "{cells:?} did not narrow for {named} as the sagitta fell",
         );
+    }
+}
+
+/// **The second edge files as a run with two ends**, which is what tells it
+/// from every marched curve the kernel has filed until now.
+///
+/// A march round a meeting comes back to where it began; this one runs from the
+/// ruling the patch starts at round to the tip and stops. Filed, the run says
+/// so, and its whole turn walks that stretch and no further.
+#[test]
+fn the_second_edge_files_as_a_run_with_two_ends() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let mut walked = Vec::new();
+        let most = gusset.chorded(1e-4, &mut walked);
+        let chords = walked.len() - 1;
+        let mut marchings = Marchings::default();
+        let run = marchings.add(&walked, most);
+
+        let strayed = marchings.strayed(run);
+        assert!(
+            !strayed.shut,
+            "{named}: the second edge was filed as closing"
+        );
+        assert_eq!(strayed.most, most, "{named}: the run lost its bound");
+        assert_eq!(
+            marchings.steps(run, TAU),
+            chords,
+            "{named}: the run answers with other than the chords it has",
+        );
+
+        let began = gusset.at(DVec2::new(gusset.bounds()[0], 1.0));
+        for (t, want) in [(0.0, began), (TAU, gusset.met())] {
+            let at = marchings.at(run, t);
+            assert!(
+                at.distance(want) < 1e-9,
+                "{named}: {at} at {t} is not {want}",
+            );
+        }
+
+        // Every place it was laid down at is on the round, which is the join
+        // the edge keeps — the readings between them stand on chords and are
+        // held to the bound above instead.
+        for (_, at) in marchings.sampled(run) {
+            assert!(
+                (gusset.cut.axis.off(at) - gusset.cut.radius).abs() < 1e-9,
+                "{named}: {at} is off the round",
+            );
+        }
     }
 }

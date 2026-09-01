@@ -785,10 +785,12 @@ mod tests {
                 .walk(&round, other, seed, 1e-4)
                 .expect("the walk did not close");
             let run = walked.carried.marched.add(marching.walked(), strayed);
+            let filed = walked.carried.marched.strayed(run);
             let curve = Curve::Marched(Marched {
                 run,
                 key: u64::from(run),
-                reach: walked.carried.marched.strayed(run).reach,
+                reach: filed.reach,
+                shut: filed.shut,
             });
             let from = walked.sampled.len();
             let mut into = Vec::new();

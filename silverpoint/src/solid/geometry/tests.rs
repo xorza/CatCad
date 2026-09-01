@@ -1999,9 +1999,11 @@ fn a_ray_meets_a_torus_four_times_and_a_graze_none() {
 /// which is what lets a caller holding a bare curve go on holding one.
 #[test]
 fn a_marched_curve_answers_through_the_store_it_names() {
+    // Shut on its own first place rather than on a turn's worth of rounding,
+    // which is what a march hands back and what says the run comes back.
     let walked: Vec<DVec3> = (0..=16)
         .map(|step| {
-            let (up, out) = (TAU * f64::from(step) / 16.0).sin_cos();
+            let (up, out) = (TAU * f64::from(step % 16) / 16.0).sin_cos();
             DVec3::new(out, up, 0.0)
         })
         .collect();
@@ -2011,6 +2013,7 @@ fn a_marched_curve_answers_through_the_store_it_names() {
         run,
         key: 0x1234,
         reach: 1.0,
+        shut: true,
     });
 
     assert_eq!(curve.key(), 0x1234, "the key is not the store's to give");

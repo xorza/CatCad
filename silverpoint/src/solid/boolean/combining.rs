@@ -496,13 +496,15 @@ impl Combining {
                 .carried
                 .marched
                 .add(self.scratch.marching.walked(), strayed);
+            let filed = self.carried.marched.strayed(run);
             self.curves.push(Curve::Marched(Marched {
                 run,
                 // Over the two surfaces and which piece rather than over the
                 // places — see [`Marched::key`], and [`pairing`], which is what
                 // makes a crossing met from either side key alike.
                 key: named(on, other, self.curves.len() as u32 - from),
-                reach: self.carried.marched.strayed(run).reach,
+                reach: filed.reach,
+                shut: filed.shut,
             }));
         }
         Some(self.file(on, other, from))

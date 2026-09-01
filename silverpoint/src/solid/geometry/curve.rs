@@ -153,11 +153,11 @@ impl Curve {
     pub(crate) fn closed(&self) -> bool {
         match self {
             Self::Line(_) | Self::Parabola(_) | Self::Hyperbola(_) => false,
-            Self::Circle(_)
-            | Self::Ellipse(_)
-            | Self::Saddle(_)
-            | Self::Marched(_)
-            | Self::Quartic(_) => true,
+            Self::Circle(_) | Self::Ellipse(_) | Self::Saddle(_) | Self::Quartic(_) => true,
+            // The one arm that is either: a march round a meeting comes back
+            // and an edge walked from one corner to another does not — see
+            // [`Strayed::shut`](super::marchings::Strayed).
+            Self::Marched(of) => of.shut,
         }
     }
 

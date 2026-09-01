@@ -41,6 +41,13 @@ pub(crate) struct Strayed {
     /// How large the numbers reading it work in — see
     /// [`Curve::reach`](super::curve::Curve::reach).
     pub(crate) reach: f64,
+    /// Whether the run comes back to where it began.
+    ///
+    /// **Read off the walk rather than declared**, so no caller can file a run
+    /// as closing that does not: a march round a meeting lays its first place
+    /// down again at the end, bit for bit, and a curve walked from one corner
+    /// to another leaves its two ends where they are.
+    pub(crate) shut: bool,
 }
 
 /// A curve laid down as a run of places rather than written down.
@@ -64,6 +71,9 @@ pub(crate) struct Marched {
     /// How large the numbers reading it work in — see
     /// [`Curve::reach`](super::curve::Curve::reach).
     pub(crate) reach: f64,
+    /// Whether it comes back to where it began — see [`Strayed::shut`], which
+    /// is where it is derived.
+    pub(crate) shut: bool,
 }
 
 /// Every marched curve a body stands on, laid end to end.
@@ -108,10 +118,12 @@ impl Marchings {
     /// File `walked` as a run of its own, no chord of it straying further than
     /// `most`, and say which run it is.
     ///
-    /// **The walk closed**, which is what [`Marching::walk`](crate::solid::meeting::marching::Marching)
-    /// hands back and what makes the parameter below a whole turn: the place it
-    /// began at stands at the end as well, so the last chord is the one that
-    /// shuts the loop.
+    /// **Whether it closes is read here and nowhere else.** A march round a
+    /// meeting — [`Marching::walk`](crate::solid::meeting::marching::Marching)
+    /// — lays its first place down again at the end, so the last chord shuts
+    /// the loop; an edge walked from one corner to another leaves its two ends
+    /// where they are. The parameter is a whole turn either way, and what
+    /// parts them is what happens at the end of it — see [`Marchings::at`].
     pub(crate) fn add(&mut self, walked: &[DVec3], most: f64) -> u32 {
         // **One pass**, which is what makes filing a run cost its own length
         // rather than three times it: how far round the whole is and how large
@@ -127,9 +139,19 @@ impl Marchings {
             self.filing.push(Sample { at, round });
             last = Some(at);
         }
+        // Bit for bit, a walk that closed having laid its own first place down
+        // again rather than arrived near it.
+        let shut = walked.len() > 1 && walked.first() == walked.last();
         let run = self.len();
-        self.runs
-            .push_by(Strayed { most, round, reach }, &self.filing);
+        self.runs.push_by(
+            Strayed {
+                most,
+                round,
+                reach,
+                shut,
+            },
+            &self.filing,
+        );
         run
     }
 
@@ -156,9 +178,18 @@ impl Marchings {
     /// closed marched curve is split at its own nought and half turn by the
     /// same reading that splits a circle, and the sewing needs no arm of its
     /// own for one.
+    ///
+    /// **A run that does not come back has an end**, so a parameter past that
+    /// end is held there rather than carried round to the start. That is the
+    /// one place the two kinds part company, the whole turn being what both are
+    /// read against.
     pub(crate) fn at(&self, run: u32, t: f64) -> DVec3 {
         let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
-        let want = (t / TAU).rem_euclid(1.0) * strayed.round;
+        let share = t / TAU;
+        let want = match strayed.shut {
+            true => share.rem_euclid(1.0),
+            false => share.clamp(0.0, 1.0),
+        } * strayed.round;
         // The chord holding it, which is the one that begins at the last sample
         // standing no further round than `want`.
         let step = samples
@@ -248,7 +279,8 @@ mod tests {
     fn ring(radius: f64, count: usize) -> Vec<DVec3> {
         (0..=count)
             .map(|step| {
-                let (up, out) = (TAU * step as f64 / count as f64).sin_cos();
+                // Shut on its own first place, as a march hands one back.
+                let (up, out) = (TAU * (step % count) as f64 / count as f64).sin_cos();
                 DVec3::new(radius * out, radius * up, 0.0)
             })
             .collect()
@@ -314,6 +346,36 @@ mod tests {
         assert_eq!(marchings.steps(run, TAU / 4.0), 4);
         assert_eq!(marchings.steps(run, TAU / 64.0), 1);
         assert_eq!(marchings.steps(run, 0.0), 1);
+    }
+
+    /// **A run that does not come back has an end**, and the parameter still
+    /// runs a whole turn over it.
+    ///
+    /// Five places of the eight-chord ring, filed on their own. Read at nought
+    /// the run is where it began and at a whole turn it is where it stopped;
+    /// past either it is held there, where the ring beside it carries on round.
+    /// That is the one place the two kinds part company.
+    #[test]
+    fn an_open_run_is_held_at_its_ends_where_a_closed_one_carries_on() {
+        let mut marchings = Marchings::default();
+        let whole = ring(1.0, 8);
+        let arc = whole[..5].to_vec();
+        let shut = marchings.add(&whole, 1e-3);
+        let open = marchings.add(&arc, 1e-3);
+        assert!(marchings.strayed(shut).shut, "a ring was filed as open");
+        assert!(!marchings.strayed(open).shut, "an arc was filed as closing");
+
+        let [first, last] = [arc[0], arc[4]];
+        for (t, want) in [(0.0, first), (TAU, last), (-TAU, first), (2.0 * TAU, last)] {
+            let at = marchings.at(open, t);
+            assert!(at.abs_diff_eq(want, 1e-12), "{at:?} at {t} is not {want:?}");
+        }
+        // The same readings on the ring carry round instead: a whole turn is
+        // its own start again, and an eighth past two turns is its second
+        // place.
+        assert!(marchings.at(shut, TAU).abs_diff_eq(whole[0], 1e-12));
+        let round = marchings.at(shut, 2.0 * TAU + TAU / 8.0);
+        assert!(round.abs_diff_eq(whole[1], 1e-12), "{round:?}");
     }
 
     /// **Runs are filed one after another and keep their own room**, which is

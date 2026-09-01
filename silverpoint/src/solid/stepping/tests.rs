@@ -15,6 +15,7 @@ use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::marchings::Marched;
 use crate::solid::named::Step;
 use glam::{DVec2, DVec3};
 use std::collections::HashSet;
@@ -519,6 +520,50 @@ fn a_ruled_patch_goes_out_as_the_net_of_chords_it_is() {
         assert!(
             defined.contains(&number),
             "#{number} is named and not defined",
+        );
+    }
+}
+
+/// **A polyline says whether its run comes back.** The flag is the curve's own
+/// answer rather than the format's default: a march round a meeting closes and
+/// a curve walked from one corner to another does not.
+///
+/// Held on one ring and the arc of it that stops four places in. Both go out
+/// through the very places filed, so the point counts are the run lengths and
+/// nothing is repeated to make an end meet.
+#[test]
+fn a_polyline_says_whether_its_run_comes_back() {
+    // Shut on its own first place, as a march hands one back, and the same
+    // run stopped one place short of that.
+    let ring = [DVec3::X, DVec3::Y, DVec3::NEG_X, DVec3::NEG_Y, DVec3::X];
+    let mut carried = Carried::default();
+    let runs = [
+        carried.marched.add(&ring, 1e-3),
+        carried.marched.add(&ring[..4], 1e-3),
+    ];
+
+    for (which, (run, wanted)) in runs.into_iter().zip([".T.", ".F."]).enumerate() {
+        let filed = carried.marched.strayed(run);
+        let curve = Curve::Marched(Marched {
+            run,
+            key: which as u64,
+            reach: filed.reach,
+            shut: filed.shut,
+        });
+        let mut into = String::new();
+        Stepping::default().polylined(&curve, CHORDED, &carried, &mut into);
+        let entity = into
+            .lines()
+            .find(|line| line.contains("B_SPLINE_CURVE_WITH_KNOTS"))
+            .expect("the polyline was written");
+        assert!(
+            entity.contains(&format!(".POLYLINE_FORM.,{wanted},")),
+            "run {which} went out with the wrong closing flag: {entity}",
+        );
+        assert_eq!(
+            count(&into, "CARTESIAN_POINT"),
+            carried.marched.sampled(run).count(),
+            "run {which} lost or gained a place on the way out",
         );
     }
 }

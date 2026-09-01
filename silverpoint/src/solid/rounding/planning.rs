@@ -783,10 +783,12 @@ impl Planning {
     fn marched(&mut self, over: &Surface, blend: &Blend, end: usize, seed: DVec3) -> Option<Curve> {
         let strayed = self.marching.walk(over, &blend.laid, seed, CHORDED)?;
         let run = self.carried.marched.add(self.marching.walked(), strayed);
+        let filed = self.carried.marched.strayed(run);
         Some(Curve::Marched(Marched {
             run,
             key: keyed(over, &blend.laid, blend.pick, end),
-            reach: self.carried.marched.strayed(run).reach,
+            reach: filed.reach,
+            shut: filed.shut,
         }))
     }
 

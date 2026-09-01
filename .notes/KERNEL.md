@@ -1377,14 +1377,32 @@ takes one and the run along the ruling the other — and the angle's step is the
 one the export's own net is laid at, so a face and the file it goes out in are
 cut by one rule.
 
+**A marched run may now be open, which the second edge needed.** Every run the
+kernel had filed until now was a march round a meeting, and one of those lays
+its first place down again at the end; this edge runs from the first ruling to
+the tip and stops. Whether a run comes back is *read off the walk* rather than
+declared — bit for bit, so no caller can file a run as closing that does not —
+and that reading is what `Curve::closed` answers for the arm, what holds a
+parameter at an end rather than carrying it round, and what the export's own
+closing flag says.
+
 **What is left:**
 
-- The *filing* of the second edge: handing the walk to `Marchings::add` and
-  carrying its stray onto the edge and the corners at either end.
-- The route in `Rounding` that raises it, which is the one test `joining`
-  refuses on today.
+- The caller for that filing, which is the route below.
+- The route in `Rounding` that raises the patch, which is the one test
+  `joining` refuses on today.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
   than either surface it joins.
+
+**And the third side is a split rather than a trim**, which is the one thing
+that route has to carry that no other corner does. Two *agreeing* picks cut the
+one unpicked edge back to a single place, both rails crossing it together — so
+`Planning::trimmed` holds one cut per end of an edge and that is enough. A
+disagreeing pair crosses it at two: the fillet's rail on one face, the round's
+rail on the other. The piece between them is an edge of the *patch*, shared with
+whichever face was cut back less, and the rest of the unpicked edge stands
+beyond it. So that edge is cut in two rather than shortened, and no record holds
+that yet.
 
 **The export is done.** A ruled patch has no analytic entity, so it goes out as
 a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.
