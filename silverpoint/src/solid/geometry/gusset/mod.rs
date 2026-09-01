@@ -8,12 +8,12 @@
 //! with no fit anywhere. `.notes/KERNEL.md` §9.6 is where no quadric is shown
 //! to do the same job, and where the whole corner is argued.
 #![allow(dead_code)]
-// Kept ahead of its caller deliberately: the arm of
-// [`Fitted`](super::fitted::Fitted) that would reach this wants a box round the
-// patch before it can cull, which `.notes/KERNEL.md` §9.6 leaves open. The
-// geometry below is settled and tested, and the route in `Rounding` that raises
-// it lands with that arm.
+// Kept ahead of its caller deliberately: nothing can mesh a face it cannot hold
+// to a sagitta, so the route in `Rounding` that raises one waits on the bound
+// `.notes/KERNEL.md` §9.6 leaves open. The geometry below is settled and
+// tested, and the export already writes it out.
 
+use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::harmonic;
@@ -258,6 +258,42 @@ impl Gusset {
         most
     }
 
+    /// The patch laid down as the net of chords a format with no entity for a
+    /// ruled surface is given, two places to a ruling — its head first and its
+    /// foot second — and how far that net stands from the patch.
+    ///
+    /// **Degree one each way, and one of the two is exact.** Every ruling is a
+    /// straight line, so two places hold one to the last bit and the run along
+    /// it wants no dividing at all. What a step of the fillet's angle leaves
+    /// out is the two edges' own bend, and nothing else.
+    ///
+    /// **Both edges rule the step, and the head's share is written down.** The
+    /// first edge is the image of the unit circle under a pair of vectors — see
+    /// [`Framing::swung`] — so an arc of it never leaves its chord by more than
+    /// [`arc::bulge`] of the step times how far that pair stretches a vector,
+    /// which `√(|one|² + |two|²)` holds. The second edge is probed, on
+    /// [`Gusset::chorded`]'s own terms, and the answer is the worse of the two.
+    ///
+    /// **The last ruling has closed to a point**, so the net's last two places
+    /// are one place — the degenerate row a cone's apex already asks every
+    /// reader for.
+    pub(crate) fn netted(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
+        debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
+        let framing = self.framing();
+        let [one, two] = framing.swung;
+        let swing = (one.length_squared() + two.length_squared()).sqrt();
+        let [from, to] = framing.bounds;
+        let span = (to - from).abs();
+        let bent = |steps: usize| swing * arc::bulge(span / steps as f64);
+        let mut steps = FIRST.max(arc::chords(swing, span, sagitta));
+        let mut most = self.woven(steps, framing, into).max(bent(steps));
+        while most > sagitta && steps < FIRST << DOUBLINGS {
+            steps *= 2;
+            most = self.woven(steps, framing, into).max(bent(steps));
+        }
+        most
+    }
+
     /// The box the whole patch fills.
     ///
     /// **Half of it is written down and half of it is walked.** The first edge
@@ -285,7 +321,7 @@ impl Gusset {
             low: framing.middle - swing,
             high: framing.middle + swing,
         };
-        let strayed = self.along(BOXED, framing, |at| fills.hold(at));
+        let strayed = self.along(BOXED, framing, |_, at| fills.hold(at));
         Bounds {
             low: fills.low - strayed,
             high: fills.high + strayed,
@@ -373,13 +409,19 @@ impl Gusset {
         self.fills().meets(fills, slack)
     }
 
-    /// Walk the second edge in `steps` chords, handing each place to `held`,
-    /// and say how far the worst chord stands from the edge.
+    /// Walk the patch in `steps` rulings, handing the two ends of each to
+    /// `held` — its head first — and say how far the worst chord of the second
+    /// edge stands from the edge itself.
     ///
-    /// **Handed over rather than laid down**, because the two callers want
-    /// different things of one walk: one files the places as a run and one only
-    /// takes their box, and a walk that answered with a list would make the
-    /// second ask for a buffer it has nowhere to keep.
+    /// **Handed over rather than laid down**, because the three callers want
+    /// different things of one walk: one files the second edge as a run, one
+    /// takes its box, and one lays the whole patch out as a net. A walk that
+    /// answered with a list would make the second ask for a buffer it has
+    /// nowhere to keep.
+    ///
+    /// **Both ends and not the foot alone**, so that a caller wanting the net
+    /// reads the head at the very angles the foot was read at rather than
+    /// working the run of angles out a second time.
     ///
     /// Three places along each chord, which is what a marched curve is measured
     /// by and for the same reason: a smooth curve leaves its chord furthest
@@ -392,24 +434,27 @@ impl Gusset {
     /// `.notes/KERNEL.md` §9.6, which is where that limit is argued. The
     /// probing stops three quarters of a chord short of it, so nothing reads
     /// the quotient at the one angle it has no value at.
-    fn along(&self, steps: usize, framing: Framing, mut held: impl FnMut(DVec3)) -> f64 {
+    fn along(&self, steps: usize, framing: Framing, mut held: impl FnMut(DVec3, DVec3)) -> f64 {
         let foot = |u: f64| self.ruled(u, framing).foot;
         let [from, to] = framing.bounds;
         let step = (to - from) / steps as f64;
         let mut most = 0.0_f64;
         let mut last = foot(from);
-        held(last);
+        held(self.headed(from, framing), last);
         for at in 1..=steps {
             let began = from + step * (at as f64 - 1.0);
-            let here = match at == steps {
-                true => framing.met,
-                false => foot(began + step),
+            let (head, here) = match at == steps {
+                true => (framing.met, framing.met),
+                false => {
+                    let angle = began + step;
+                    (self.headed(angle, framing), foot(angle))
+                }
             };
             for share in [0.25, 0.5, 0.75] {
                 let along = last.lerp(here, share);
                 most = most.max(along.distance(foot(began + step * share)));
             }
-            held(here);
+            held(head, here);
             last = here;
         }
         most
@@ -420,7 +465,18 @@ impl Gusset {
     fn laid(&self, steps: usize, framing: Framing, into: &mut Vec<DVec3>) -> f64 {
         into.clear();
         into.reserve_exact(steps + 1);
-        self.along(steps, framing, |at| into.push(at))
+        self.along(steps, framing, |_, at| into.push(at))
+    }
+
+    /// The same walk laid down as the two ends of every ruling rather than as
+    /// the second edge alone — see [`Gusset::along`].
+    fn woven(&self, steps: usize, framing: Framing, into: &mut Vec<DVec3>) -> f64 {
+        into.clear();
+        into.reserve_exact(2 * (steps + 1));
+        self.along(steps, framing, |head, foot| {
+            into.push(head);
+            into.push(foot);
+        })
     }
 
     /// Where the two blends touch, which is the tip the patch closes to.

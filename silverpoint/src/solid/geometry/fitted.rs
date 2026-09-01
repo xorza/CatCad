@@ -32,12 +32,13 @@ use glam::{BVec2, DVec2, DVec3};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),
-    /// Nothing raises one yet — the route in `Rounding` is the next thing
-    /// `.notes/KERNEL.md` §9.6 owes, and every reading the tier asks of this
-    /// arm is written and held to below.
-    #[expect(
+    /// Nothing raises one yet — the route in `Rounding` waits on the bound
+    /// `.notes/KERNEL.md` §9.6 leaves open, which is the one thing below that
+    /// still refuses. Every other reading the tier asks of this arm is
+    /// written and held to.
+    #[allow(
         dead_code,
-        reason = "the route in `Rounding` that raises one lands next"
+        reason = "the route in `Rounding` that raises one waits on §9.6's bound"
     )]
     Gusset(Gusset),
 }

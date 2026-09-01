@@ -28,6 +28,7 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::fitted::Fitted;
+use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::topology::Topology;
@@ -49,6 +50,13 @@ use std::fmt::Write;
 /// by. So the floor is the tolerance this kernel already works to and the
 /// answer is the wider of the two.
 const WELD: f64 = PLACED;
+
+/// How many places hold one ruling of a net.
+///
+/// **Two, and never more.** A ruling is a straight line, so a degree of one
+/// across it says the patch itself rather than a fit of it — which is why the
+/// net is chorded along the turn alone. See [`Stepping::netted`].
+const RULING: usize = 2;
 
 /// The stamp every file carries in place of the hour it was written.
 ///
@@ -73,6 +81,9 @@ pub struct Stepping {
     /// One curve's places on their way into a polyline — see
     /// [`Stepping::polylined`], which is the one thing here that lays them down.
     places: Vec<Sampled>,
+    /// One ruled patch's places on their way into a net — see
+    /// [`Stepping::ruled`].
+    net: Vec<DVec3>,
     /// Every polyline already written, and the entity each became.
     ///
     /// Only the curves with no entity of their own are here. The analytic ones
@@ -312,7 +323,7 @@ impl Stepping {
     /// STEP asks an `ADVANCED_FACE` — so the two need no reconciling.
     fn face(&mut self, topology: &Topology, at: FaceId, sagitta: f64, into: &mut String) -> u32 {
         let face = topology.face(at);
-        let surface = self.surface(&face.surface, into);
+        let surface = self.surface(&face.surface, sagitta, into);
         let from = self.gathered.len();
         for (which, walk) in topology.loops_of(face).enumerate() {
             let held = self.walk(topology, walk, sagitta, into);
@@ -403,16 +414,13 @@ impl Stepping {
     }
 
     /// One surface, as the analytic entity it is.
-    fn surface(&mut self, of: &Surface, into: &mut String) -> u32 {
+    ///
+    /// `sagitta` is spent on the one surface with no such entity — the ruled
+    /// patch a corner two picks do not agree about is filled with, which
+    /// [`Stepping::netted`] lays out.
+    fn surface(&mut self, of: &Surface, sagitta: f64, into: &mut String) -> u32 {
         match of {
-            // **A ruled patch has no analytic entity**, and goes out as a
-            // B-spline surface of degree one across the ruling at the caller's
-            // sagitta — which `.notes/KERNEL.md` §9.6 owes and nothing writes
-            // yet. Nothing raises one either, so no body reaching here holds
-            // one.
-            Surface::Fitted(Fitted::Gusset(_)) => {
-                unreachable!("a ruled patch is written as a B-spline, which §9.6 owes")
-            }
+            Surface::Fitted(Fitted::Gusset(gusset)) => self.netted(gusset, sagitta, into),
             Surface::Natural(Natural::Plane(plane)) => {
                 let placed = self.placement(Axis::new(plane.origin, plane.normal(), plane.x), into);
                 let made = self.opened(into);
@@ -486,6 +494,63 @@ impl Stepping {
         }
     }
 
+    /// A ruled patch, as the net of chords the format has no entity for.
+    ///
+    /// **Degree one each way, and one of the two is exact.** Every ruling is a
+    /// straight line already, so a degree of one across it says the patch
+    /// itself; the turn along it is chorded, and a smoother fit there would
+    /// read better and claim more. That is the argument
+    /// [`Stepping::polylined`] makes one dimension down.
+    ///
+    /// **The last ruling has closed to a point**, the patch shutting at the
+    /// place its two blends touch — so the net's last row is one place written
+    /// twice, which is the degenerate row a conical face already hands every
+    /// reader.
+    ///
+    /// Written afresh per face rather than filed and named again: two faces on
+    /// one patch would want one net only if they were also asked for at one
+    /// sagitta, and a body holds a handful of these.
+    fn netted(&mut self, of: &Gusset, sagitta: f64, into: &mut String) -> u32 {
+        // Taken out and put back, so the walk writes into this type's own room
+        // while the writing below holds the rest of it.
+        let mut net = std::mem::take(&mut self.net);
+        of.netted(sagitta, &mut net);
+        let from = self.gathered.len();
+        for &at in &net {
+            let place = self.point(at, into);
+            self.gathered.push(place);
+        }
+        self.net = net;
+        let rulings = (self.gathered.len() - from) / RULING;
+        // Two rulings at the very least, or the multiplicities below spell a
+        // knot vector the places do not fill.
+        debug_assert!(rulings > 1, "a net of {rulings} rulings spans nothing");
+        let made = self.opened(into);
+        into.push_str("B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(");
+        let (rows, over) = self.gathered[from..].as_chunks::<RULING>();
+        debug_assert!(over.is_empty(), "a ruling of the net lost an end");
+        for (ruling, pair) in rows.iter().enumerate() {
+            if ruling > 0 {
+                into.push(',');
+            }
+            into.push('(');
+            listed(into, pair);
+            into.push(')');
+        }
+        into.push_str("),.RULED_SURF.,.F.,.F.,.U.,");
+        doubled(into, rulings);
+        into.push(',');
+        doubled(into, RULING);
+        into.push(',');
+        counted(into, rulings);
+        into.push(',');
+        counted(into, RULING);
+        into.push_str(",.UNSPECIFIED.)");
+        shut(into);
+        self.gathered.truncate(from);
+        made
+    }
+
     /// One curve with no entity of its own, as the polyline it goes out as.
     ///
     /// **Two readings and one routine**, which is what [`Curve::sample`] already
@@ -544,18 +609,11 @@ impl Stepping {
         let made = self.opened(into);
         into.push_str("B_SPLINE_CURVE_WITH_KNOTS('',1,(");
         listed(into, &self.gathered[from..]);
-        into.push_str("),.POLYLINE_FORM.,.T.,.U.,(2");
-        for _ in 2..held {
-            into.push_str(",1");
-        }
-        into.push_str(",2),(");
-        for at in 0..held {
-            if at > 0 {
-                into.push(',');
-            }
-            real(into, at as f64);
-        }
-        into.push_str("),.UNSPECIFIED.)");
+        into.push_str("),.POLYLINE_FORM.,.T.,.U.,");
+        doubled(into, held);
+        into.push(',');
+        counted(into, held);
+        into.push_str(",.UNSPECIFIED.)");
         shut(into);
         self.gathered.truncate(from);
         made
@@ -624,6 +682,33 @@ fn shut(into: &mut String) {
     into.push_str(";\n");
 }
 
+/// The multiplicities a degree of one takes over `held` places: the ends
+/// doubled, and everything between single.
+///
+/// **One spelling rather than two.** A polyline and a net ask for the same run
+/// — see [`Stepping::polyline`] and [`Stepping::netted`] — and two spellings of
+/// one relation is how they come to disagree.
+fn doubled(into: &mut String, held: usize) {
+    into.push_str("(2");
+    for _ in 2..held {
+        into.push_str(",1");
+    }
+    into.push_str(",2)");
+}
+
+/// The knots those multiplicities count off, which are the places numbered from
+/// nought.
+fn counted(into: &mut String, held: usize) {
+    into.push('(');
+    for at in 0..held {
+        if at > 0 {
+            into.push(',');
+        }
+        real(into, at as f64);
+    }
+    into.push(')');
+}
+
 /// A run of entity numbers, comma separated.
 fn listed(into: &mut String, of: &[u32]) {
     for (at, number) in of.iter().enumerate() {
@@ -657,21 +742,26 @@ struct Laid {
     entity: u32,
 }
 
-/// Whether any curve of `topology` has to be chorded to be written.
+/// Whether anything in `topology` has to be chorded to be written.
 ///
 /// **Asked before a line goes down**, because what it decides is the accuracy
-/// the file's own head declares — and a body of nothing but analytic curves and
-/// walked runs must not claim a slack it never spent.
+/// the file's own head declares — and a body of nothing but analytic geometry
+/// and walked runs must not claim a slack it never spent.
 ///
-/// The two that cost one are the quartic a general pair of quadrics meets in
-/// and the saddle a cross drilling leaves. Both are written down *exactly*
-/// here, so what a chording costs is an error the body did not carry until this
-/// made it — which is why the file has to say so. Every other curve either has
-/// an entity or was already walked to a bound of its own.
+/// The two curves that cost one are the quartic a general pair of quadrics
+/// meets in and the saddle a cross drilling leaves. The one surface that costs
+/// one is the ruled patch a corner two picks do not agree about is filled with
+/// — see [`Stepping::ruled`]. All three are written down *exactly* here, so
+/// what a chording costs is an error the body did not carry until this made
+/// it, which is why the file has to say so. Everything else either has an
+/// entity or was already walked to a bound of its own.
 fn chorded(topology: &Topology) -> bool {
     topology
         .edges()
         .any(|(_, edge)| matches!(edge.curve, Curve::Saddle(_) | Curve::Quartic(_)))
+        || topology
+            .faces()
+            .any(|(_, face)| matches!(face.surface, Surface::Fitted(Fitted::Gusset(_))))
 }
 
 /// A boolean as the format spells one.

@@ -1876,21 +1876,31 @@ so.
   differences of the control net, tightening under subdivision. That is why
   kernels push a procedural surface into NURBS before asking how flat it is.
 
-  **The deviation splits into three, and two of them are written down.** Over a
-  stretch of the angle, with `Q` the bilinear interpolant of the four corners,
+  **The triangle reduces to its three sides, exactly.** A ruled patch is affine
+  in `v` and a triangle's own plane is affine in both, so the difference is
+  affine in `v` — and over a run of the parameter triangle at one `u` its
+  greatest stands at an end, which is on the triangle's boundary. A side at one
+  `u` is nought at both its corners and affine between, so it is nought
+  throughout. **So a triangle strays by the worst of its three sides**, which is
+  the reading `Surface::straying` already names by letting a caller pass one
+  corner twice. No bilinear interpolant, no twist term added on top of one, and
+  nothing about how a triangle leans.
 
-      P − Q = (1 − v)·(head − chord_head) + v·(foot − chord_foot)
+  **And a side reduces to the two edges and a term that is two evaluations.** A
+  side runs at `v` affine in `u`, so it is
+  `(1 − v(u))·head(u) + v(u)·foot(u)`. Against the quadratic blending the two
+  edges' own *chords* the same way, it leaves at most the worse of the two
+  edges' sagittas — and that quadratic leaves its own chord by exactly
+  `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. So
 
-  so the patch never leaves `Q` by more than the greater of the two edges' own
-  sagittas, and a triangle leaves `Q` by the twist besides.
+      side ≤ max(head sagitta, foot sagitta) + Δv·|d(u₁) − d(u₀)|/4
+
+  and every term but one is closed form.
   - **The head's sagitta is bounded.** The first edge is
     `middle + cos u·one + sin u·two`, the image of the unit circle under
     `[one two]`, so an arc leaves its chord by at most `arc::bulge(span)` times
-    how far that map stretches a vector, which `√(|one|² + |two|²)` holds.
-  - **The twist is bounded and wants no derivative.** It is
-    `T = d(u₁) − d(u₀)` with `d = foot − head`, and over a triangle on three
-    corners of the stretch `Q − plane = v(t − 1)·T`, whose greatest is `|T|/4`.
-    Two evaluations give it.
+    how far that map stretches a vector, which `√(|one|² + |two|²)` holds. The
+    same bound rules the export's own step — see `Gusset::netted`.
   - **The foot's sagitta is not.** *Tried and wrong:* carrying the walk's own
     stray on the patch and using it here. A walk's stray bounds the foot
     against **its own chords**, not against a cell's chord spanning several of
@@ -1898,25 +1908,45 @@ so.
     reaching the tip strays `0.697` where that bound reads `0.168`. The code
     and the carried field are out again.
 
-  **What a real bound wants is the walk itself, not its worst.** The foot lies
-  within the walk's stray of the walk's polyline, and the polyline's own
-  deviation from a cell chord is exact arithmetic over the walked places inside
-  that cell. So the bound is `polyline vs cell chord` plus `strayed` — and it
-  needs the *places*, which live in `Carried` under a run as a marched curve's
-  do. **`Surface::straying(corners)` is handed no `Carried`**, so the tier
-  cannot express it as it stands. Either that signature grows, or `strides`
-  pins the grid to the walk's own chords so that a cell is never wider than
-  one — which makes the walk's stray the bound again, and is the narrower
-  change of the two.
+  **What is in the way is one supremum.** The foot is analytic on the patch —
+  `√(D² − r²)` has a *double* zero at the tip, the head's ellipse lying outside
+  the round everywhere else, so the square root is smooth on the patch's own
+  side — and a sagitta over a stretch `h` is `h²/8` of its second derivative at
+  worst. But the foot is `c + m·z(u) + r·n(u)` with `z` a quotient whose
+  divisor vanishes at the tip and `n` carrying that square root, so bounding
+  `z″` and `φ″` wants a supremum of a function that is algebraic and not
+  polynomial. Every route tried — interpolation error, arc length against
+  chord, a cylindrical box round the foot — reduces to that same supremum.
+
+  **Two ways out, and both are named rather than taken.** The algebraic one:
+  under `t = tan(u/2)` the foot lies in a quadratic extension of the rationals,
+  so the extremes of `|foot″|` are roots of a resultant that `Polynomial`
+  already isolates — exact, and a derivation of its own size. The other is the
+  walk: the foot lies within the walk's stray of the walk's polyline, and the
+  polyline against a cell chord is exact arithmetic over the walked places. It
+  needs the *places*, which live in `Carried` as a marched curve's do, and
+  **`Surface::straying(corners)` is handed no `Carried`** — so either that
+  signature grows, or `strides` pins the grid to the walk's own chords so that
+  a cell is never wider than one. The second rests on a probe, which is what
+  the field's own adaptive tessellators do and what §7.2 refuses here.
 - The *filing* of the second edge: handing the walk to `Marchings::add` and
   carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`
   refuses on today, answered instead of refused.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
   than either surface it joins.
-- The export, where a ruled patch has no analytic entity: it goes out as a
-  B-spline surface at the caller's sagitta, degree one across the ruling, which
-  is §9.5's chording read one dimension up.
+- **The export — done.** A ruled patch has no analytic entity, so it goes out
+  as a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's
+  sagitta, which is §9.5's chording read one dimension up. **One of the two
+  degrees is exact**: a ruling is a straight line, so two places hold one to
+  the last bit and nothing is fitted across it — the whole of the fitting runs
+  along the turn. `Gusset::netted` lays that net down, its step ruled by both
+  edges at once: the first edge's bend is written down, on the bound above; the
+  second's is probed, as `chorded` probes it. The last row is one place written
+  twice, the patch closing at the touch point — the degenerate row a cone's
+  apex already asks every reader for. And what the net costs is declared:
+  `chorded` asks the faces as well as the edges, so a file carrying one claims
+  the slack it spent.
 
 ---
 

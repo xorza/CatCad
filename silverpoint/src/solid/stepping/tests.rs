@@ -13,6 +13,8 @@ use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::Boolean;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
+use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::named::Step;
 use glam::{DVec2, DVec3};
 use std::collections::HashSet;
@@ -395,4 +397,128 @@ fn a_body_with_a_cavity_writes_the_shell_it_shuts_in() {
         0,
         "a hollow is not a plain solid"
     );
+}
+
+/// The corner of `.notes/KERNEL.md` §9.6, at the origin and square: a fillet
+/// filled into the concave edge along `y` and a round cut into the convex one
+/// along `x`, both of reach one, touching over the floor at `(1, 1, 0)`.
+fn corner() -> Gusset {
+    Gusset::new(
+        Cylinder {
+            axis: Axis::new(DVec3::new(1.0, 0.0, 1.0), DVec3::Y, DVec3::X),
+            radius: 1.0,
+        },
+        Cylinder {
+            axis: Axis::new(DVec3::new(0.0, 1.0, -1.0), DVec3::X, DVec3::Y),
+            radius: 1.0,
+        },
+        DVec3::new(0.0, 0.0, 1.0),
+        false,
+    )
+}
+
+/// **A ruled patch goes out as the net of chords it has no entity for**, at
+/// degree one each way.
+///
+/// Two places to a ruling and no more, the ruling being a straight line that
+/// two places hold exactly — so the whole of the fitting is along the turn, and
+/// the knot vector is the rows counted off. What is held is that the entity
+/// spells the one net the places make: as many rows as pairs of points, the end
+/// knots doubled and the inside ones single, and a run of two across the
+/// ruling.
+///
+/// **The last row is one place written twice**, the patch closing at the point
+/// its two blends touch.
+#[test]
+fn a_ruled_patch_goes_out_as_the_net_of_chords_it_is() {
+    let surface = Surface::Fitted(Fitted::Gusset(corner()));
+    let mut into = String::new();
+    Stepping::default().surface(&surface, CHORDED, &mut into);
+
+    assert_eq!(count(&into, "B_SPLINE_SURFACE_WITH_KNOTS"), 1);
+    let rows = count(&into, "CARTESIAN_POINT") / 2;
+    assert!(rows > 4, "{rows} rows is no net");
+    let entity = into
+        .lines()
+        .find(|line| line.contains("B_SPLINE_SURFACE_WITH_KNOTS"))
+        .expect("the net was written");
+    assert!(
+        entity.contains("B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(("),
+        "the net was written at some other degree: {entity}",
+    );
+    assert!(
+        entity.contains(".RULED_SURF.,.F.,.F.,.U.,"),
+        "the net claims a form it was not laid to: {entity}",
+    );
+
+    // A degree of one takes the one knot vector there is: the ends doubled,
+    // everything between single, and the knots the rows counted off.
+    let mut wanted = String::from("(2");
+    for _ in 2..rows {
+        wanted.push_str(",1");
+    }
+    wanted.push_str(",2),(2,2),(");
+    for row in 0..rows {
+        if row > 0 {
+            wanted.push(',');
+        }
+        real(&mut wanted, row as f64);
+    }
+    wanted.push_str("),(0.0,1.0),.UNSPECIFIED.);");
+    assert!(
+        entity.ends_with(&wanted),
+        "the knots do not spell the net: {entity}",
+    );
+
+    let held: Vec<&str> = entity
+        .split_once(",1,1,((")
+        .and_then(|(_, rest)| rest.split_once(")),.RULED_SURF."))
+        .expect("a control net")
+        .0
+        .split("),(")
+        .collect();
+    assert_eq!(held.len(), rows, "the rows do not match the places");
+    for row in &held {
+        assert_eq!(
+            row.split(',').count(),
+            2,
+            "a ruling has other than two ends"
+        );
+    }
+
+    let last: Vec<&str> = into
+        .lines()
+        .filter(|line| line.contains("CARTESIAN_POINT"))
+        .rev()
+        .take(2)
+        .map(|line| line.split_once(" = ").expect("an entity").1)
+        .collect();
+    assert_eq!(last[0], last[1], "the patch did not close to a point");
+
+    // Every `#n` the entity names is one the text defines.
+    let mut defined = HashSet::new();
+    for line in into.lines() {
+        let Some((number, _)) = line.trim_start_matches('#').split_once(' ') else {
+            continue;
+        };
+        defined.insert(number.parse::<u32>().expect("an entity number"));
+    }
+    for at in entity
+        .split_once(" = ")
+        .expect("an entity")
+        .1
+        .split('#')
+        .skip(1)
+    {
+        let number: u32 = at
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .expect("a reference is a number");
+        assert!(
+            defined.contains(&number),
+            "#{number} is named and not defined",
+        );
+    }
 }

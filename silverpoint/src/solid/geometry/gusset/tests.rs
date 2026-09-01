@@ -619,3 +619,93 @@ fn a_place_off_the_patch_reads_the_distance_it_was_moved() {
         }
     }
 }
+
+/// **The net holds the patch to what it says it strays**, which is the one
+/// promise a format with no entity for a ruled surface is given.
+///
+/// Read between the rulings rather than at them: the places of the net are on
+/// the patch by construction, so a net that missed the patch would miss it in
+/// the middle of a cell. The shares of the turn are the three the walk probes
+/// at, where what the net leaves out is a blend of the two edges' own — the
+/// first edge's bend, which is written down, and the second's, which was
+/// measured. The blend is never worse than the worse of the two, so the answer
+/// holds at every share along the ruling.
+///
+/// The rounding is the tip alone: the last row is written as the touch point
+/// where the ellipse would be read there, and the two agree to the last bits
+/// rather than exactly.
+#[test]
+fn the_net_holds_the_patch_to_what_it_says_it_strays() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let mut net = Vec::new();
+        let mut counted = Vec::new();
+        let mut strayed = Vec::new();
+        for sagitta in [1e-2, 1e-3, 1e-4] {
+            let most = gusset.netted(sagitta, &mut net);
+            assert!(most <= sagitta, "{named}: {most} strays past {sagitta}");
+            assert_eq!(net.len() % 2, 0, "{named}: a ruling lost an end");
+            let rulings = net.len() / 2;
+            assert!(rulings > 4, "{named}: {rulings} rulings is no net");
+
+            let [from, to] = gusset.bounds();
+            for ruling in 0..rulings {
+                let [head, foot] = [net[ruling * 2], net[ruling * 2 + 1]];
+                assert!(
+                    (gusset.filled.axis.off(head) - gusset.filled.radius).abs() < 1e-9,
+                    "{named}: {head} is off the fillet",
+                );
+                assert!(
+                    (gusset.cut.axis.off(foot) - gusset.cut.radius).abs() < 1e-9,
+                    "{named}: {foot} is off the round",
+                );
+            }
+            assert!(
+                net[0].distance(gusset.from) < 1e-9,
+                "{named}: {} is not where the first edge starts",
+                net[0],
+            );
+            let last = [net[net.len() - 2], net[net.len() - 1]];
+            for at in last {
+                assert!(
+                    at.distance(gusset.met()) < 1e-12,
+                    "{named}: {at} is not the tip",
+                );
+            }
+            // The ellipse read at the far end of the turn is that same tip,
+            // which is what says the row written there was not invented.
+            let ends = gusset.at(DVec2::new(to, 0.0));
+            assert!(
+                ends.distance(gusset.met()) < 1e-9,
+                "{named}: the first edge ends at {ends} rather than the tip",
+            );
+
+            // One cell to a pair of rulings, so a net of `rulings` rows has one
+            // fewer cell than it has rows.
+            let step = (to - from) / (rulings - 1) as f64;
+            for cell in 0..rulings - 1 {
+                for share in [0.25, 0.5, 0.75] {
+                    let heads = net[cell * 2].lerp(net[cell * 2 + 2], share);
+                    let feet = net[cell * 2 + 1].lerp(net[cell * 2 + 3], share);
+                    for along in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                        let uv = DVec2::new(from + step * (cell as f64 + share), along);
+                        let apart = gusset.at(uv).distance(heads.lerp(feet, along));
+                        assert!(
+                            apart <= most + 1e-12,
+                            "{named}: the net misses {uv} by {apart}, over {most}",
+                        );
+                    }
+                }
+            }
+            counted.push(rulings);
+            strayed.push(most);
+        }
+        assert!(
+            counted[0] < counted[2],
+            "{named}: {counted:?} rulings for a hundredth and a ten-thousandth",
+        );
+        assert!(
+            strayed[2] < strayed[0],
+            "{named}: {strayed:?} strayed the same however finely it was laid",
+        );
+    }
+}
