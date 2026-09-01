@@ -6,18 +6,24 @@
 //! to it. A cylinder leaves as a cylinder, and a reader on the other side gets
 //! the drawing rather than a rendering of it.
 //!
-//! **A curve this kernel walked goes out as the polyline it is.** A marched run
-//! is chords laid to a sagitta the body already declares, so writing it through
-//! those very places claims nothing more — and the file's own accuracy carries
-//! the bound. What is refused is the other way round: the two curves this
-//! kernel writes down *exactly* and STEP has no entity for, where any spline
-//! would add an error the body never carried. See [`Stepping::write`], and §1's
-//! third requirement, which is what both readings serve.
+//! **And nothing is refused.** A curve this kernel walked goes out through the
+//! very places the march laid down, so the file says what the body says. The
+//! two the format has no entity for — the quartic a general pair of quadrics
+//! meets in and the saddle a cross drilling leaves — go out chorded at a
+//! sagitta the *caller* names, because §1 says every flattening here is the
+//! caller's.
+//!
+//! **What makes that honest is the declaring.** A chording costs an error the
+//! body did not carry, so the file's own accuracy carries it — and a body of
+//! nothing but analytic curves claims no slack it never spent. That is §1's
+//! third requirement kept rather than dodged: nothing downstream inherits an
+//! approximation this file did not state.
 //!
 //! Text into a caller's own `String`, the way every routine here writes into a
 //! caller's own body: this crate knows nothing about files, and a document
 //! deciding where one goes is the application's business.
 
+use std::f64::consts::TAU;
 use std::fmt::Write;
 
 use glam::DVec3;
@@ -25,7 +31,7 @@ use glam::DVec3;
 use crate::number::tolerance::PLACED;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
-use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
@@ -66,15 +72,15 @@ pub struct Stepping {
     /// vertex is an entity two edges point at rather than a place written twice.
     corners: Vec<u32>,
     edges: Vec<u32>,
-    /// The entity each marched run became, by run.
+    /// One curve's places on their way into a polyline — see
+    /// [`Stepping::polylined`], which is the one thing here that lays them down.
+    places: Vec<Sampled>,
+    /// Every polyline already written, and the entity each became.
     ///
-    /// **Written once and named by every edge on it**, which is what a vertex
-    /// already is here: a run is hundreds of places, and a torus cut by a plane
-    /// leaves several edges on the one curve — see `.notes/KERNEL.md` §4.4,
-    /// where the seams that split them are argued. Nothing indexes the analytic
-    /// curves the same way: those are a line apiece, and telling two of them
-    /// apart would want a map where this wants a slot.
-    walked: Vec<u32>,
+    /// Only the curves with no entity of their own are here. The analytic ones
+    /// are a line apiece, and telling two of them apart would cost more than
+    /// writing one twice.
+    laid: Vec<Laid>,
     /// The last entity number handed out.
     last: u32,
     /// What an entity's own list gathers before the entity that names it can
@@ -98,37 +104,41 @@ pub struct Stepping {
 impl Stepping {
     /// Write `body` into `into` as an ISO 10303-21 file named `called`.
     ///
-    /// `false`, with `into` emptied, where the body carries geometry the format
-    /// has no analytic entity for: a curve this kernel marched, the quartic a
-    /// general pair of quadrics meets in, or the saddle a cross drilling
-    /// leaves. A refusal is an answer rather than a failure — what it says is
-    /// that writing the body would mean fitting a spline to it, and
-    /// `.notes/KERNEL.md` §1 promises nothing downstream inherits an
-    /// approximation this kernel did not already declare.
-    pub fn write(&mut self, body: &Body, called: &str, into: &mut String) -> bool {
+    /// **Every body writes.** A surface goes out as the analytic entity it is,
+    /// and so does a curve wherever the format has one. The rest go out as the
+    /// polyline they either already are — a curve this kernel walked, through
+    /// the very places the march laid down — or are chorded to.
+    ///
+    /// `sagitta` is how far a chord may stand from the curve it replaces, and it
+    /// is the caller's because `.notes/KERNEL.md` §1 says every flattening here
+    /// is. It is spent only where a curve has no entity, and whatever it costs
+    /// is declared: the file's own accuracy is the widest of what the body
+    /// strays, what this chorded, and the tolerance the kernel works to.
+    pub fn write(&mut self, body: &Body, called: &str, sagitta: f64, into: &mut String) {
+        debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         into.clear();
         let topology = body.topology();
-        if !analytic(topology) {
-            return false;
-        }
         self.last = 0;
         self.corners.clear();
         self.corners.resize(topology.vertex_slots(), 0);
         self.edges.clear();
         self.edges.resize(topology.edge_slots(), 0);
-        self.walked.clear();
-        self.walked
-            .resize(topology.carried().marched.len() as usize, 0);
+        self.laid.clear();
         self.solids.clear();
         self.header(called, into);
-        let context = self.preamble(called, body, into);
+        // What the file says a reader may weld by: the widest of what the body
+        // already strays and what the chording below will cost it.
+        let slack = match chorded(topology) {
+            true => body.strays().max(sagitta),
+            false => body.strays(),
+        };
+        let context = self.preamble(called, slack, into);
         for (_, lump) in topology.lumps() {
-            let solid = self.lump(topology, lump.outer, topology.voids_of(lump), into);
+            let solid = self.lump(topology, lump.outer, topology.voids_of(lump), sagitta, into);
             self.solids.push(solid);
         }
         self.shape(context, into);
         into.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
-        true
     }
 
     /// The file's own head: what it is, what wrote it, and which schema it is
@@ -151,7 +161,7 @@ impl Stepping {
     /// no product behind it opens in nothing: what a reader looks for first is
     /// a `SHAPE_DEFINITION_REPRESENTATION`, and what that names on either side
     /// is this.
-    fn preamble(&mut self, called: &str, body: &Body, into: &mut String) -> [u32; 2] {
+    fn preamble(&mut self, called: &str, slack: f64, into: &mut String) -> [u32; 2] {
         let context = self.opened(into);
         into.push_str("APPLICATION_CONTEXT('automotive design')");
         shut(into);
@@ -203,11 +213,10 @@ impl Stepping {
         into.push_str("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())");
         shut(into);
 
-        let slack = self.opened(into);
+        let accuracy = self.opened(into);
         into.push_str("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(");
-        // What the body says it strays, floored at the tolerance this kernel
-        // works to — see [`WELD`].
-        real(into, body.strays().max(WELD));
+        // Floored at the tolerance this kernel works to — see [`WELD`].
+        real(into, slack.max(WELD));
         let _ = write!(into, "),#{metre},'distance_accuracy_value','')");
         shut(into);
 
@@ -215,7 +224,7 @@ impl Stepping {
         let _ = write!(
             into,
             "(GEOMETRIC_REPRESENTATION_CONTEXT(3)\
-             GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#{slack}))\
+             GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#{accuracy}))\
              GLOBAL_UNIT_ASSIGNED_CONTEXT((#{metre},#{radian},#{solid}))\
              REPRESENTATION_CONTEXT('',''))"
         );
@@ -246,9 +255,10 @@ impl Stepping {
         topology: &Topology,
         outer: ShellId,
         voids: &[ShellId],
+        sagitta: f64,
         into: &mut String,
     ) -> u32 {
-        let held = self.shell(topology, outer, into);
+        let held = self.shell(topology, outer, sagitta, into);
         if voids.is_empty() {
             let made = self.opened(into);
             let _ = write!(into, "MANIFOLD_SOLID_BREP('',#{held})");
@@ -257,7 +267,7 @@ impl Stepping {
         }
         let from = self.gathered.len();
         for &shell in voids {
-            let cavity = self.shell(topology, shell, into);
+            let cavity = self.shell(topology, shell, sagitta, into);
             // Turned over, which is what a cavity is: the same closed surface
             // read with its material on the other side.
             let turned = self.opened(into);
@@ -275,10 +285,16 @@ impl Stepping {
     }
 
     /// One closed shell, and every face on it.
-    fn shell(&mut self, topology: &Topology, shell: ShellId, into: &mut String) -> u32 {
+    fn shell(
+        &mut self,
+        topology: &Topology,
+        shell: ShellId,
+        sagitta: f64,
+        into: &mut String,
+    ) -> u32 {
         let from = self.gathered.len();
         for &face in topology.faces_of(shell) {
-            let made = self.face(topology, face, into);
+            let made = self.face(topology, face, sagitta, into);
             self.gathered.push(made);
         }
         let held = self.opened(into);
@@ -296,12 +312,12 @@ impl Stepping {
     /// **The sense flag is the body's own.** `Face::outward` says whether the
     /// material lies where the surface's normal points, which is exactly what
     /// STEP asks an `ADVANCED_FACE` — so the two need no reconciling.
-    fn face(&mut self, topology: &Topology, at: FaceId, into: &mut String) -> u32 {
+    fn face(&mut self, topology: &Topology, at: FaceId, sagitta: f64, into: &mut String) -> u32 {
         let face = topology.face(at);
         let surface = self.surface(&face.surface, into);
         let from = self.gathered.len();
         for (which, walk) in topology.loops_of(face).enumerate() {
-            let held = self.walk(topology, walk, into);
+            let held = self.walk(topology, walk, sagitta, into);
             let bound = self.opened(into);
             let kind = match which {
                 0 => "FACE_OUTER_BOUND",
@@ -321,10 +337,16 @@ impl Stepping {
     }
 
     /// One loop of one face, as the edges it walks and which way it takes each.
-    fn walk(&mut self, topology: &Topology, walk: &[Coedge], into: &mut String) -> u32 {
+    fn walk(
+        &mut self,
+        topology: &Topology,
+        walk: &[Coedge],
+        sagitta: f64,
+        into: &mut String,
+    ) -> u32 {
         let from = self.gathered.len();
         for coedge in walk {
-            let edge = self.edge(topology, coedge.edge, into);
+            let edge = self.edge(topology, coedge.edge, sagitta, into);
             let held = self.opened(into);
             let _ = write!(
                 into,
@@ -349,13 +371,13 @@ impl Stepping {
     /// the first of its bounds to the second, and a curve runs the way its own
     /// parameter grows — so an edge whose bounds fall is one read against its
     /// curve, which is exactly what STEP's flag says.
-    fn edge(&mut self, topology: &Topology, at: EdgeId, into: &mut String) -> u32 {
+    fn edge(&mut self, topology: &Topology, at: EdgeId, sagitta: f64, into: &mut String) -> u32 {
         if self.edges[at.slot()] != 0 {
             return self.edges[at.slot()];
         }
         let edge = topology.edge(at);
         let ends = [edge.from, edge.to].map(|end| self.corner(topology, end, into));
-        let curve = self.curve(&edge.curve, topology.carried(), into);
+        let curve = self.curve(&edge.curve, topology.carried(), sagitta, into);
         let made = self.opened(into);
         let _ = write!(
             into,
@@ -423,7 +445,7 @@ impl Stepping {
     ///
     /// Every arm a body that reached here can hold: the three it cannot are
     /// what [`analytic`] turned away before a line was written.
-    fn curve(&mut self, of: &Curve, carried: &Carried, into: &mut String) -> u32 {
+    fn curve(&mut self, of: &Curve, carried: &Carried, sagitta: f64, into: &mut String) -> u32 {
         match of {
             Curve::Line(line) => {
                 let from = self.point(line.origin, into);
@@ -452,47 +474,70 @@ impl Stepping {
                 let placed = self.placement(of.axis, into);
                 self.wrote(into, "PARABOLA", placed, &[of.focal])
             }
-            Curve::Marched(of) => self.marched(of.run, carried, into),
-            Curve::Saddle(_) | Curve::Quartic(_) => {
-                unreachable!("a body carrying a curve with no entity was turned away")
+            Curve::Marched(_) | Curve::Saddle(_) | Curve::Quartic(_) => {
+                self.polylined(of, sagitta, carried, into)
             }
         }
     }
 
-    /// One walked curve, as the run of places it already is.
+    /// One curve with no entity of its own, as the polyline it goes out as.
     ///
-    /// **Degree one, which is what makes this honest.** A marched curve *is* a
-    /// run of chords, laid down to a sagitta the body already declares — see
-    /// [`Strayed::most`](crate::solid::geometry::marchings::Strayed). Written
-    /// through those very places as a polyline, the file says what the body
-    /// says and no more. A smoother fit would read better and claim more: it
-    /// would add an error nothing measured, where §1's third requirement is
-    /// that nothing downstream inherits an approximation this kernel did not
-    /// already declare. What declares this one is the file's own
-    /// `UNCERTAINTY_MEASURE_WITH_UNIT`, which carries what the body strays.
+    /// **Two readings and one routine**, which is what [`Curve::sample`] already
+    /// keeps apart. A curve this kernel *walked* is a run of chords laid to a
+    /// sagitta the body declares, and it hands its own places back — so what
+    /// goes out is what the march laid down, and the file says what the body
+    /// says. A curve written down exactly and having no entity — the quartic a
+    /// general pair of quadrics meets in, and the saddle a cross drilling
+    /// leaves — is chorded to the sagitta the caller named, which costs an error
+    /// the body did not carry. See [`Stepping::write`], where that is declared.
     ///
-    /// **The whole run, trimmed by the vertices**, exactly as a circle is: an
-    /// edge takes a stretch of the curve it lies on, and which stretch is what
-    /// its two ends and its sense say.
-    fn marched(&mut self, run: u32, carried: &Carried, into: &mut String) -> u32 {
-        if self.walked[run as usize] != 0 {
-            return self.walked[run as usize];
+    /// **Degree one either way**, and that is what makes it honest: a smoother
+    /// fit would read better and claim more, where this claims exactly what was
+    /// laid down.
+    ///
+    /// **The whole turn**, all three closing, so the curve goes out whole and
+    /// the vertices trim it — exactly as a circle does.
+    ///
+    /// **Written once and named by every edge on it.** A curve is cut into
+    /// several edges wherever the faces it divides are split — §4.4 — and a
+    /// polyline of hundreds of places repeated per edge would be a file many
+    /// times the size for nothing. Scanned rather than filed under a handle,
+    /// because a saddle has none: a body holds a handful of these, and a walk
+    /// over that handful beats a key over every curve in it.
+    fn polylined(&mut self, of: &Curve, sagitta: f64, carried: &Carried, into: &mut String) -> u32 {
+        debug_assert!(of.closed(), "a curve written whole has to close");
+        if let Some(laid) = self.laid.iter().find(|laid| laid.of == *of) {
+            return laid.entity;
         }
+        // Taken out and put back, so the sampling writes into this type's own
+        // room while the writing below holds the rest of it.
+        let mut places = std::mem::take(&mut self.places);
+        places.clear();
+        of.sample(TAU, sagitta, carried, &mut places);
         let from = self.gathered.len();
-        for (_, at) in carried.marched.sampled(run) {
-            let place = self.point(at, into);
+        for sampled in &places {
+            let place = self.point(sampled.at, into);
             self.gathered.push(place);
         }
+        self.places = places;
+        let entity = self.polyline(from, into);
+        self.laid.push(Laid { of: *of, entity });
+        entity
+    }
+
+    /// The places gathered from `from` on, as a polyline through every one.
+    ///
+    /// **Degree one, closed, and its ends doubled** — the one knot vector a
+    /// degree of one takes, over knots that are the places counted off.
+    fn polyline(&mut self, from: usize, into: &mut String) -> u32 {
         let held = self.gathered.len() - from;
-        // A walk lays its own start down again where it closed, so a run is
-        // three places at the very least — see `Marching::walk`. Two would give
-        // a knot vector the multiplicities below do not spell.
-        debug_assert!(held > 1, "a marched run of {held} places has no chord");
+        // Both callers lay the curve's own start down again where it closed, so
+        // a run is three places at the very least. Two would give a knot vector
+        // the multiplicities below do not spell.
+        debug_assert!(held > 1, "a run of {held} places has no chord");
         let made = self.opened(into);
         into.push_str("B_SPLINE_CURVE_WITH_KNOTS('',1,(");
         listed(into, &self.gathered[from..]);
-        // A polyline that closes, whose knots are the places counted off and
-        // whose ends are doubled — the one knot vector a degree of one takes.
         into.push_str("),.POLYLINE_FORM.,.T.,.U.,(2");
         for _ in 2..held {
             into.push_str(",1");
@@ -507,7 +552,6 @@ impl Stepping {
         into.push_str("),.UNSPECIFIED.)");
         shut(into);
         self.gathered.truncate(from);
-        self.walked[run as usize] = made;
         made
     }
 
@@ -600,23 +644,28 @@ fn quoted(into: &mut String, of: &str) {
     into.push('\'');
 }
 
-/// Whether every curve of `topology` is one the format has an entity for.
+/// One polyline already written, and the entity it became.
+#[derive(Debug)]
+struct Laid {
+    of: Curve,
+    entity: u32,
+}
+
+/// Whether any curve of `topology` has to be chorded to be written.
 ///
-/// **Asked of the curves and not of the surfaces**, because the surfaces all
-/// pass: STEP carries a torus as readily as a plane, so this kernel's own
-/// fitted *tier* is no bar.
+/// **Asked before a line goes down**, because what it decides is the accuracy
+/// the file's own head declares — and a body of nothing but analytic curves and
+/// walked runs must not claim a slack it never spent.
 ///
-/// **And a walked curve passes too**, written as the polyline it is — see
-/// [`Stepping::marched`]. What is left are the two this kernel writes down
-/// *exactly*: the quartic a general pair of quadrics meets in, and the saddle a
-/// cross drilling leaves. Neither has an entity, and a spline through places
-/// sampled off one would add an error the body never carried — which is the one
-/// thing §1 says nothing downstream may inherit. So they are refused, and a
-/// caller is told rather than handed a file that quietly fitted.
-fn analytic(topology: &Topology) -> bool {
+/// The two that cost one are the quartic a general pair of quadrics meets in
+/// and the saddle a cross drilling leaves. Both are written down *exactly*
+/// here, so what a chording costs is an error the body did not carry until this
+/// made it — which is why the file has to say so. Every other curve either has
+/// an entity or was already walked to a bound of its own.
+fn chorded(topology: &Topology) -> bool {
     topology
         .edges()
-        .all(|(_, edge)| !matches!(edge.curve, Curve::Saddle(_) | Curve::Quartic(_)))
+        .any(|(_, edge)| matches!(edge.curve, Curve::Saddle(_) | Curve::Quartic(_)))
 }
 
 /// A boolean as the format spells one.

@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::math::plane::Plane;
+use crate::number::tolerance::CHORDED;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::Boolean;
@@ -42,10 +43,7 @@ fn count(of: &str, what: &str) -> usize {
 #[test]
 fn a_block_writes_the_six_planes_it_stands_on() {
     let mut into = String::new();
-    assert!(
-        Stepping::default().write(&block(2.0, 3.0), "block", &mut into),
-        "a block of six planes was refused",
-    );
+    Stepping::default().write(&block(2.0, 3.0), "block", CHORDED, &mut into);
 
     assert!(into.starts_with("ISO-10303-21;\n"), "{into}");
     assert!(into.ends_with("ENDSEC;\nEND-ISO-10303-21;\n"), "{into}");
@@ -108,10 +106,7 @@ fn a_block_writes_the_six_planes_it_stands_on() {
 #[test]
 fn a_name_carrying_a_quote_is_written_the_way_the_format_reads_one() {
     let mut into = String::new();
-    assert!(
-        Stepping::default().write(&block(1.0, 1.0), "Bob's bracket", &mut into),
-        "a block was refused",
-    );
+    Stepping::default().write(&block(1.0, 1.0), "Bob's bracket", CHORDED, &mut into);
     assert!(
         into.contains("FILE_NAME('Bob''s bracket',"),
         "the quote was not doubled: {}",
@@ -160,10 +155,7 @@ fn a_walked_curve_goes_out_as_the_polyline_it_is() {
     assert!(halved.strays() > 0.0, "the cut left nothing walked");
 
     let mut into = String::new();
-    assert!(
-        Stepping::default().write(&halved, "ring", &mut into),
-        "a body of walked curves was refused",
-    );
+    Stepping::default().write(&halved, "ring", CHORDED, &mut into);
     // Two ovals, and a run apiece. The torus is four faces (§4.4), so each oval
     // is several edges — and a run of hundreds of places is written once and
     // named by every edge on it, exactly as a vertex is.
@@ -195,17 +187,67 @@ fn a_walked_curve_goes_out_as_the_polyline_it_is() {
     );
 }
 
-/// **The two curves this kernel writes down exactly have no entity**, and a
-/// spline through places sampled off one would add an error the body never
-/// carried. So a body holding one is refused whole.
+/// **A curve the format cannot say goes out chorded, and the file says so.**
 ///
-/// A bar drilled across by a narrower hole, which leaves the quartic
-/// `Curve::Saddle` carries.
+/// The two are the quartic a general pair of quadrics meets in and the saddle a
+/// cross drilling leaves. Both are written down *exactly* here, so a chording
+/// costs an error the body did not carry — and the whole of what makes it
+/// honest is that the file's own accuracy declares it.
+///
+/// A bar drilled across by a narrower hole, which leaves the saddle.
 #[test]
-fn a_body_carrying_a_curve_written_down_exactly_is_refused() {
-    use crate::solid::boolean::Boolean;
-    use crate::solid::boolean::operation::Operation;
+fn a_curve_the_format_cannot_say_goes_out_chorded_at_a_declared_slack() {
+    let cut = drilled();
+    assert!(cut.exact(), "a bar and a bore are quadrics");
+    assert_eq!(cut.strays(), 0.0, "an exact body is walked nowhere");
 
+    let mut into = String::new();
+    Stepping::default().write(&cut, "bar", CHORDED, &mut into);
+    // A cross drilling leaves two saddles, and the bore's wall is split — §4.4
+    // — so each is cut into two edges. One polyline apiece all the same.
+    let saddles = cut
+        .topology()
+        .edges()
+        .filter(|(_, edge)| matches!(edge.curve, Curve::Saddle(_)))
+        .count();
+    assert_eq!(saddles, 4, "the cross drilling left something else");
+    assert_eq!(
+        count(&into, "B_SPLINE_CURVE_WITH_KNOTS"),
+        2,
+        "one per curve the drilling left, not one per edge on it",
+    );
+
+    // The body strays nought and the file does not: what a chording cost is
+    // what a reader is told to weld by.
+    let mut slack = String::new();
+    real(&mut slack, CHORDED);
+    assert!(
+        into.contains(&format!("LENGTH_MEASURE({slack})")),
+        "the file claims an accuracy the chording did not cost: {}",
+        into.lines()
+            .find(|line| line.contains("UNCERTAINTY"))
+            .unwrap_or_default(),
+    );
+}
+
+/// **A body of nothing but analytic curves claims no slack it never spent.**
+#[test]
+fn a_body_of_written_down_curves_declares_only_the_floor() {
+    let mut into = String::new();
+    Stepping::default().write(&block(2.0, 3.0), "block", CHORDED, &mut into);
+    let mut floor = String::new();
+    real(&mut floor, WELD);
+    assert!(
+        into.contains(&format!("LENGTH_MEASURE({floor})")),
+        "a block of six planes claims more than the machine's own floor: {}",
+        into.lines()
+            .find(|line| line.contains("UNCERTAINTY"))
+            .unwrap_or_default(),
+    );
+}
+
+/// A bar drilled across by a narrower hole, which is what leaves a saddle.
+fn drilled() -> Body {
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 1.0);
@@ -233,15 +275,9 @@ fn a_body_carrying_a_curve_written_down_exactly_is_refused() {
         cut.topology()
             .edges()
             .any(|(_, edge)| matches!(edge.curve, Curve::Saddle(_))),
-        "the cross drilling left no saddle to refuse",
+        "the cross drilling left no saddle to chord",
     );
-
-    let mut into = String::new();
-    assert!(
-        !Stepping::default().write(&cut, "bar", &mut into),
-        "a body of exactly written curves with no entity was written out",
-    );
-    assert!(into.is_empty(), "a refusal left half a file behind");
+    cut
 }
 
 /// Half a ring, cut by a plane that leans.
@@ -301,10 +337,7 @@ fn a_filleted_rim_goes_out_as_the_torus_it_is() {
     );
 
     let mut into = String::new();
-    assert!(
-        Stepping::default().write(&rounded, "rod", &mut into),
-        "a body standing on a torus was refused",
-    );
+    Stepping::default().write(&rounded, "rod", CHORDED, &mut into);
     assert_eq!(
         count(&into, "TOROIDAL_SURFACE"),
         2,
@@ -349,10 +382,7 @@ fn a_body_with_a_cavity_writes_the_shell_it_shuts_in() {
     );
 
     let mut into = String::new();
-    assert!(
-        Stepping::default().write(&cut, "hollow", &mut into),
-        "a body with a cavity was refused",
-    );
+    Stepping::default().write(&cut, "hollow", CHORDED, &mut into);
     assert_eq!(count(&into, "BREP_WITH_VOIDS"), 1);
     assert_eq!(count(&into, "ORIENTED_CLOSED_SHELL"), 1);
     assert_eq!(

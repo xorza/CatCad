@@ -87,6 +87,19 @@ const OPEN: Shortcut = Shortcut::ctrl('O');
 /// Where every modeller binds it, and matched exactly like the three above.
 const EXPORT: Shortcut = Shortcut::ctrl('E');
 
+/// How far a chord of an exported curve may stand from the curve it replaces.
+///
+/// **Finer than the screen wants**, because what reads an export is another
+/// program rather than this one's camera: a curve chorded for a picture is
+/// refined again as you zoom, and one written to a file is read at whatever the
+/// other program pleases. A hundredth of what a face is flattened at for
+/// display, which is a thousandth of a millimetre on a part a metre across.
+///
+/// Spent only where a curve has no analytic entity — a cross drilling's own
+/// quartic is the whole of that today — and declared in the file wherever it
+/// is. See [`Stepping::write`](silverpoint::Stepping).
+const EXPORT_SAGITTA: f64 = 5e-5;
+
 /// One view of one scene, with the controls and the solve's verdict laid over
 /// it.
 #[derive(Debug)]
@@ -607,14 +620,8 @@ impl CatCad {
         };
         let mut text = String::new();
         let called = path.file_stem().unwrap_or_default().to_string_lossy();
-        if !self.stepping.write(body, &called, &mut text) {
-            self.filing.said(
-                &path,
-                "was not written: the model stands on geometry the \
-                              format cannot say",
-            );
-            return;
-        }
+        self.stepping
+            .write(body, &called, EXPORT_SAGITTA, &mut text);
         match std::fs::write(&path, text) {
             Ok(()) => self.filing.said(&path, "written"),
             Err(error) => self

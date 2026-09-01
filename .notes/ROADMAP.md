@@ -274,10 +274,10 @@ body that cannot be written out is a body that is not really there.
 **STEP is in**, and it cost less than this said it would. A face carries an
 exact surface and a boundary of exact curves, which is what STEP asks for, so
 the export writes the analytic surfaces directly — the torus included, that
-format carrying one natively. What it does not do yet is fall back: a body
-carrying a curve the kernel *walked* is refused whole rather than written with a
-spline in place of the walk, and a caller is told which it got. Ctrl+E, and
-`silverpoint::Stepping` is the writer.
+format carrying one natively. Where a curve has no entity it goes out as a
+polyline: through the very places a march laid down, or chorded at a sagitta the
+caller names, and the file's own accuracy declares whatever that cost. Ctrl+E,
+and `silverpoint::Stepping` is the writer.
 
 STL and OBJ are still worth having for the readers that want triangles, and are
 still nearly free.

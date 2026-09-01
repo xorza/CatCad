@@ -1531,7 +1531,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, every rim they run down, the export and their consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
@@ -1623,10 +1623,12 @@ body declares. That is §1's third requirement read the way it was meant: the
 file says what the body says, and no more. A smoother fit would read better and
 claim more.
 
-**And the same requirement refuses the other two.** The quartic and the saddle
-this kernel writes down *exactly*, so a spline through places sampled off either
-would add an error nothing measured. A body holding one is refused whole rather
-than quietly fitted.
+**And the two the format cannot say go out chorded**, at a sagitta the *caller*
+names — §1's first requirement, that no flattening here is the kernel's to
+choose. The quartic and the saddle are written down exactly, so a chording costs
+an error the body did not carry: the file's own accuracy declares it, and a body
+of nothing but analytic curves claims no slack it never spent. Nothing is
+refused.
 
 **What is not done, in the order §10's first rule puts it:**
 
@@ -1635,13 +1637,6 @@ than quietly fitted.
   goes there is a surface with a radius that moves — which is the NURBS the
   fitted tier is still waiting for, and the one thing left here that is blocked
   on a surface class rather than on a routine.
-- **An entity for the two curves written down exactly that STEP cannot say.**
-  The quartic a general pair of quadrics meets in, and the saddle a cross
-  drilling leaves. Both are *exact* here, so a spline through places sampled off
-  one would add an error the body never carried — which is the one thing §1 says
-  nothing downstream may inherit. What it wants is a fit whose bound is measured
-  and then declared, so the file says how far it stands from the curve. Until
-  then a body holding one is refused whole, and told so.
 
 ---
 
