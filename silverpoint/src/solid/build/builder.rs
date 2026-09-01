@@ -5,7 +5,7 @@ use crate::number::tolerance::EXACT;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::revolving::{Revolution, Revolving};
 use crate::solid::build::strip::{Strip, Strips};
-use crate::solid::build::{Running, Walled, gathered};
+use crate::solid::build::{Running, Walled, capped, gathered};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::curve::Curve;
@@ -457,33 +457,19 @@ impl Builder {
 
     /// Every loop of one cap: the region's outline, then each of its holes.
     ///
-    /// The two caps face opposite ways, so exactly one of them walks its strips
-    /// the way the drawing did — and which one turns over with the sign of the
-    /// distance, because that is what decides which end of the solid is on
-    /// which side of its plane.
-    fn cap_loops(&mut self, raising: Raising, far: bool, into: &mut Body) {
+    /// Which of the two turns over goes with the sign of the distance, that
+    /// being what decides which end of the solid is on which side of its plane
+    /// — see [`capped`], where the turning itself is.
+    fn cap_loops(&self, raising: Raising, far: bool, into: &mut Body) {
         let forward = far == raising.along;
-        let from = into.topology().loops_added();
-        for loop_ in 0..self.strips.loops() {
-            let run = self.strips.run(loop_);
-            let spans = &self.spans;
-            into.topology_mut().add_loop(|walk| {
-                // The buffer a loop is written into holds every other loop of
-                // the body as well, so a reversal reaches only what this one
-                // just put in it.
-                let from = walk.len();
-                walk.extend(run.map(|at| Coedge {
-                    edge: spans[at][usize::from(far)],
-                    forward,
-                }));
-                if !forward {
-                    walk[from..].reverse();
-                }
-            });
-        }
-        let to = into.topology().loops_added();
         let face = if far { raising.far } else { raising.base };
-        into.topology_mut().face_mut(face).loops = from..to;
+        let spans = &self.spans;
+        capped(&self.strips, forward, face, into, |run, walk| {
+            walk.extend(run.map(|at| Coedge {
+                edge: spans[at][usize::from(far)],
+                forward,
+            }));
+        });
     }
 
     /// The one loop of one wall: along the base, up, back along the far end,

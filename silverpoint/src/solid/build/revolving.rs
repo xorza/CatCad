@@ -6,7 +6,7 @@ use crate::number::tolerance::{EXACT, PLACED, WRAPPING};
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::sector::Sector;
 use crate::solid::build::strip::{Strip, Strips, Turn};
-use crate::solid::build::{Running, Walled, gathered};
+use crate::solid::build::{Running, Walled, capped, gathered};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
@@ -791,9 +791,8 @@ impl Revolving {
 
     /// Every loop of one cap: the region's outline, then each of its holes.
     ///
-    /// The two caps face opposite ways, so exactly one of them walks its strips
-    /// the way the drawing did — which is the same shape an extrusion's two
-    /// caps have, and which one it is comes off [`Spinning::forward`].
+    /// Which of the two turns over comes off [`Spinning::forward`] — see
+    /// [`capped`], where the turning itself is.
     fn cap_loops(
         &self,
         spinning: Spinning,
@@ -803,30 +802,16 @@ impl Revolving {
         into: &mut Body,
     ) {
         let seam = spinning.ended(far);
-        // **The opposite of what the wall does with the same seam**, which is
-        // the whole of it: a wall walks the seam it begins at forwards and the
-        // one it ends at back, and every edge is walked once each way.
+        // **The opposite of what the wall does with the same seam**: a wall
+        // walks the seam it begins at forwards and the one it ends at back.
         let forward = far == spinning.forward;
-        let from = into.topology().loops_added();
-        for loop_ in 0..strips.loops() {
-            let run = strips.run(loop_);
-            let seams = &self.seams;
-            into.topology_mut().add_loop(|walk| {
-                // The buffer a loop is written into holds every other loop of
-                // the body as well, so a reversal reaches only what this one
-                // just put in it.
-                let wrote = walk.len();
-                walk.extend(run.filter_map(|at| seams[at]).map(|held| Coedge {
-                    edge: held[seam],
-                    forward,
-                }));
-                if !forward {
-                    walk[wrote..].reverse();
-                }
-            });
-        }
-        let to = into.topology().loops_added();
-        into.topology_mut().face_mut(face).loops = from..to;
+        let seams = &self.seams;
+        capped(strips, forward, face, into, |run, walk| {
+            walk.extend(run.filter_map(|at| seams[at]).map(|held| Coedge {
+                edge: held[seam],
+                forward,
+            }));
+        });
     }
 
     /// The one loop of one part of one wall: along the profile at the near

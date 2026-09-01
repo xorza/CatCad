@@ -9,20 +9,7 @@ rewritten to fit a better production shape.
 
 Line numbers are as of the working tree at the time of the review.
 
-## 1. Files and functions past the size they read well at
-
-- [ ] `solid/rounding/mod.rs` is 2639 lines and `Rounding` has 38 fields, most
-  of them scratch for one stage. Split by stage the way `boolean/` is split into
-  `combining`, `splitting` and `sewing`: planning (`plan`, `chain`, `follow`,
-  `note`, `settle`, `close`), minting (`mint`, `tube`, `rail`, `ended`, `join`,
-  `ring`, `point`), writing (`write`, `line`, `wound`, `bounded`), each with its
-  own scratch struct.
-- [ ] `solid/build/builder.rs` and `solid/build/revolving.rs` are parallel
-  implementations: `corner`, `running`, `cap_loops`, `wall_loop` and `gather`
-  exist in both, with `Raising` and `Spinning` as twin contexts. An extrusion is
-  a revolve with a straight spine. At minimum share the cap-loop reversal.
-
-## 2. Smaller things
+## 1. Smaller things
 
 - [ ] `use super::decides::Decides` at `number/exact/filtered.rs:3` and
   `number/exact/rational.rs:3` are the only production `super::` imports in the
