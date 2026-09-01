@@ -1,6 +1,8 @@
 //! A surface whose distance from a line grows with the distance along it.
 
 use crate::math::quadratic;
+use crate::number::predicate;
+use crate::number::tolerance::PLACED;
 use crate::solid::geometry::axis::Axis;
 use glam::{DVec2, DVec3};
 
@@ -24,6 +26,40 @@ pub(crate) struct Cone {
 }
 
 impl Cone {
+    /// The cone a line through two places sweeps about `axis`, where `along`
+    /// says how far each stands down the line and `radius` how far off it.
+    ///
+    /// **The apex is where that line meets the axis**, which is what a cone is
+    /// measured from, and the frame is turned to run out of the apex toward the
+    /// two places — so both stand at a positive `v` and a face on the surface
+    /// lies in one nappe.
+    ///
+    /// **The angle is read off the place standing further out**, which is what
+    /// a pair with one end *at* the apex needs: that end gives a rise of
+    /// nothing and an angle of nought over nought.
+    ///
+    /// `None` where the two stand at one radius or at one place along the axis.
+    /// The first sweeps a cylinder and the second a disc, and a caller wanting
+    /// either asks for it by name.
+    pub(crate) fn through(axis: Axis, along: [f64; 2], radius: [f64; 2]) -> Option<Self> {
+        let rise = along[1] - along[0];
+        let run = radius[0] - radius[1];
+        if predicate::touching(rise.abs(), PLACED) || predicate::touching(run.abs(), PLACED) {
+            return None;
+        }
+        let apex = along[0] + radius[0] * rise / run;
+        let far = usize::from(radius[1] > radius[0]);
+        let reach = along[far] - apex;
+        Some(Self {
+            axis: Axis::new(
+                axis.origin + axis.direction * apex,
+                axis.direction * reach.signum(),
+                axis.reference,
+            ),
+            half_angle: (radius[far] / reach.abs()).atan(),
+        })
+    }
+
     /// Where the parameters `uv` land: `u` radians round, `v` from the apex.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
         let radius = uv.y * self.half_angle.tan();

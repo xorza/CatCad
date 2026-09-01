@@ -17,9 +17,10 @@ use glam::{BVec2, DVec2, DVec3};
 /// surfaces asking which arm each is, and an algorithm that would quietly widen
 /// a tolerance has to name the arm that did it.
 ///
-/// **One member so far.** NURBS arrive with fillets and vertex blends, which is
-/// M7. The torus is what a revolve makes of an arc swept about a line it does
-/// not touch, and what a plane-cylinder fillet will be.
+/// **One member so far.** NURBS arrive with the vertex blend a corner wants
+/// where its picks do not agree, which is what is left of M7. The torus is what
+/// a revolve makes of an arc swept about a line it does not touch, and what a
+/// fillet down a rim is — see `.notes/KERNEL.md` §7.5.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),

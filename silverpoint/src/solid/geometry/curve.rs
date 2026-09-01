@@ -1,6 +1,9 @@
 //! What an edge is a piece of.
 
 use crate::math::arc;
+use crate::number::predicate;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::PLACED;
 use crate::solid::buckets::Key;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
@@ -155,6 +158,34 @@ impl Curve {
             | Self::Saddle(_)
             | Self::Marched(_)
             | Self::Quartic(_) => true,
+        }
+    }
+
+    /// Whether two edges meeting at a corner are pieces of the one curve.
+    ///
+    /// **Asked of a pair that already shares a place**, which is what lets it
+    /// be as cheap as it is: two lines through one point are the same line when
+    /// they run the same way, and two circles through one point are the same
+    /// circle when they turn about the one axis at the one radius. Nothing here
+    /// looks for a shared place, and a caller that has not got one is asking a
+    /// question this does not answer.
+    ///
+    /// **Not [`PartialEq`]**, which is stricter than the question: a boolean
+    /// cutting a circle in two may hand each piece its own reference direction,
+    /// and two arcs of one circle described from different marks are still two
+    /// arcs of one circle.
+    ///
+    /// The two shapes a run of picked edges can be, and no others — see
+    /// `.notes/KERNEL.md` §7.5, where the rest are refused.
+    pub(crate) fn alike(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Line(one), Self::Line(two)) => predicate::parallel(one.direction, two.direction),
+            (Self::Circle(one), Self::Circle(two)) => {
+                one.axis.origin.approx_eq(two.axis.origin, PLACED)
+                    && predicate::parallel(one.axis.direction, two.axis.direction)
+                    && one.radius.approx_eq(two.radius, PLACED)
+            }
+            _ => false,
         }
     }
 

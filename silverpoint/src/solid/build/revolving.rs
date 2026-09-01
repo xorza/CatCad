@@ -544,24 +544,8 @@ impl Revolving {
                 } else if predicate::square(way, spinning.axis.direction) {
                     Surface::Natural(Natural::Plane(spinning.about(from.x).plane()))
                 } else {
-                    // Where the run meets the line, which is what a cone is
-                    // measured from — and the axis points from there toward the
-                    // region, so the parameter along it is never negative.
-                    let apex = from.x - from.y * (to.x - from.x) / (to.y - from.y);
-                    // Read off the end standing further out, which is the whole
-                    // of what a strip ending *at* the apex needs: that end
-                    // gives a rise of nothing and an angle of nought over
-                    // nought.
-                    let far = if from.y > to.y { from } else { to };
-                    let rise = far.x - apex;
-                    Surface::Natural(Natural::Cone(Cone {
-                        axis: Axis::new(
-                            spinning.axis.origin + spinning.axis.direction * apex,
-                            spinning.axis.direction * rise.signum(),
-                            spinning.axis.reference,
-                        ),
-                        half_angle: (far.y / rise.abs()).atan(),
-                    }))
+                    let cone = Cone::through(spinning.axis, [from.x, to.x], [from.y, to.y])?;
+                    Surface::Natural(Natural::Cone(cone))
                 }
             }
             Some(turn) => {

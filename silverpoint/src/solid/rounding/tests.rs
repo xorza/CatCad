@@ -176,6 +176,26 @@ fn between(body: &Body, here: DVec3, there: DVec3) -> [Named; 2] {
     edge.between.map(|face| topology.face(face).name)
 }
 
+/// The two faces the circular edge of `radius` about `centre` divides.
+///
+/// What names a rim, where [`between`] names a straight edge by its two ends: a
+/// rim a body split in halves has no one pair of ends, and both halves answer
+/// the same pair of faces.
+fn ringed(body: &Body, radius: f64, centre: DVec3) -> [Named; 2] {
+    let topology = body.topology();
+    let (_, edge) = topology
+        .edges()
+        .find(|(_, edge)| match edge.curve {
+            Curve::Circle(circle) => {
+                (circle.radius - radius).abs() < PLACED
+                    && circle.axis.origin.abs_diff_eq(centre, PLACED)
+            }
+            _ => false,
+        })
+        .expect("the body has a circular edge of that radius there");
+    edge.between.map(|face| topology.face(face).name)
+}
+
 /// How much a blend of `radius` down an edge `long` takes off a square corner,
 /// or puts back into one.
 fn corner(radius: f64, long: f64) -> f64 {
@@ -571,28 +591,303 @@ fn what_a_rounding_cannot_make_is_refused() {
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
 
-    // The rim of a rod, where the plane stands square to the cylinder's axis:
-    // the two offsets meet in a circle rather than a line, so what goes there
-    // is a torus and of the fitted tier — where the flat milled *down* a rod
-    // two rows above is a cylinder and exact.
-    let mut sketch = Sketch::default();
-    let middle = sketch.add_point(DVec2::ZERO);
-    sketch.add_circle(middle, 1.0);
-    let found = Arrangement::of(&sketch);
-    let rod = Extrusion::new(&found, &[0], Plane::GROUND, 4.0, SOLID).body();
-    let round = [[
-        rod.names().next().expect("a rod has a base"),
-        rod.names().nth(2).expect("a rod has a wall"),
-    ]];
+    // A rim a cut has left with two ends. A blend down one closes against the
+    // face beyond its corner, and a torus meets a plane in a curve that is
+    // marched rather than written down — which is a slice of its own. The whole
+    // rim below is answered, so what is refused here is the ends and not the
+    // shape.
+    let milled = milled(2.0, 3.0);
+    let base = milled
+        .cut
+        .topology()
+        .faces()
+        .find(|(_, face)| match face.surface {
+            Surface::Natural(Natural::Plane(plane)) => {
+                plane.origin.abs_diff_eq(DVec3::ZERO, PLACED)
+            }
+            _ => false,
+        })
+        .map(|(_, face)| face.name)
+        .expect("a milled rod has a base");
+    let broken = [[base, milled.round]];
     assert!(
         !rounding.round(
-            &Round::new(&round, 0.25, Bevel::Round, ROUND),
+            &Round::new(&broken, 0.25, Bevel::Round, ROUND),
+            &milled.cut,
+            &mut into
+        ),
+        "a rim a cut broke into a run with ends was answered",
+    );
+    assert!(into.is_empty(), "a refusal left half a body behind");
+
+    // A fillet down a rim as wide as the rod's own half. The tube's centre
+    // circle stands `radius - reach` out, so at half the radius it closes on
+    // the axis and the torus pinches — which is no surface a body can be made
+    // of. See [`Torus`].
+    let rod = rod(1.0, 4.0, SOLID);
+    let whole = rim(&rod);
+    assert!(
+        !rounding.round(
+            &Round::new(&whole, 0.5, Bevel::Round, ROUND),
             &rod,
             &mut into
         ),
-        "the rim of a rod was answered, and a blend there is a torus",
+        "a fillet as wide as half the rod was answered, and its torus pinches",
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
+}
+
+/// A rod of `radius`, carried `deep` off the ground.
+///
+/// **The step is the caller's**, because two rods grown by the one step carry
+/// the one set of names: a pick naming a cap and a wall would then find the
+/// rims of both, which is `.notes/KERNEL.md` §5 working exactly as it says and
+/// not what a fixture of two rods means.
+fn rod(radius: f64, deep: f64, by: Step) -> Body {
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, radius);
+    let found = Arrangement::of(&sketch);
+    Extrusion::new(&found, &[0], Plane::GROUND, deep, by).body()
+}
+
+/// The base rim of a rod and its wall, which is one closed run of two halves.
+fn rim(rod: &Body) -> [[Named; 2]; 1] {
+    [[
+        rod.names().next().expect("a rod has a base"),
+        rod.names().nth(2).expect("a rod has a wall"),
+    ]]
+}
+
+/// **A fillet down a rim is a torus**, where one down a straight edge is a
+/// cylinder — and it is the first blend of the fitted tier, so the body it
+/// leaves is no longer exact. See `.notes/KERNEL.md` §4.1.
+///
+/// The rolling ball's centre traces the circle standing a reach inside both
+/// faces, which is `radius - reach` out and a reach up. So the corner it takes
+/// off is the square of the reach less the quarter disc, turned about the axis
+/// — and Pappus reads that off the region's own centroid:
+///
+/// ```text
+/// removed = 2π·[ r²·(R − r/2) − ¼π·r²·(R − r) − ⅓·r³ ]
+/// ```
+///
+/// The run closes, so the blend is **two** faces and not one: a single face
+/// over the whole turn of a torus would be the seam §4.4 refuses.
+#[test]
+fn a_fillet_down_a_rim_is_a_torus_of_two_faces() {
+    let (radius, reach, deep) = (1.0, 0.25, 4.0);
+    let rod = rod(radius, deep, SOLID);
+    let along = rim(&rod);
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Round, ROUND),
+            &rod,
+            &mut into
+        ),
+        "a fillet down the rim of a rod was refused",
+    );
+
+    let corner = reach * reach * (radius - reach / 2.0)
+        - 0.25 * PI * reach * reach * (radius - reach)
+        - reach * reach * reach / 3.0;
+    let want = PI * radius * radius * deep - 2.0 * PI * corner;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the filleted rod shuts in {} where {want} is the rod less the rim it broke",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(raised.len(), 2, "a run that closes is a face per piece");
+    for (_, face) in &raised {
+        let Surface::Fitted(Fitted::Torus(torus)) = face.surface else {
+            panic!("a blend down a rim lies on a torus, not {face:?}");
+        };
+        assert!(
+            (torus.major - (radius - reach)).abs() < PLACED && (torus.minor - reach).abs() < PLACED,
+            "the blend's tube is {torus:?} rather than a reach about the circle a              reach inside both faces",
+        );
+        assert!(
+            torus
+                .axis
+                .origin
+                .abs_diff_eq(Plane::GROUND.normal() * reach, PLACED),
+            "the tube's centre circle stands at {}",
+            torus.axis.origin,
+        );
+    }
+
+    // Six corners, ten edges and six faces, which Euler holds to a ball: the
+    // rod's top rim and two uprights, a ruling apiece on the base and the wall,
+    // and the two arcs the blend is cut apart at.
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "a filleted rod is still a ball");
+    let topology = into.topology();
+    assert_eq!(topology.faces().count(), 6, "the rod's four and two blends");
+    assert_eq!(topology.edges().count(), 10);
+    assert_eq!(topology.vertices().count(), 6);
+    // Six more than the rod's own seam: a ruling apiece on the two faces of
+    // each blend, and the arc between the two blends at each of the two
+    // corners.
+    assert_eq!(
+        smooth(&into),
+        smooth(&rod) + 6,
+        "a fillet runs out smoothly onto the faces it lies tangent to",
+    );
+    assert!(
+        !into.exact(),
+        "a torus is of the fitted tier, and a body holding one is not exact",
+    );
+}
+
+/// **A fillet fills a rim as readily as it breaks one**, which is the same
+/// statement about the offsets read the other way round: a concave rim's ball
+/// rolls on the outside of the corner, so its centres run `R + r` out rather
+/// than `R - r` and the tube grows where the convex one's shrank.
+///
+/// The shaft is a boss joined to a plate, so what the rounding is handed is a
+/// body a boolean built. What goes in is the corner the tube does not fill, by
+/// Pappus as above:
+///
+/// ```text
+/// added = 2π·[ r²·(R + r/2) − ¼π·r²·(R + r) + ⅓·r³ ]
+/// ```
+#[test]
+fn a_fillet_filled_into_a_rim_grows_its_tube_rather_than_shrinking_it() {
+    let (radius, reach, step) = (1.0, 0.25, 1.0);
+    let boss = rod(radius, 4.0, TOOL);
+    let plate = rod(2.0 * radius, step, SOLID);
+    let mut shaft = Body::default();
+    assert!(
+        Boolean::default().combine(&plate, &boss, Operation::Join, &mut shaft),
+        "a boss standing on a plate would not join",
+    );
+    let root = Plane::GROUND.normal() * step;
+    let along = [ringed(&shaft, radius, root)];
+
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Round, ROUND),
+            &shaft,
+            &mut into
+        ),
+        "a fillet filled into the root of a shaft was refused",
+    );
+
+    let corner = reach * reach * (radius + reach / 2.0)
+        - 0.25 * PI * reach * reach * (radius + reach)
+        + reach * reach * reach / 3.0;
+    let want = volume(&shaft) + 2.0 * PI * corner;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the filleted shaft shuts in {} where {want} is the shaft and the root it \
+         filled",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(raised.len(), 2, "a run that closes is a face per piece");
+    for (_, face) in &raised {
+        let Surface::Fitted(Fitted::Torus(torus)) = face.surface else {
+            panic!("a blend down a rim lies on a torus, not {face:?}");
+        };
+        assert!(
+            (torus.major - (radius + reach)).abs() < PLACED,
+            "a fillet filled into a rim runs its centres {} out, not a reach past \
+             the wall",
+            torus.major,
+        );
+        assert!(
+            !face.outward,
+            "a fillet filling a corner holds its material outside its own tube",
+        );
+    }
+    assert_eq!(
+        smooth(&into),
+        smooth(&shaft) + 6,
+        "a fillet runs out smoothly onto the faces it lies tangent to",
+    );
+}
+
+/// **A chamfer down a rim is a cone**, which is the same routine and a
+/// different surface between the rulings — and a cone is a quadric, so the body
+/// stays exact where the fillet's torus leaves it fitted.
+///
+/// The setback stands `s` back along each face, so what comes off is the right
+/// triangle between the two rulings and the corner. Pappus again, its centroid
+/// standing `R − s/3` out:
+///
+/// ```text
+/// removed = 2π·(R − s/3)·½s² = π·s²·(R − s/3)
+/// ```
+#[test]
+fn a_chamfer_down_a_rim_is_a_cone_and_stays_exact() {
+    let (radius, reach, deep) = (1.0, 0.25, 4.0);
+    let rod = rod(radius, deep, SOLID);
+    let along = rim(&rod);
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Flat, ROUND),
+            &rod,
+            &mut into
+        ),
+        "a chamfer down the rim of a rod was refused",
+    );
+
+    let want = PI * radius * radius * deep - PI * reach * reach * (radius - reach / 3.0);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the chamfered rod shuts in {} where {want} is the rod less the corner it          cut off",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(raised.len(), 2, "a run that closes is a face per piece");
+    for (_, face) in &raised {
+        let Surface::Natural(Natural::Cone(cone)) = face.surface else {
+            panic!("a chamfer down a rim lies on a cone, not {face:?}");
+        };
+        // The two rulings stand at `radius - reach` on the base and `radius` a
+        // reach up the wall, so the line through them falls a right angle and
+        // reaches the axis `radius - reach` below the base.
+        assert!(
+            (cone.half_angle - PI / 4.0).abs() < ALIGNED,
+            "the chamfer's cone opens at {} rather than the right angle its two              equal setbacks make",
+            cone.half_angle,
+        );
+        assert!(
+            cone.axis
+                .origin
+                .abs_diff_eq(Plane::GROUND.normal() * -(radius - reach), PLACED),
+            "the cone's apex stands at {}",
+            cone.axis.origin,
+        );
+    }
+
+    let topology = into.topology();
+    assert_eq!(
+        topology.faces().count(),
+        6,
+        "the rod's four and two chamfers"
+    );
+    assert_eq!(topology.edges().count(), 10);
+    assert_eq!(topology.vertices().count(), 6);
+    // Two more than the rod's own seam, and they are the arcs between the two
+    // chamfers: a chamfer's own two joins are creases, which is what tells it
+    // from the fillet above.
+    assert_eq!(
+        smooth(&into),
+        smooth(&rod) + 2,
+        "a chamfer creases where it runs out, and joins its own other half",
+    );
+    assert!(
+        into.exact(),
+        "a cone is a quadric, and the body is still exact"
+    );
 }
 
 /// **Two picked edges meeting at a corner close against each other**, and what

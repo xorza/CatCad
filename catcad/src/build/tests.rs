@@ -77,6 +77,19 @@ impl Standing {
         })
     }
 
+    /// A unit circle carried two deep, whose far rim is one closed run of
+    /// edges — see `.notes/KERNEL.md` §9.5.
+    fn rodded() -> Self {
+        let mut sketch = Sketch::default();
+        let middle = sketch.add_point(DVec2::ZERO);
+        sketch.add_circle(middle, 1.0);
+        Self::raised(sketch, |profile| Change::Extrude {
+            profile,
+            distance: 2.0,
+            operation: Operation::Join,
+        })
+    }
+
     /// [`square`] carried two deep.
     fn blocked() -> Self {
         Self::raised(square(), |profile| Change::Extrude {
@@ -388,6 +401,49 @@ fn a_rounding_becomes_the_model_and_names_its_blend() {
     }
     assert_eq!(models.faults().unrounded, 0);
     assert_eq!(models.faults().lost, 0);
+    assert_eq!(models.broken_at(round), None);
+}
+
+/// **A rim is picked the way any other edge is**, which is the whole of what a
+/// blend down one costs the person: two faces and a radius, exactly as for a
+/// straight edge. What differs is the kernel's answer — a torus rather than a
+/// cylinder, and two faces rather than one, because a run that closes cannot be
+/// covered by a single face. See `.notes/KERNEL.md` §9.5.
+///
+/// One name over the two, a pick naming as many patches as it found — which is
+/// why the count below goes up by one and not by two.
+#[test]
+fn a_rim_picked_in_the_viewport_rounds_like_any_other_edge() {
+    let mut standing = Standing::rodded();
+    assert_eq!(
+        standing.names().len(),
+        3,
+        "a rod is a base, a far end and a wall",
+    );
+
+    let round = standing.round(0.25);
+    let models = standing.models();
+    assert_eq!(
+        models.came_at(round),
+        Some(Built::Made),
+        "a blend down the rim of a rod was refused",
+    );
+    let (at, body) = models.model().expect("a rounded rod is the model");
+    assert_eq!(at, round, "the rounding is not what the model stands as");
+    assert_eq!(
+        body.names().count(),
+        4,
+        "the rod's three names and the blend"
+    );
+    assert!(
+        body.holds(round.step().grew(Grown::Rounded(0))),
+        "the blend does not answer to the step that asked for it",
+    );
+    assert!(
+        !body.exact(),
+        "a blend down a rim is a torus, and a body holding one is not exact",
+    );
+    assert_eq!(models.faults().unrounded, 0);
     assert_eq!(models.broken_at(round), None);
 }
 

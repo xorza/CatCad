@@ -250,9 +250,10 @@ impl Natural {
     /// edge measured across each face it cuts, and across a cylinder that is an
     /// arc rather than a chord.
     ///
-    /// A cylinder answers only a `way` running round it, which is the one a
-    /// setback from an edge along a ruling asks for. Anything else is a helix,
-    /// and nothing wants one.
+    /// A cylinder answers a `way` running round it and a `way` running along
+    /// it, which are the two a setback from an edge asks for: the first steps
+    /// off an edge running down a ruling, the second off a rim standing square
+    /// to the axis. Anything between the two is a helix, and nothing wants one.
     pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
         match self {
             Self::Plane(plane) => {
@@ -264,6 +265,11 @@ impl Natural {
             }
             Self::Cylinder(cylinder) => {
                 let axis = cylinder.axis;
+                // A ruling is straight and lies on the surface, so a walk along
+                // one is the walk through space.
+                if predicate::parallel(way, axis.direction) {
+                    return Some(at + way * by);
+                }
                 let uv = cylinder.uv(at);
                 let round = axis.direction.cross(axis.radial(uv.x));
                 let sense = way.dot(round);

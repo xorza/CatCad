@@ -824,51 +824,86 @@ pair.** A ball of radius `r` touching two faces has its centre a reach inside
 each of them, so the locus of centres is where the two faces' *offset* surfaces
 meet — `Face::offset`, and `Meeting::of` between the two answers. Convex or
 concave is which side to offset toward, and it is read off the walk: a loop is
-wound counterclockwise about its own face's outward normal, so the face lies to
-the left of the walk seen from outside, and stepping that way off a convex edge
-takes you under the other face. The same surface serves both, and what turns
-over is which side of it holds material.
+wound so its own face lies to the left of it seen from outside, and stepping
+that way off a convex edge takes you under the other face. The same surface
+serves both, and what turns over is which side of it holds material.
 
 **Which is why a blend onto a *cylinder* is a cylinder.** An offset plane is a
 plane and an offset cylinder is a cylinder, and a plane parallel to a cylinder's
 axis meets it in a pair of straight lines — so a flat milled down a rod, the
 thing §9.2 made buildable, has its corners broken by a blend that stays in the
 exact tier. The rulings follow: a round blend's is the place of each face
-nearest the axis, and both are straight where the axis is. Two planes give back
-the same line the closed form `(n₀ + n₁)·r / (1 + n₀·n₁)` gave, and every
+nearest the spine, and both are straight where the spine is. Two planes give
+back the same line the closed form `(n₀ + n₁)·r / (1 + n₀·n₁)` gave, and every
 rounding in the tree is unmoved by the change.
 
+**And why a blend down a *rim* is a torus.** A plane square to a cylinder's axis
+offsets to a plane square to it still, so the two offsets meet in a *circle*
+rather than a line — and the spine of centres being a circle is the whole of
+what changes. The rulings are that circle brought onto each face, so both are
+circles about the one axis; what goes between them is the tube of the reach
+about the spine, a torus of major the spine's radius and minor the reach. A
+chamfer there is the line between the two rulings turned about the same axis,
+which is a *cone*. So the four surfaces a blend lies on are two questions
+crossed — line or circle, round or flat — and one routine answers all four.
+
+**The torus is of the fitted tier and the cone is not** — §4.1 — so a fillet
+down a rim leaves a body that is no longer exact where a chamfer down the same
+rim leaves one that is. Nothing is approximated either way: both surfaces are
+written down exactly, and the tier says what can be *met* exactly afterwards.
+
+**A rim is refused where its own tube would pinch.** The centres run a reach
+inside both faces, so on a convex rim they run `R − r` out: at half the radius
+that circle closes on the axis and the torus is no longer a ring, which is no
+surface a body can be made of. A concave rim runs `R + r` out and never meets
+it.
+
 **A flat blend's setback is measured *along* each face.** Across a plane that is
-a straight step and across a rod it is an arc of `reach/R` — `Surface::walked`,
-which is the one reading of "the reach back from the edge" that does not depend
-on how the face curves. The plane through the two rulings then holds the edge's
-own direction, so it meets a rod in exactly the ruling it was drawn through and
-the chamfer is exact as well.
+a straight step; round a rod, off an edge running down a ruling, an arc of
+`reach/R`; and along a rod, off a rim, a straight step again, a ruling being
+straight and lying on the surface. `Surface::walked` is all three, and the one
+reading of "the reach back from the edge" that does not depend on how the face
+curves. What goes between the two rulings then holds the edge's own shape, so it
+meets a rod in exactly the ruling it was drawn through and the chamfer is exact
+as well.
 
-**What is still refused is a rim.** A plane square to a cylinder's axis offsets
-to a plane square to it still, and the two offsets meet in a *circle* — so the
-blend is a torus and of the fitted tier, which §4.1 keeps apart from this slice.
-The refusal is now a shape rather than a rule about which surfaces may be
-picked.
-
-**Four edges, and every one falls out of that axis.** The two rulings the blend
-runs out along are the axis brought back onto each plane. The corners are where
-those rulings cross the edges the two faces already had, which is two lines of
-one plane crossing. The arc across each end is the section the face over there
-cuts out of the cylinder — a circle where that face stands square to the edge,
-an ellipse where it leans, and `Meeting::of` answers both. Which of the two
-sweeps between the corners is the blend's own is the one whose middle stands
-inside the turn the blend covers.
+**Four edges, and every one falls out of that spine.** The two rulings the blend
+runs out along are the spine brought back onto each face. The corners are where
+those rulings cross the edges the two faces already had, which over a pair of
+planes is two lines of one plane crossing. The arc across each end is the
+section the face over there cuts out of the blend — a circle where that face
+stands square to the edge, an ellipse where it leans, and `Meeting::of` answers
+both. Which of the two sweeps between the corners is the blend's own is the one
+whose middle stands inside the turn the blend covers. A run that closes has no
+ends and so no such arc: what it has instead is the pair below.
 
 **A pick is a *run* of edges, not one.** A boolean cuts by whole surfaces, so a
 pocket's wall divides every face it reaches and every edge bounding one — §9.3,
 where those splits are the answer's contract for the next boolean. What one pick
 finds on a body a document has worked on is therefore a chain of pieces of what
-was one edge, and one blend goes down the lot: they lie on one line between one
-pair of planes. The pieces are gathered by walking corners where exactly two
-picked edges meet *collinearly* — two that turn there are a junction instead —
-and ordered by where each stands along the run's own line, which no arena order
-can disturb.
+was one edge, and one blend goes down the lot: they lie on one curve between one
+pair of faces. The pieces are gathered by walking corners where exactly two
+picked edges lie on the *one curve* — two that turn there are a junction instead
+— and ordered by that walk rather than by a parameter, an angle read in `(−π, π]`
+putting the two sides of the mark on the wrong sides of each other.
+
+**A run closes, and then it has no ends at all.** A rim nothing has cut is one
+such: §4.4 splits a full circle into halves, so what a pick finds is two pieces
+running back into each other. Every corner it has is a corner it *crosses*, so
+nothing there is closed against anything — and the walk that gathers the pieces
+is what says so, coming back to where it set out.
+
+**And a closed run is raised as a face per piece.** One face over the whole turn
+would cover a periodic surface in a single wrap, which is the seam §4.4 refuses.
+What stands between two of them is the section of the blend at that corner: a
+circle of the reach about the spine for a fillet, a ruling of the cone for a
+chamfer. They share the pick's name, a name resolving to several patches being
+what §5 already allows.
+
+**A rim a cut has broken is refused**, and the ends are the reason rather than
+the shape. A blend closes at an end against the face beyond the corner, and a
+torus meets a plane in a curve that is marched rather than written down — which
+is a routine of its own and not this one.
 
 **A run crosses corners of its own.** At each, four edges meet: the two pieces
 of the edge the cut split, and the edge it left on each of the two faces. The
@@ -907,11 +942,6 @@ and not one**, out along the leg on one of its sides and back down the leg on
 the other, which is the one place the routine's four-sided loop grows. What both
 corners share — three faces between the three of them, one apiece, and one side
 of the material — is settled once, before either is measured.
-
-**Three flat picks at one corner are refused.** Three chamfer planes meet at one
-point and leave no patch between them, so what fills the corner is *three lines*
-running to that point rather than a face — and a blend then bounds five edges
-where the routine gives it four. §9.5 is what is left of it.
 
 **The blend is wound off the face it was cut from.** A blend uses each of its
 four edges the way the face across that edge does not, so fixing the first
@@ -961,10 +991,13 @@ share the name and are one face of the body, which is §5's rule rather than a
 case of its own.
 
 **Refused rather than guessed at**, and each is a different thing being asked
-for: a pick that finds no edge; an edge that is not straight, or does not divide
-two planes; a corner where other than three edges meet; a corner the picks
-meeting there do not agree about; and a radius so large the blend runs off the
-end of an edge it has to meet, which wants that edge rounded too.
+for: a pick that finds no edge; an edge that is neither straight nor a rim, or
+whose two faces leave no wedge; a rim a cut has broken into a run with ends; a
+rim whose fillet is as wide as the circle its centres run round; a corner where
+other than three edges meet; a corner the picks meeting there do not agree
+about; three flat picks whose planes do not cross at one point; and a radius so
+large the blend runs off the end of an edge it has to meet, which wants that
+edge rounded too.
 
 **What comes out is a body like any other**, which is the point of doing it in
 the kernel rather than above one: it is bored by the boolean afterwards, it
@@ -1101,8 +1134,9 @@ comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
 
 **§9.1 through §9.4 are done**, and the plane row of §7.3's table now has no
-gap in it. What is left below is M7, whose first slice — the blend, and the step
-of the document that asks for one — is in the tree.
+gap in it. What is left below is M7, whose blends — down a straight edge, onto a
+cylinder, down a rim — and the step of the document that asks for one are in the
+tree.
 
 **Two refusals stand outside all of it, and they are one shape.** A bitangent
 plane on a torus cuts Villarceau's two circles, which cross at both places it
@@ -1463,7 +1497,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners and their consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, the rim and their consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
@@ -1476,9 +1510,20 @@ between two planes, exact, convex or concave, round or flat, several edges at a
 time — meeting at a corner or not, and with a patch of a sphere where three
 round ones meet — and a body like any other afterwards. **On a body a boolean
 has already cut, too**, and **onto a cylinder the edge runs along**: a pick
-finds every piece the cut left of its edge, and where a blend's axis runs is
+finds every piece the cut left of its edge, and where a blend's spine runs is
 where the two faces' offsets meet rather than a formula for a pair of planes.
 §7.5 is how it works and what it refuses.
+
+**And down a rim**, where a plane stands square to a cylinder's axis. The two
+offsets meet in a circle rather than a line, so the rulings are circles and the
+blend is a torus — the first of the fitted tier, §4.1 — where a chamfer down the
+same rim is a cone and stays exact. Nothing about the routine is a second
+routine: the spine of centres is a curve rather than a line and everything else
+falls out of it. **A rim closes, so it has no ends**, and a face over its whole
+turn would be the seam §4.4 refuses — so the blend is raised as a face per
+piece, cut apart at the section of its own tube. Convex or concave alike: the
+tube shrinks to `R − r` breaking the rim of a rod and grows to `R + r` filling
+the root of a boss.
 
 **A chamfer is the same routine and not a second one**, which is what
 `Bevel::Flat` buys: the two share the corners they swallow, the edges they cut
@@ -1523,17 +1568,15 @@ arcs is §7.5.
 
 **What is not done, in the order §10's first rule puts it:**
 
+- **A rim a cut has broken into a run with ends.** The shape is answered — the
+  whole rim is in — and what is left is the two ends: a blend closes at one
+  against the face beyond the corner, and a torus meets a plane in a curve that
+  is *marched* rather than written down. So it wants the fitted tier's own
+  curves carried through the rounding, which nothing there does yet.
 - **A corner the picks do not agree about**, one edge cut into and another
   filled in. A rolling ball is on one side of the material throughout, so what
-  goes there is a surface with a radius that moves — which is the row below by
-  another road.
-- **A blend down a rim**, where a plane meets a cylinder square to its axis.
-  The two offsets meet in a circle rather than a line, so the blend is a
-  *torus*: constant radius, exact in shape, and of the fitted tier all the same
-  — §4.1. What it wants beyond the surface is a closed run, rulings that are
-  circles, and a blend face split where the wrap is. **A blend onto a cylinder
-  the edge runs *along* is done** and stays exact, which is the flat milled down
-  a rod.
+  goes there is a surface with a radius that moves — which is the NURBS the
+  fitted tier is still waiting for.
 - **A blend onto a cone.** An offset cone is a cone, so the same route reaches
   it, and nothing has asked yet.
 - **STEP**, which is what the naming and the exactness were always for.
