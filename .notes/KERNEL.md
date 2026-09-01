@@ -476,8 +476,8 @@ silverpoint/src/
   number/          mod.rs, predicate/, tolerance.rs
     exact/         mod.rs, field, rational, quadratic, filtered,
                    expansion/, lazy/
-  math/            arc, bounds, chorded, dense, direction, intersect, plane,
-                   quadratic, triangulate, winding
+  math/            arc, bounds, chorded, dense, direction, harmonic, intersect,
+                   plane, quadratic, triangulate, winding
   sketch/          entities, constraints, solver, arrangement
   solid/
     mod.rs  buckets.rs  copying.rs  grown.rs  named.rs
@@ -1180,9 +1180,9 @@ comes before one nothing produces, whatever either costs — a refusal a user
 meets is worse than a routine nobody has written.
 
 **§9.1 through §9.5 are done**, and the plane row of §7.3's table now has no
-gap in it. What is left below is §9.6, one corner a blend still turns away —
-and it waits on a surface the tree does not have rather than on a routine
-nobody has written.
+gap in it. What is left below is §9.6, one corner a blend still turns away. The
+surface that fills it is in the tree and answers a ray in closed form; what it
+still wants is a box round itself, and then the route that raises it.
 
 **Two refusals stand outside all of it, and they are one shape.** A bitangent
 plane on a torus cuts Villarceau's two circles, which cross at both places it
@@ -1760,22 +1760,75 @@ same as the two cylinders. Nor does the ruled construction reach it: a patch
 tangent to a *plane* along a curve is that plane. So a flat corner wants its own
 answer, and this milestone does not carry one.
 
+**A ray is answered in closed form, and six is the most it is answered.** A ray
+meets a ruled surface where it lies in a plane with a ruling, which here is one
+equation in the fillet's own angle: the ray picks one direction out of the
+fillet's tangent plane, and the two lines there running tangent to the round are
+the roots of a quadratic form on that plane — so putting the ray's own direction
+into the form asks about both tangents at once and takes no root that would tell
+them apart. What that is, is a harmonic, and its degree was the whole question.
+
+**Degree four rather than six, and the cancellation is exact.** Counting
+harmonics gives six: the head runs round an ellipse, so the direction the ray
+picks is second order and the round's own terms are second order again. But the
+linear form the tangency is written in — `(q − head)·(D × m)`, with `D` the
+direction the ray picks — drops a whole harmonic. Its top term is a difference
+whose two halves are equal: with `ε = (e₁ − ie₂)/2`, which is isotropic, both
+come to `−i r²(κ/L)·det[d, ε, w]·det[d, ε, m]`, so the difference is nought.
+Measured over two hundred random corners, the two halves agree to twelve places
+and the harmonics above the fourth read fourteen orders below the first.
+
+**And the tip takes two of the eight, whatever the ray.** The tangent plane at
+the tip is the face the two blends share, and that face is tangent to the round
+— so every line in it runs tangent to the round, and the equation is satisfied
+there by every ray at all. It is a *doubled* root and not a crossing: the
+reading falls as the square of the angle off the tip, to two decimal places over
+six decades. Divided out — `1 − cos(u − u_tip)` is one harmonic with a double
+root at the tip and nowhere else, and the division leaves no remainder — what is
+left is a harmonic of degree three. **So a ray is answered six times at most**,
+which is what `Crossings` was widened to carry.
+
+**Read off seven readings, and solved on a line.** A harmonic of degree three
+has seven coefficients, so seven equally spaced readings fix it, and the tip's
+factor is divided out at each reading rather than symbolically. Then the turn is
+cut once, at the reading furthest from nought, and the half-angle tangent takes
+the harmonic to a sextic on a line — where fencing at the roots of the
+derivative terminates, a derivative on a line dropping a degree where one on a
+circle does not. That is the whole reason the turn is cut at all: Rolle puts a
+root of the derivative between every two roots of what it came from, so on a
+circle the fencing never runs out. The sextic's second derivative is a quartic
+`quartic::roots` isolates outright, and two fencing passes reach the sextic
+itself. `math/harmonic.rs` is that routine, and it knows nothing about corners.
+
+**Which of the two tangents a root belongs to is a comparison and not a bound.**
+At a root the ray meets one tangent exactly and stands clear of the other, so
+the two distances settle it. A tie is this patch's own: the two tangents meet
+each other at the head and nowhere else, and a head standing on the round
+carries one tangent rather than two.
+
+**And a ray is answered about the patch rather than about the whole ruled
+surface.** Every other surface here is unbounded where its faces are not. This
+one closes at the tip and runs out where its blends do, so a crossing past
+either end of a ruling is a crossing of nothing — and leaving those in answers
+places a hundred million reaches out that no face holds and the inversion
+cannot read back. A crossing on one of the patch's own two edges is a boundary
+place, and which side of the edge a rounding puts it is the loops' business: the
+same ray meets the blend that edge is shared with on *its* boundary, where a
+cast is abandoned outright.
+
 **`Gusset` is in the tree**, with the ruling, the touch point, the place, the
-normal and the inversion, and seven tests over a square corner and a leaning
-one. It is kept ahead of its caller and says so.
+normal, the inversion and the ray, and eleven tests over a square corner and a
+leaning one. It is kept ahead of its caller and says so.
 
 **What is left to write:**
 
-- **`met_by`, which is the one open question.** A ray meets a ruled surface
-  where it is coplanar with a ruling, and that is one equation in the fillet's
-  angle with no degree behind it. Every other surface here answers a ray by a
-  quadratic or a quartic and knows how many roots it can have. Measured over a
-  hundred and twenty thousand rays across the six corners, the patch is met
-  twice at most and never three times — which is evidence and not a bound, and
-  the bound is what has to be found.
-- The `Fitted` arm, which cannot land before that: `spans` is the patch's own
-  box and settles the culling outright, `straying` and `strides` come off the
-  ruling's bounds, and `singular` is the tip.
+- **The `Fitted` arm, and a box round the patch is what it waits on.** `spans`
+  has to settle the culling outright, `off` having no closed form for a ruled
+  surface to fall back on — and a box wants the two edges' own extents, of
+  which the second is walked rather than written down. `fills` is the
+  boundary's own box and needs nothing: every ruling has both ends on the
+  boundary, so the patch lies inside its convex hull. `straying` and `strides`
+  come off the ruling's bounds, and `singular` is the tip.
 - The second edge, walked against the first the way §7.5's rim arc is, filed as
   a run and carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`

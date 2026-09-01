@@ -14,6 +14,7 @@ pub(crate) mod branch;
 pub(crate) mod chorded;
 pub(crate) mod dense;
 pub(crate) mod direction;
+pub(crate) mod harmonic;
 pub(crate) mod inside;
 pub(crate) mod intersect;
 pub(crate) mod plane;

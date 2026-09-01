@@ -181,11 +181,11 @@ fn each_edge_faces_the_way_the_blend_it_lies_on_does() {
     }
 }
 
-#[test]
-fn a_corner_that_leans_is_a_different_patch() {
-    // The riser tipped twenty degrees moves the fillet's spine and nothing
-    // else, and every place of the patch moves with it — which is what says the
-    // surface reads its blends rather than a shape of its own.
+/// [`square`] with the riser tipped twenty degrees.
+///
+/// The fillet's spine moves and nothing else does: the round still runs down
+/// `y = 1, z = −1` and the floor is still `z = 0`.
+fn leaning() -> Gusset {
     let square = square();
     let lean: f64 = 20f64.to_radians();
     // Tangent to the floor at `z = 1` still, and to the tipped riser at
@@ -198,7 +198,22 @@ fn a_corner_that_leans_is_a_different_patch() {
     // And its rail on the riser moves with it, a reach along the riser's own
     // normal from the axis.
     let from = axis - DVec3::new(lean.cos(), 0.0, lean.sin());
-    let leaning = Gusset::new(filled, square.cut, from, square.turning);
+    Gusset::new(filled, square.cut, from, square.turning)
+}
+
+/// Three places clear of both blends, to cast from.
+const CAST: [DVec3; 3] = [
+    DVec3::new(5.0, -4.0, 3.0),
+    DVec3::new(-6.0, 2.0, 7.0),
+    DVec3::new(2.0, 9.0, -5.0),
+];
+
+#[test]
+fn a_corner_that_leans_is_a_different_patch() {
+    // Every place of the patch moves with the fillet's spine, which is what
+    // says the surface reads its blends rather than a shape of its own.
+    let square = square();
+    let leaning = leaning();
     assert!(
         leaning.met().distance(square.met()) > 0.1,
         "leaning the riser left the touch point where it was",
@@ -208,4 +223,140 @@ fn a_corner_that_leans_is_a_different_patch() {
         leaning.at(uv).distance(square.at(uv)) > 0.05,
         "leaning the riser left the middle of the patch where it was",
     );
+}
+
+/// **A ray aimed at a place on the patch is answered exactly there.**
+///
+/// Swept over the whole patch — nine turns of the fillet's angle by four runs
+/// along the ruling — and cast from three places clear of both blends, so the
+/// ray leans a different way at every one of them. The place is `way` from
+/// where the ray starts, so the crossing it owes reads one.
+///
+/// **Inside the patch and not on its edges**, which are boundary places the
+/// loops bounding a face decide rather than the surface — see
+/// [`Gusset::met_by`], where that is stated.
+///
+/// Over the square corner and the leaning one both, which is what says the
+/// solve reads the blends it was handed rather than a shape of its own.
+#[test]
+fn a_ray_aimed_at_the_patch_is_answered_where_it_lands() {
+    for (what, gusset) in [("square", square()), ("leaning", leaning())] {
+        for down in 0..=8 {
+            for across in 1..=4 {
+                let angle = TURN[0] + (TURN[1] - TURN[0]) * f64::from(down) / 9.0;
+                let uv = DVec2::new(angle, f64::from(across) / 5.0);
+                let at = gusset.at(uv);
+                for from in CAST {
+                    let met = gusset.met_by(from, at - from);
+                    assert!(
+                        met.all().iter().any(|along| (along - 1.0).abs() < 1e-7),
+                        "{what}: {uv} was not answered from {from}, {:?} came back",
+                        met.all(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **Every crossing answered stands on the patch**, read back through its own
+/// inversion — and they come back in order.
+///
+/// The other half of the sweep above: that one says nothing is missed, and this
+/// one says nothing is invented. A ray answering a place the inversion does not
+/// put back where it was would be a root of the harmonic that belongs to the
+/// other tangent, or a place past the end of a ruling.
+///
+/// **To a ten-thousandth, which is the inversion's own conditioning and not the
+/// solve's.** Reading a place back wants `acos` of a ratio that reaches one at
+/// the edge on the fillet, so an error in the place comes out square-rooted in
+/// the angle — a crossing good to a hundred-millionth reads back to about a
+/// ten-thousandth near that edge.
+#[test]
+fn every_crossing_answered_stands_on_the_patch() {
+    let gusset = square();
+    for down in 0..=8 {
+        for across in 1..=4 {
+            let angle = TURN[0] + (TURN[1] - TURN[0]) * f64::from(down) / 9.0;
+            let at = gusset.at(DVec2::new(angle, f64::from(across) / 5.0));
+            for from in CAST {
+                let way = at - from;
+                let met = gusset.met_by(from, way);
+                assert!(
+                    met.all().windows(2).all(|pair| pair[0] <= pair[1]),
+                    "{:?} is out of order",
+                    met.all(),
+                );
+                for &along in met.all() {
+                    let place = from + way * along;
+                    let read = gusset.at(gusset.uv(place));
+                    assert!(
+                        read.abs_diff_eq(place, 1e-4),
+                        "the crossing at {along} stands at {place}, which reads back {read}",
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **The tip reads nought whatever the ray, and is never counted.**
+///
+/// The tangent plane at the tip is the face the two blends share, and that face
+/// touches the round — so every line in it runs tangent to the round and the
+/// equation is satisfied there by every ray. It is a doubled root and not a
+/// crossing, which is why `.notes/KERNEL.md` §9.6 divides it out before the
+/// harmonic is read: six roots are left where eight would be.
+///
+/// Held as a comparison rather than against a bound: the reading at the tip is
+/// nine orders below the reading a fifth of a radian away from it. And no ray
+/// aimed inside the patch is answered at the tip, where the ruling has closed
+/// to nothing and there is no line left to cross.
+#[test]
+fn the_tip_reads_nought_whatever_the_ray_and_is_never_counted() {
+    let gusset = square();
+    let tip = gusset.met();
+    let angle = gusset.filled.axis.angle_of(tip);
+    for from in CAST {
+        for down in 0..=4 {
+            let at = gusset.at(DVec2::new(
+                TURN[0] + (TURN[1] - TURN[0]) * f64::from(down) / 5.0,
+                0.5,
+            ));
+            let way = at - from;
+            assert!(
+                gusset.aimed(angle, from, way).abs()
+                    < 1e-9 * gusset.aimed(angle + 0.2, from, way).abs(),
+                "the tip reads {} from {from}",
+                gusset.aimed(angle, from, way),
+            );
+            for &along in gusset.met_by(from, way).all() {
+                assert!(
+                    (from + way * along).distance(tip) > 1e-6,
+                    "the tip was counted a crossing from {from}",
+                );
+            }
+        }
+    }
+}
+
+/// **A ray lying along a ruling is not counted crossing it.**
+///
+/// The graze policy [`Crossings`] states, in the case a ruled surface has and a
+/// quadric does not: a ray *in* the surface meets it everywhere, which is no
+/// crossing to count.
+#[test]
+fn a_ray_along_a_ruling_counts_for_none() {
+    let gusset = square();
+    for down in 0..=4 {
+        let angle = TURN[0] + (TURN[1] - TURN[0]) * f64::from(down) / 5.0;
+        let head = gusset.at(DVec2::new(angle, 0.0));
+        let foot = gusset.at(DVec2::new(angle, 1.0));
+        let met = gusset.met_by(head, foot - head);
+        assert!(
+            met.all().iter().all(|along| along.abs() > 1e-9),
+            "a ray along a ruling was counted crossing it: {:?}",
+            met.all(),
+        );
+    }
 }

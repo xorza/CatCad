@@ -64,6 +64,22 @@ impl<T: Copy + Default, const N: usize> Inline<T, N> {
             count: 0,
         }
     }
+
+    /// The same ones, in a wider one.
+    ///
+    /// **What lets one answer take another's bound without taking its room.** A
+    /// ray meets a torus four times at most and a ruled patch six, and both are
+    /// read into the one answer a surface hands back — so the narrower count
+    /// stays a fact about a torus rather than becoming a slot every surface
+    /// carries.
+    pub(crate) fn widened<const M: usize>(&self) -> Inline<T, M> {
+        debug_assert!(N <= M, "{N} of them do not fit {M} slots");
+        let mut wider = Inline::none();
+        for it in self.all() {
+            wider.push(*it);
+        }
+        wider
+    }
 }
 
 // Over what is held and not over the slots standing in for what is not. The

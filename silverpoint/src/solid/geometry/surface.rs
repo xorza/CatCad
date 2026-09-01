@@ -35,11 +35,15 @@ pub(crate) enum Surface {
 
 /// Where a ray met a surface, as distances along it.
 ///
-/// **Four is the most.** Every *natural* surface is a quadric and answers at
-/// most twice; a torus is a quartic and a ray through its hole crosses the tube
-/// twice going in and twice coming out. A graze counts for none of them, for
-/// the reason [`roots`](crate::math::quartic::roots) gives.
-pub(crate) type Crossings = Inline<f64, 4>;
+/// **Six is the most, and the ruled patch is what asks for the last two.**
+/// Every *natural* surface is a quadric and answers at most twice; a torus is a
+/// quartic and a ray through its hole crosses the tube twice going in and twice
+/// coming out. A [`Gusset`](super::gusset::Gusset) is neither: where a ray
+/// meets it is a harmonic of degree three in the fillet's own angle, which has
+/// six roots at the most — see [`Gusset::met_by`], where the degree is argued.
+/// A graze counts for none of them, for the reason
+/// [`roots`](crate::math::quartic::roots) gives.
+pub(crate) type Crossings = Inline<f64, 6>;
 
 /// How many times [`Surface::reaches`] splits a box before it gives the box the
 /// benefit of the doubt.

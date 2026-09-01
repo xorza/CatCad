@@ -70,13 +70,12 @@ impl Fitted {
 
     /// How far along a ray from `from` running `way` it meets this, in order.
     ///
-    /// **Four, where a quadric answers two**, and that is the whole reason
-    /// [`Crossings`] is as wide as it is: a ray
-    /// through the hole of a torus crosses the tube twice going in and twice
-    /// coming out.
+    /// **Four, where a quadric answers two**: a ray through the hole of a torus
+    /// crosses the tube twice going in and twice coming out. Widened into
+    /// [`Crossings`], which carries the six a ruled patch can answer.
     pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
         match self {
-            Self::Torus(torus) => torus.met_by(from, way),
+            Self::Torus(torus) => torus.met_by(from, way).widened(),
         }
     }
 
