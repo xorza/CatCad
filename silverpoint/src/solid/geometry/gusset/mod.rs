@@ -14,12 +14,15 @@
 // geometry below is settled and tested, and the route in `Rounding` that raises
 // it lands with that arm.
 
+use crate::math::branch;
 use crate::math::harmonic;
 use crate::number::predicate;
-use crate::number::tolerance::EXACT;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::{EXACT, PLACED};
+use crate::solid::buckets::Key;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::surface::Crossings;
-use glam::{DVec2, DVec3};
+use glam::{BVec2, DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 /// The patch between two blends of one reach whose picks do not agree.
@@ -107,6 +110,63 @@ impl Gusset {
             "{from} is not on the fillet the patch runs out of",
         );
         gusset
+    }
+
+    /// The key several of these are filed under — see
+    /// [`Natural::key`](super::natural::Natural), which is where the argument
+    /// for it is.
+    ///
+    /// The word carries on from the naturals' four and the torus's fifth, so no
+    /// two surfaces of the whole set can collide on it.
+    pub(crate) fn key(&self) -> u64 {
+        let filled = self
+            .filled
+            .axis
+            .keyed(Key::default().word(5))
+            .float(self.filled.radius);
+        self.cut
+            .axis
+            .keyed(filled)
+            .float(self.cut.radius)
+            .place(self.from)
+            .word(u64::from(self.turning))
+            .done()
+    }
+
+    /// The stretch of the fillet's own angle the patch covers, its first edge
+    /// first and the tip second.
+    ///
+    /// **The near way round of the two**, which is the whole of the patch: a
+    /// corner is a gap between two blends that touch, so what it spans is under
+    /// a half turn and the far way round is the fillet itself. Read the other
+    /// way it would run out of the wedge the two picks left.
+    ///
+    /// Not ascending — which end is the greater is which way the fillet was
+    /// framed, and a reader wanting the span takes the difference.
+    pub(crate) fn bounds(&self) -> [f64; 2] {
+        let axis = self.filled.axis;
+        let start = axis.angle_of(self.from);
+        [start, branch::nearest(axis.angle_of(self.met()), start)]
+    }
+
+    /// Which of the two parameters run round the patch, so that a face on it
+    /// could wrap.
+    ///
+    /// **The first alone, and a face on this one never reaches round it
+    /// anyway.** The fillet's angle is what `u` is, so it wraps as every angle
+    /// here does; `v` is how far along the ruling a place stands, which runs
+    /// from nought at the head to one at the foot and no further.
+    pub(crate) fn round(&self) -> BVec2 {
+        BVec2::new(true, false)
+    }
+
+    /// Whether the parameterization says nothing at `at`.
+    ///
+    /// **The tip alone.** Every ruling closes to nothing there — see
+    /// [`Gusset::met`] — so the patch shuts the way a cone shuts at its apex,
+    /// and `v` names no direction at that one place.
+    pub(crate) fn singular(&self, at: DVec3) -> bool {
+        at.approx_eq(self.met(), PLACED)
     }
 
     /// Where the two blends touch, which is the tip the patch closes to.

@@ -361,3 +361,94 @@ fn a_ray_along_a_ruling_counts_for_none() {
         );
     }
 }
+
+/// **The patch spans the fillet's angle from its first edge to the tip**, the
+/// near way round.
+///
+/// Hand-computed and held against [`TURN`], which the fixture works out for
+/// itself: the first edge starts at `(0, 0, 1)`, a half turn round from the
+/// fillet's reference, and the tip stands at `(1, 1, 0)`, a quarter turn from
+/// it. The leaning corner keeps the same tip and moves only its start, the
+/// riser it began on having tipped.
+#[test]
+fn the_patch_spans_the_angle_between_its_first_edge_and_the_tip() {
+    let gusset = square();
+    let bounds = gusset.bounds();
+    for (got, want) in bounds.iter().zip(TURN) {
+        assert!(
+            (got - want).abs() < 1e-12,
+            "{bounds:?} rather than {TURN:?}"
+        );
+    }
+    // Under a half turn, which is what makes it the near way round and the gap
+    // rather than the fillet.
+    assert!(
+        (bounds[1] - bounds[0]).abs() < PI,
+        "{bounds:?} is the far way"
+    );
+
+    let leaning = leaning();
+    let turned = leaning.bounds();
+    assert!(
+        (turned[1] - TURN[1]).abs() < 1e-12,
+        "{turned:?} left the tip where it was not",
+    );
+    assert!(
+        (turned[0] - TURN[0]).abs() > 1e-3,
+        "{turned:?} began where the square one did",
+    );
+    assert!(
+        (turned[1] - turned[0]).abs() < PI,
+        "{turned:?} is the far way"
+    );
+}
+
+/// **The tip is the one place the parameters say nothing, and the patch wraps
+/// in its first alone.**
+///
+/// The tip is where every ruling has closed to nothing, so `v` names no
+/// direction there — the same question a cone's apex answers, one tier down.
+///
+/// And the wrapping is held to what it *does* rather than to what it says: a
+/// whole turn added to the angle names the same place, and a whole one added
+/// to the run along the ruling names another.
+#[test]
+fn the_tip_is_the_one_place_the_patch_says_nothing_at() {
+    let gusset = square();
+    assert!(gusset.singular(gusset.met()));
+    assert!(!gusset.singular(gusset.from));
+
+    let uv = DVec2::new(TURN[0], 0.5);
+    assert_eq!(gusset.round(), BVec2::new(true, false));
+    assert!(!gusset.singular(gusset.at(uv)));
+    assert!(
+        gusset.at(uv + DVec2::new(TAU, 0.0)).distance(gusset.at(uv)) < 1e-9,
+        "a whole turn of the angle left the place",
+    );
+    assert!(
+        gusset.at(uv + DVec2::Y).distance(gusset.at(uv)) > 0.1,
+        "a whole run along the ruling stayed where it was",
+    );
+}
+
+/// **Two patches that differ key differently, and one keyed twice keys alike.**
+///
+/// A filter and never a decision — see [`Key`] — so what this holds is that the
+/// four things a patch is made of all reach the key.
+#[test]
+fn a_patch_keys_by_everything_it_is_made_of() {
+    let gusset = square();
+    assert_eq!(gusset.key(), square().key());
+    assert_ne!(gusset.key(), leaning().key());
+    let turned = Gusset::new(gusset.filled, gusset.cut, gusset.from, !gusset.turning);
+    assert_ne!(gusset.key(), turned.key(), "the branch is not in the key");
+    // Further round the same fillet, which is where the first edge is free to
+    // start and the one thing left that a key has to tell apart.
+    let along = gusset.at(DVec2::new(TURN[0] + 0.3, 0.0));
+    let moved = Gusset::new(gusset.filled, gusset.cut, along, gusset.turning);
+    assert_ne!(
+        gusset.key(),
+        moved.key(),
+        "where the first edge starts is not in the key"
+    );
+}

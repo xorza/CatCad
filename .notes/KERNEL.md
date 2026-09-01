@@ -1818,8 +1818,11 @@ same ray meets the blend that edge is shared with on *its* boundary, where a
 cast is abandoned outright.
 
 **`Gusset` is in the tree**, with the ruling, the touch point, the place, the
-normal, the inversion and the ray, and eleven tests over a square corner and a
-leaning one. It is kept ahead of its caller and says so.
+normal, the inversion and the ray, and with the readings a tier member owes
+that want no box: its key, the stretch of the fillet's angle it spans, which
+of its parameters wraps, and the tip as its one singular place. Fourteen tests
+over a square corner and a leaning one. It is kept ahead of its caller and says
+so.
 
 **What is left to write:**
 
@@ -1829,7 +1832,16 @@ leaning one. It is kept ahead of its caller and says so.
   which the second is walked rather than written down. `fills` is the
   boundary's own box and needs nothing: every ruling has both ends on the
   boundary, so the patch lies inside its convex hull. `straying` and `strides`
-  come off the ruling's bounds, and `singular` is the tip.
+  come off the ruling's bounds, and `singular` is the tip, which is written.
+- **`off` wants an answer of its own, and the inversion is not it.** Tried:
+  `at(uv(at))` for a place off the patch lands on a *different* ruling, because
+  `uv` answers the ruling whose line the place stands nearest and a place moved
+  off the surface is nearest another's. Measured on the square corner, a place
+  a fifth of a reach along the normal read `0.454` rather than `0.2`. So it is
+  not `spans` alone that waits on the box: `Checking` reads `Surface::off` for
+  every edge against both its faces, and `Surface::nearest` and `Fitted::uv`'s
+  own promise — the nearest place for anything off the surface — want the same
+  thing.
 - The second edge, walked against the first the way §7.5's rim arc is, filed as
   a run and carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`
