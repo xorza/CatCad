@@ -1,6 +1,7 @@
 //! The application: one view of one scene, and everything it holds.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use silverpoint::Stepping;
 
@@ -371,7 +372,7 @@ impl CatCad {
         // handed, so the derived theme is installed before anything records.
         // Built on the frame it is first wanted and handed over as a reference
         // count after that — see [`Theme::dressed`].
-        ui.set_theme(self.theme.dressed().palantir.clone());
+        ui.set_theme(Rc::clone(&self.theme.dressed().palantir));
         self.hud.show(
             ui,
             Shown {

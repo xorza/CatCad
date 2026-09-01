@@ -5,6 +5,7 @@ use crate::ink::{INK, Ink, strokes};
 use aperture::{Curve, Highlight, Lit, Ring};
 use catcad::CatCad;
 use glam::UVec2;
+use std::rc::Rc;
 
 /// The renderer's buffers outlive the geometry in them, so a second paint has
 /// to overwrite what the first left behind — not append to it, and not leave a
@@ -118,7 +119,7 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     // over, and aiming it would aim at nothing.
     edge_on(1.1)(&mut app.pane_mut().camera);
     let mut app_pane = SceneApp {
-        view: app.renderer().clone(),
+        view: Rc::clone(app.renderer()),
     };
 
     let look = Highlight::new(INK).scale(4.0);

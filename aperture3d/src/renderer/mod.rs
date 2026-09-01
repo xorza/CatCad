@@ -342,7 +342,7 @@ pub(crate) mod internals {
 
     impl App for SceneApp {
         fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-            let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
+            let paint: Rc<RefCell<dyn GpuPaint>> = Rc::<RefCell<Renderer>>::clone(&self.view);
             GpuView::new(paint)
                 .auto_id()
                 .size((Sizing::FILL, Sizing::FILL))

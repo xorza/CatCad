@@ -158,7 +158,7 @@ pub(crate) struct SceneApp {
 
 impl App for SceneApp {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
+        let paint: Rc<RefCell<dyn GpuPaint>> = Rc::<RefCell<Renderer>>::clone(&self.view);
         GpuView::new(paint)
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
@@ -186,7 +186,7 @@ pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Pane)) -> Frame {
     app.enter_first_sketch();
     prepare(&mut app.pane_mut());
     let mut app_pane = SceneApp {
-        view: app.renderer().clone(),
+        view: Rc::clone(app.renderer()),
     };
     capture(size, &mut app_pane)
 }
@@ -232,7 +232,7 @@ fn framed(size: UVec2, mut app: CatCad, aim: impl FnOnce(&mut Camera)) -> Frame 
     aim(app.camera_mut());
     capture(size, &mut app);
     let mut app_pane = SceneApp {
-        view: app.renderer().clone(),
+        view: Rc::clone(app.renderer()),
     };
     capture(size, &mut app_pane)
 }
@@ -255,7 +255,9 @@ pub(crate) fn staged(size: UVec2, camera: Camera, scene: Scene) -> Staged {
     let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
     renderer.pane_mut(DRAWING).camera = camera;
     let view = Rc::new(RefCell::new(renderer));
-    let mut app_pane = SceneApp { view: view.clone() };
+    let mut app_pane = SceneApp {
+        view: Rc::clone(&view),
+    };
     Staged {
         frame: capture(size, &mut app_pane),
         view,

@@ -137,7 +137,7 @@ impl Picture {
     /// that is the picture's. What is the picture's is that the thing painted
     /// from is the very renderer these calls write into.
     pub(super) fn painting(&self) -> Rc<RefCell<dyn GpuPaint>> {
-        self.renderer.clone()
+        Rc::<RefCell<Renderer>>::clone(&self.renderer)
     }
 
     /// Lay the drawing out again if it has moved, and cut the controls against
