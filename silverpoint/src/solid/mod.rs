@@ -20,6 +20,7 @@
 pub(crate) mod boolean;
 pub(crate) mod buckets;
 pub(crate) mod build;
+pub(crate) mod copying;
 pub(crate) mod geometry;
 pub(crate) mod grown;
 pub(crate) mod meeting;

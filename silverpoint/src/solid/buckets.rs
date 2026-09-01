@@ -5,7 +5,11 @@ use glam::DVec3;
 use std::fmt;
 
 /// The end of a chain, and what an empty bucket holds.
-const NONE: u32 = u32::MAX;
+///
+/// Read by a caller keeping a chain of its own — see
+/// [`Body::patches`](crate::Body), which links forward where this file links
+/// back — so that one number means the end of a chain everywhere.
+pub(crate) const NONE: u32 = u32::MAX;
 
 /// How many buckets the first entry brings.
 ///

@@ -5,6 +5,7 @@ use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, PLACED};
 use crate::solid::buckets::{Buckets, Key};
+use crate::solid::copying;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
@@ -22,8 +23,6 @@ use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
-use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::Shell;
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::DVec3;
@@ -1608,8 +1607,7 @@ impl Rounding {
         self.made.clear();
         self.made.resize(topology.face_slots(), None);
         for (id, face) in topology.faces() {
-            into.named(face.name);
-            let raised = into.topology_mut().add_face(Face {
+            let raised = into.add_face(Face {
                 surface: face.surface,
                 outward: face.outward,
                 loops: 0..0,
@@ -1644,8 +1642,7 @@ impl Rounding {
 
     /// Raise one face of the answer the rounding itself put there.
     fn patch(into: &mut Body, name: Named, surface: Surface, outward: bool) -> FaceId {
-        into.named(name);
-        into.topology_mut().add_face(Face {
+        into.add_face(Face {
             surface,
             outward,
             loops: 0..0,
@@ -2222,7 +2219,9 @@ impl Rounding {
                     bounds[which] = trim.bound;
                     ends[which] = trim.at;
                 }
-                None => ends[which] = self.corner(topology, ends[which], into),
+                None => {
+                    ends[which] = copying::corner(&mut self.corners, topology, ends[which], into)
+                }
             }
         }
         let between = edge
@@ -2240,20 +2239,6 @@ impl Rounding {
         self.kept[id.slot()] = Some(made);
     }
 
-    /// Copy the corner at `id`, unless something already has.
-    fn corner(&mut self, topology: &Topology, id: VertexId, into: &mut Body) -> VertexId {
-        if let Some(had) = self.corners[id.slot()] {
-            return had;
-        }
-        let held = topology.vertex(id);
-        let made = into.topology_mut().add_vertex(Vertex {
-            at: held.at,
-            tolerance: held.tolerance,
-        });
-        self.corners[id.slot()] = Some(made);
-        made
-    }
-
     /// Gather the answer's faces into the shells and lumps the body had.
     ///
     /// **The same shells and the same lumps.** A rounding takes a face off no
@@ -2261,44 +2246,28 @@ impl Rounding {
     /// and the blends cut into it beside them.
     fn gather(&mut self, from: &Body, into: &mut Body) {
         let topology = from.topology();
-        for (_, lump) in topology.lumps() {
-            let mut outer = None;
-            let voided = into.topology().shells_voided();
-            for shell in topology.shells_of(lump) {
-                let held = into.topology().faces_shelled();
-                for &face in topology.faces_of(shell) {
-                    into.topology_mut()
-                        .add_shelled(self.made[face.slot()].expect(RAISED));
-                }
-                for at in 0..self.blends.len() {
-                    if topology
-                        .faces_of(shell)
-                        .contains(&self.blends[at].tip(&self.runs, 0).between[0])
-                    {
-                        into.topology_mut().add_shelled(self.raised[at]);
-                    }
-                }
-                for at in 0..self.cornered.len() {
-                    if topology
-                        .faces_of(shell)
-                        .contains(&self.cornered[at].held.faces[0])
-                    {
-                        into.topology_mut().add_shelled(self.patched[at]);
-                    }
-                }
-                let upto = into.topology().faces_shelled();
-                let made = into.topology_mut().add_shell(Shell { faces: held..upto });
-                match outer {
-                    None => outer = Some(made),
-                    Some(_) => into.topology_mut().add_voided(made),
+        copying::gathered(topology, into, |shell, into| {
+            for &face in topology.faces_of(shell) {
+                into.topology_mut()
+                    .add_shelled(self.made[face.slot()].expect(RAISED));
+            }
+            for at in 0..self.blends.len() {
+                if topology
+                    .faces_of(shell)
+                    .contains(&self.blends[at].tip(&self.runs, 0).between[0])
+                {
+                    into.topology_mut().add_shelled(self.raised[at]);
                 }
             }
-            let to = into.topology().shells_voided();
-            into.topology_mut().add_lump(Lump {
-                outer: outer.expect("a lump has a shell round it"),
-                voids: voided..to,
-            });
-        }
+            for at in 0..self.cornered.len() {
+                if topology
+                    .faces_of(shell)
+                    .contains(&self.cornered[at].held.faces[0])
+                {
+                    into.topology_mut().add_shelled(self.patched[at]);
+                }
+            }
+        });
     }
 }
 

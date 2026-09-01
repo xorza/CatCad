@@ -5,16 +5,15 @@ use crate::loops::Loops;
 use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::tolerance::{CHORDED, WRAPPING};
+use crate::solid::copying;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
-use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::Shell;
 use crate::solid::topology::validity::Checking;
-use crate::solid::topology::vertex::{Vertex, VertexId};
+use crate::solid::topology::vertex::VertexId;
 use glam::{DVec2, DVec3};
 
 /// Which faces of a body are pieces of one, and what bounds each of them once
@@ -307,8 +306,7 @@ impl Merging {
                 false => id.slot(),
             };
             if self.made[at].is_none() {
-                into.named(face.name);
-                self.made[at] = Some(into.topology_mut().add_face(Face {
+                self.made[at] = Some(into.add_face(Face {
                     surface: face.surface,
                     outward: face.outward,
                     loops: 0..0,
@@ -379,7 +377,8 @@ impl Merging {
             return;
         }
         let edge = of.edge(id);
-        let [from, to] = [edge.from, edge.to].map(|end| self.corner(of, end, into));
+        let [from, to] =
+            [edge.from, edge.to].map(|end| copying::corner(&mut self.corners, of, end, into));
         let between = edge
             .between
             .map(|face| self.made[face.slot()].expect("every face an edge divides was raised"));
@@ -393,20 +392,6 @@ impl Merging {
             tolerance: edge.tolerance,
         });
         self.kept[id.slot()] = Some(made);
-    }
-
-    /// Copy the vertex at `id`, unless something already has.
-    fn corner(&mut self, of: &Topology, id: VertexId, into: &mut Body) -> VertexId {
-        if let Some(had) = self.corners[id.slot()] {
-            return had;
-        }
-        let held = of.vertex(id);
-        let made = into.topology_mut().add_vertex(Vertex {
-            at: held.at,
-            tolerance: held.tolerance,
-        });
-        self.corners[id.slot()] = Some(made);
-        made
     }
 
     /// The merged loops of `group`, its outline first.
@@ -463,33 +448,17 @@ impl Merging {
         self.shelled.clear();
         self.shelled.resize(into.topology().face_slots(), u32::MAX);
         let mut shells = 0;
-        for (_, lump) in of.lumps() {
-            let mut outer = None;
-            let from = into.topology().shells_voided();
-            for shell in of.shells_of(lump) {
-                let held = into.topology().faces_shelled();
-                for &face in of.faces_of(shell) {
-                    let made = self.made[face.slot()].expect("every face was raised");
-                    if self.shelled[made.slot()] == shells {
-                        continue;
-                    }
-                    self.shelled[made.slot()] = shells;
-                    into.topology_mut().add_shelled(made);
+        copying::gathered(of, into, |shell, into| {
+            for &face in of.faces_of(shell) {
+                let raised = self.made[face.slot()].expect("every face was raised");
+                if self.shelled[raised.slot()] == shells {
+                    continue;
                 }
-                shells += 1;
-                let upto = into.topology().faces_shelled();
-                let made = into.topology_mut().add_shell(Shell { faces: held..upto });
-                match outer {
-                    None => outer = Some(made),
-                    Some(_) => into.topology_mut().add_voided(made),
-                }
+                self.shelled[raised.slot()] = shells;
+                into.topology_mut().add_shelled(raised);
             }
-            let to = into.topology().shells_voided();
-            into.topology_mut().add_lump(Lump {
-                outer: outer.expect("a lump has a shell round it"),
-                voids: from..to,
-            });
-        }
+            shells += 1;
+        });
     }
 
     /// Whether the merged loop at `at` carries a parameter that runs round

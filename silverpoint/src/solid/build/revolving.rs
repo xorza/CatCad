@@ -475,13 +475,12 @@ impl Revolving {
                 return false;
             };
             let name = spinning.by.grew(Grown::Side(strip.bound));
-            into.named(name);
             let parts = match surface {
                 Surface::Natural(Natural::Plane(_)) => 1,
                 _ => spinning.parts,
             };
             let faces = each_part(parts, |_| {
-                into.topology_mut().add_face(Face {
+                into.add_face(Face {
                     surface,
                     outward,
                     loops: 0..0,
@@ -502,8 +501,7 @@ impl Revolving {
     /// — its own two are the line's direction and the way out at that angle,
     /// which is the frame the profile was read in.
     fn cap(spinning: Spinning, far: bool, name: Named, into: &mut Body) -> FaceId {
-        into.named(name);
-        into.topology_mut().add_face(Face {
+        into.add_face(Face {
             surface: Surface::Natural(Natural::Plane(Plane {
                 origin: spinning.axis.origin,
                 x: spinning.axis.direction,

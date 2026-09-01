@@ -81,7 +81,11 @@ impl Topology {
         self.edges.insert(edge)
     }
 
-    pub(crate) fn add_face(&mut self, face: Face) -> FaceId {
+    /// **Not the way a face joins a body** — see
+    /// [`Body::add_face`](body::Body), which is, and which files the name at
+    /// the same time. Reachable only from within this module so that the two
+    /// cannot come apart.
+    pub(super) fn add_face(&mut self, face: Face) -> FaceId {
         self.faces.insert(face)
     }
 

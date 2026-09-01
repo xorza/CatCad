@@ -229,8 +229,7 @@ impl Builder {
 
     /// One of the two ends: the region itself, lying flat.
     fn cap(into: &mut Body, plane: Plane, name: Named, outward: bool) -> FaceId {
-        into.named(name);
-        into.topology_mut().add_face(Face {
+        into.add_face(Face {
             surface: Surface::Natural(Natural::Plane(plane)),
             outward,
             // Filled by the loop pass, which is the only one that can know: a
@@ -249,8 +248,7 @@ impl Builder {
             let strip = self.strips.all()[at];
             let name = raising.by.grew(Grown::Side(strip.bound));
             let Walled { surface, outward } = self.wall_of(raising, strip);
-            into.named(name);
-            let wall = into.topology_mut().add_face(Face {
+            let wall = into.add_face(Face {
                 surface,
                 outward,
                 loops: 0..0,

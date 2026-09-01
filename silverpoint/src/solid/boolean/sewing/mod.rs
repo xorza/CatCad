@@ -718,8 +718,7 @@ impl Sewing {
         if from == to {
             return;
         }
-        into.named(region.name);
-        let face = into.topology_mut().add_face(Face {
+        let face = into.add_face(Face {
             surface: region.surface,
             outward: region.outward,
             loops: 0..0,

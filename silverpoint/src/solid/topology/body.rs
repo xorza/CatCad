@@ -1,6 +1,6 @@
 //! A whole solid.
 
-use crate::solid::buckets::Buckets;
+use crate::solid::buckets::{Buckets, NONE};
 use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::face::{Face, FaceId};
@@ -35,9 +35,25 @@ pub struct Body {
     /// [`Arrangement::faces`](crate::Arrangement).
     names: Vec<Named>,
     /// Which of those names key alike, so asking whether a name is already
-    /// here reads a handful rather than all of them — see [`Body::named`],
+    /// here reads a handful rather than all of them — see [`Body::add_face`],
     /// which every face raised goes through.
     known: Buckets,
+    /// Every face of the body in the order it was made, and which entry
+    /// carries the next face of the same name.
+    ///
+    /// **Forward-linked where [`Buckets`] links back**, which is the whole
+    /// reason it is written out here rather than filed there: what reads a face
+    /// of the body wants its patches in the order they were made, and a chain
+    /// grown from the head hands them back newest first.
+    faced: Vec<FaceId>,
+    after: Vec<u32>,
+    /// Where each name's chain begins and ends in [`Body::faced`], by that
+    /// name's own position in [`Body::names`].
+    ///
+    /// The end as well as the beginning, so that adding a face to a name that
+    /// already has one is a link rather than a walk of everything it has.
+    first: Vec<u32>,
+    last: Vec<u32>,
 }
 
 impl Body {
@@ -57,9 +73,16 @@ impl Body {
     /// *has* and what it answers for cannot come to differ — the index only
     /// says which few of them are worth comparing.
     pub fn holds(&self, named: Named) -> bool {
+        self.at(named).is_some()
+    }
+
+    /// Where `named` sits among the body's own names, or `None` where no face
+    /// of it carries that name.
+    fn at(&self, named: Named) -> Option<usize> {
         self.known
             .under(named.key())
-            .any(|at| self.names[at as usize] == named)
+            .map(|at| at as usize)
+            .find(|&at| self.names[at] == named)
     }
 
     /// Whether it shuts in nothing at all.
@@ -98,11 +121,25 @@ impl Body {
     }
 
     /// The pieces of surface `named` covers — several where one face of the
-    /// body comes in disjoint patches.
+    /// body comes in disjoint patches — in the order they were made.
+    ///
+    /// **Down the name's own chain rather than by a walk of every face.** A
+    /// caller drawing a body asks this once per name, so a walk costs the two
+    /// counts multiplied and grows as the square of the body — the same
+    /// argument [`Body::add_face`] makes for the name index beside it.
+    ///
+    /// **[`NONE`] stands past the end of the chain by construction**, so one
+    /// reading both stops the walk where the name runs out and answers nothing
+    /// at all for a name no face carries.
     pub(crate) fn patches(&self, named: Named) -> impl Iterator<Item = (FaceId, &Face)> {
-        self.topology
-            .faces()
-            .filter(move |(_, face)| face.name == named)
+        let mut at = self.at(named).map_or(NONE, |name| self.first[name]);
+        std::iter::from_fn(move || {
+            let step = at as usize;
+            let &id = self.faced.get(step)?;
+            at = self.after[step];
+            Some(id)
+        })
+        .map(move |id| (id, self.topology.face(id)))
     }
 
     pub(crate) fn topology(&self) -> &Topology {
@@ -123,23 +160,47 @@ impl Body {
         self.topology.clear();
         self.names.clear();
         self.known.clear();
+        self.faced.clear();
+        self.after.clear();
+        self.first.clear();
+        self.last.clear();
     }
 
-    /// Record that `named` is a face of this body, if it is not already.
+    /// Add `face`, recording the name it carries among the body's own.
     ///
-    /// Called by whatever adds a face rather than derived afterwards, so the
-    /// order the names come back in is the order the faces were made in.
+    /// **The one way a face joins a body**, which is what keeps the two indexes
+    /// beside the topology true: a face of the body is the set of faces sharing
+    /// a name, and the name a face is added under is the name it carries. Two
+    /// calls could be given two different names, or one of them forgotten.
     ///
     /// **Asked of the index rather than of the list**, because every face
     /// raised asks: a walk of the names compared one against every name
     /// already recorded, and the cost of that grows as the square of the body.
-    pub(crate) fn named(&mut self, named: Named) {
-        if self.holds(named) {
-            return;
+    ///
+    /// The names come back in the order their first faces were made in, and
+    /// each name's patches in the order they were — see [`Body::names`] and
+    /// [`Body::patches`], which two rebuilds of one drawing have to agree
+    /// about for a renderer to refill its batches in place.
+    pub(crate) fn add_face(&mut self, face: Face) -> FaceId {
+        let named = face.name;
+        let id = self.topology.add_face(face);
+        let at = self.faced.len() as u32;
+        self.faced.push(id);
+        self.after.push(NONE);
+        match self.at(named) {
+            Some(name) => {
+                self.after[self.last[name] as usize] = at;
+                self.last[name] = at;
+            }
+            None => {
+                let name = self.known.file(named.key());
+                debug_assert_eq!(name as usize, self.names.len(), "the index lost step");
+                self.names.push(named);
+                self.first.push(at);
+                self.last.push(at);
+            }
         }
-        let at = self.known.file(named.key());
-        debug_assert_eq!(at as usize, self.names.len(), "the index lost step");
-        self.names.push(named);
+        id
     }
 }
 
@@ -230,7 +291,6 @@ pub(crate) mod internals {
 
             let mut body = Self::default();
             let named = Step::default().grew(Grown::Base);
-            body.named(named);
             let mut corner = |out: f64| {
                 body.topology_mut().add_vertex(Vertex {
                     at: DVec3::X * out,
@@ -244,7 +304,7 @@ pub(crate) mod internals {
             let (out_far, in_far) = (corner(-major - minor), corner(-major + minor));
 
             let mut face = || {
-                body.topology_mut().add_face(Face {
+                body.add_face(Face {
                     surface,
                     outward: true,
                     loops: 0..0,

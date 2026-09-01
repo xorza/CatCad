@@ -62,6 +62,62 @@ fn an_edge_walked_twice_the_same_way_is_refused() {
     body.check();
 }
 
+/// **A name's patches come back in the order they were made, and so do the
+/// names.**
+///
+/// What a renderer leans on: one drawable per name, refilled in place on every
+/// rebuild rather than renumbered — see [`Body::names`] and [`Body::patches`].
+/// Two rebuilds of one drawing that answered in two orders would move every
+/// batch under it.
+///
+/// Three faces of one name and two of another, added turn and turn about, so
+/// that neither order can be the order the faces went into the arena. The names
+/// come back by their *first* face and the patches of each by their own.
+#[test]
+fn a_name_answers_with_its_patches_in_the_order_they_were_made() {
+    let mut body = Body::default();
+    let plane = Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X).plane();
+    let (base, far) = (
+        Step::default().grew(Grown::Base),
+        Step::default().grew(Grown::Far),
+    );
+    let raise = |body: &mut Body, name| {
+        body.add_face(Face {
+            surface: Surface::Natural(Natural::Plane(plane)),
+            outward: true,
+            loops: 0..0,
+            name,
+            tolerance: EXACT,
+        })
+    };
+    // Turn and turn about, the second name beginning after the first.
+    let one = raise(&mut body, base);
+    let two = raise(&mut body, far);
+    let three = raise(&mut body, base);
+    let four = raise(&mut body, far);
+    let five = raise(&mut body, base);
+
+    let made = |name| body.patches(name).map(|(id, _)| id).collect::<Vec<_>>();
+    assert_eq!(
+        made(base),
+        [one, three, five],
+        "the base came back shuffled"
+    );
+    assert_eq!(made(far), [two, four], "the far end came back shuffled");
+    assert_eq!(
+        body.names().collect::<Vec<_>>(),
+        [base, far],
+        "the names are not in the order their first faces were made",
+    );
+    assert!(body.holds(base) && body.holds(far));
+
+    // A name nothing carries has no chain to walk, which is not the same
+    // answer as the first face of somebody else's.
+    let never = Step::default().grew(Grown::Rounded(7));
+    assert!(!body.holds(never));
+    assert_eq!(made(never), [], "a name no face carries answered with one");
+}
+
 /// A vertex no edge names is a place nothing of the body stands at.
 ///
 /// **What a refusal leaves behind.** A sew mints a vertex where a walk reaches
@@ -282,7 +338,6 @@ fn cone() -> Body {
 
     let mut body = Body::default();
     let named = Step::default().grew(Grown::Base);
-    body.named(named);
     let apex = body.topology_mut().add_vertex(Vertex {
         at: DVec3::ZERO,
         tolerance: EXACT,
@@ -300,7 +355,7 @@ fn cone() -> Body {
     );
 
     let mut face = |surface, outward| {
-        body.topology_mut().add_face(Face {
+        body.add_face(Face {
             surface,
             outward,
             loops: 0..0,
@@ -504,7 +559,6 @@ fn ball() -> Body {
 
     let mut body = Body::default();
     let named = Step::default().grew(Grown::Base);
-    body.named(named);
     let mut pole = |up: f64| {
         body.topology_mut().add_vertex(Vertex {
             at: DVec3::new(0.0, up, 0.0),
@@ -514,7 +568,7 @@ fn ball() -> Body {
     let (south, north) = (pole(-ROUND), pole(ROUND));
 
     let mut face = || {
-        body.topology_mut().add_face(Face {
+        body.add_face(Face {
             surface,
             outward: true,
             loops: 0..0,
