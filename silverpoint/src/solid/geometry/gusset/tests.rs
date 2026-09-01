@@ -453,8 +453,8 @@ fn a_patch_keys_by_everything_it_is_made_of() {
     );
 }
 
-/// **The second edge walks onto the round and reaches the tip, and asking for
-/// less stray buys more chords.**
+/// **The second edge is chorded onto the round and reaches the tip, and asking
+/// for less stray buys more chords.**
 ///
 /// Every place of it lies on the round — that is what the edge *is*, the
 /// tangency the rulings land at — and the last is the tip both edges share, so
@@ -471,7 +471,7 @@ fn the_second_edge_is_walked_onto_the_round_and_reaches_the_tip() {
         let mut counted = Vec::new();
         let mut strayed = Vec::new();
         for sagitta in [1e-2, 1e-3, 1e-4] {
-            let most = gusset.walked(sagitta, &mut walked);
+            let most = gusset.chorded(sagitta, &mut walked);
             assert!(most <= sagitta, "{named}: {most} strays past {sagitta}");
             assert!(
                 walked.len() >= 5,
@@ -545,4 +545,37 @@ fn the_box_holds_every_place_of_the_patch() {
             "{named}: {fills:?} is wider than the corner",
         );
     }
+}
+
+/// **A box the patch reaches is answered, and one it comes nowhere near is
+/// refused.**
+///
+/// Settled off the patch's own box rather than by halving the caller's — see
+/// [`Gusset::spans`] — so what is held is that the answer turns on where the
+/// patch actually is. The square corner spans the unit cube about the origin
+/// and the tip at `(1, 1, 0)`, so a box a hundred out is refused and one round
+/// the tip is not, whatever slack either is asked with.
+#[test]
+fn a_box_is_spanned_where_the_patch_reaches_it() {
+    let gusset = square();
+    assert!(
+        gusset.spans(Bounds::about(gusset.met(), 0.1), 0.0),
+        "the tip",
+    );
+    assert!(
+        gusset.spans(Bounds::about(gusset.from, 0.1), 0.0),
+        "the first edge",
+    );
+    assert!(
+        !gusset.spans(Bounds::about(DVec3::new(100.0, 0.0, 0.0), 1.0), 0.0),
+        "a box a hundred out",
+    );
+    // And slack is what makes a near miss a hit, which is the whole of what a
+    // caller hands one in for.
+    let near = Bounds::about(DVec3::new(4.0, 1.0, 0.0), 0.1);
+    assert!(!gusset.spans(near, 0.0), "clear of the patch");
+    assert!(
+        gusset.spans(near, 3.0),
+        "clear of it by less than the slack"
+    );
 }

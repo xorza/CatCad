@@ -206,8 +206,8 @@ impl Gusset {
         at.approx_eq(self.met(), PLACED)
     }
 
-    /// The patch's second edge, walked from its first edge round to the tip,
-    /// and how far the chords stand from the edge itself.
+    /// The patch's second edge, laid down in chords from its first edge round
+    /// to the tip, and how far those chords stand from the edge itself.
     ///
     /// **Walked rather than written down**, which is what puts the patch in the
     /// fitted tier although both of its joins are exact. The first edge is a
@@ -219,7 +219,8 @@ impl Gusset {
     /// **Probed rather than bounded**, exactly as a marched meeting is — see
     /// [`Marching`](crate::solid::meeting::marching::Marching), where the same
     /// reading is argued. Nothing writes this edge's curvature down, so no step
-    /// count can be read off a radius the way [`arc::chords`] reads one:
+    /// count can be read off a radius the way
+    /// [`arc::chords`](crate::math::arc::chords) reads one:
     /// instead the walk doubles until three places along the worst chord all
     /// stand within `sagitta` of the edge, and what comes back is what that
     /// walk measured.
@@ -230,7 +231,7 @@ impl Gusset {
     ///
     /// The tip is the last place written, so a caller sewing this edge finds
     /// the corner the two edges share where it expects it.
-    pub(crate) fn walked(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
+    pub(crate) fn chorded(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
         debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         let framing = self.framing();
         let mut steps = FIRST;
@@ -274,6 +275,18 @@ impl Gusset {
             low: fills.low - strayed,
             high: fills.high + strayed,
         }
+    }
+
+    /// Whether any of the patch passes within `slack` of `fills`.
+    ///
+    /// **Settled outright rather than narrowed.** What
+    /// [`Surface::reaches`](super::surface::Surface) falls back on is halving
+    /// the caller's box and reading a distance at each half, and a ruled patch
+    /// has no distance written down to read — so a bounded surface answers off
+    /// its own box instead. What that costs is [`Gusset::fills`]'s own coarse
+    /// walk, against eight halvings and a distance apiece.
+    pub(crate) fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> bool {
+        self.fills().meets(fills, slack)
     }
 
     /// Walk the second edge in `steps` chords, handing each place to `held`,

@@ -1824,17 +1824,17 @@ of its parameters wraps, and the tip as its one singular place. Fourteen tests
 over a square corner and a leaning one. It is kept ahead of its caller and says
 so.
 
-**What is left to write:**
+**What is done, and what is left:**
 
-- **The `Fitted` arm, and a box round the patch is what it waits on.** `spans`
-  has to settle the culling outright, `off` having no closed form for a ruled
-  surface to fall back on. `fills` is the boundary's own box and needs nothing:
-  every ruling has both ends on the boundary, so the patch lies inside its
-  convex hull. `straying` and `strides` come off the ruling's bounds, and
-  `singular` is the tip, which is written.
-- **The box — done.** `Gusset::fills` answers it, given the walk and its
-  stray. Half
-  is written down: the first edge is an exact ellipse in the world, `head(u)`
+- **The second edge, laid down — done.** `Gusset::chorded` walks it from the
+  first edge round to the tip and answers the stray it measured, doubling the
+  chord count until three places along the worst chord all stand within the
+  sagitta. Probed rather than bounded, on `Marching::sagging`'s own terms.
+  **The tip is written rather than read**: `step(u)` is nought over nought
+  there, and reading it hands back a wrong finite place rather than a `NaN` —
+  measured at 0.61 off on the square corner, which no refinement moved.
+- **The box — done.** `Gusset::fills` walks its own coarse one. Half of it is
+  written down: the first edge is an exact ellipse in the world, `head(u)`
   coming to a fixed place plus `cos u` and `sin u` times two fixed vectors, so
   its box is that place give or take the hypotenuse of the two per axis. Half
   is walked: the second edge lies on the round at exactly the reach from its
@@ -1850,31 +1850,35 @@ so.
   suggests, and it is the wrong one here: a box is a reading of a walk at some
   fineness, so two patches that are one patch would compare unequal for having
   been measured differently, and `Gusset` would stop being constructible from
-  geometry alone. So `Gusset::fills` walks its own coarse box instead —
-  sixteen chords and a probe apiece, a few hundred flops against the eight
-  box-halvings and an `off` each that `Surface::narrowed` would otherwise
-  spend. Identity stays over the four things a patch is made of, which is what
-  `Gusset::key` already keys.
-- **`off` wants an answer of its own, and the inversion is not it.** Tried:
-  `at(uv(at))` for a place off the patch lands on a *different* ruling, because
-  `uv` answers the ruling whose line the place stands nearest and a place moved
-  off the surface is nearest another's. Measured on the square corner, a place
-  a fifth of a reach along the normal read `0.454` rather than `0.2`. So it is
-  not `spans` alone that waits on the box: `Checking` reads `Surface::off` for
-  every edge against both its faces, and `Surface::nearest` and `Fitted::uv`'s
-  own promise — the nearest place for anything off the surface — want the same
-  thing.
-- **The second edge, walked — done.** `Gusset::walked` lays it down from the
-  first
-  edge round to the tip and answers the stray it measured, doubling the chord
-  count until three places along the worst chord all stand within the sagitta.
-  Probed rather than bounded, on `Marching::sagging`'s own terms. **The tip is
-  written rather than read**: `step(u)` is nought over nought there, and
-  reading it hands back a wrong finite place rather than a `NaN` — measured at
-  0.61 off on the square corner, which no refinement moved.
-  What is left is the *filing*: handing the walk to `Marchings::add` and
-  carrying its stray onto the edge and the corners at either end, which is
-  `Rounding`'s to do.
+  geometry alone. Identity stays over the four things a patch is made of, which
+  is what `Gusset::key` already keys.
+- **Eight of the `Fitted` arm's readings — done.** `key`, `at`, `uv`, `normal`,
+  `met_by`, `singular` — the tip — `round`, and `spans`, which settles the
+  culling off the patch's own box rather than by halving the caller's. `fills`
+  is the boundary's own box and needs nothing, every ruling having both ends on
+  the boundary. `offset` and `walked` answer nothing, as a torus's do.
+- **`off` is what the arm mostly waits on, and the inversion is not it.**
+  Tried: `at(uv(at))` for a place off the patch lands on a *different* ruling,
+  because `uv` answers the ruling whose line the place stands nearest and a
+  place moved off the surface is nearest another's. Measured on the square
+  corner, a place a fifth of a reach along the normal read `0.454` rather than
+  `0.2`. Three callers want a true one: `Checking` holds every edge against
+  both its faces by it, `Surface::nearest` reads it, and `Fitted::uv` promises
+  the nearest place for anything off the surface. A *lower* bound — the
+  distance to the patch's own box — keeps `Surface::narrowed` sound but weakens
+  the checker rather than breaking it: it would pass an edge that should fail
+  and never fail one that should pass.
+- **`straying`, and its head half is written.** A place of the patch is
+  `(1 − v)·head + v·foot`, so a triangle leaves its chord by at most the
+  greater of what the two edges leave theirs by. The first edge is the ellipse
+  `middle + cos u·one + sin u·two`, which is the image of a unit circle under
+  `[one two]`, so its arc leaves its chord by at most
+  `(|one| + |two|)·arc::bulge(span)`. The second edge's rate about the round's
+  axis is not `u`'s, and that rate is what the other half wants. `strides`
+  falls out of it: along `v` the patch is exactly linear, so it wants no
+  subdivision for straightness at all and the whole grid is `u`'s.
+- The *filing* of the second edge: handing the walk to `Marchings::add` and
+  carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`
   refuses on today, answered instead of refused.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
