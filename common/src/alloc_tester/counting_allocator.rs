@@ -39,7 +39,7 @@ thread_local! {
 /// thread that opened the window, and one over work that fans out would have to
 /// say so.
 ///
-/// Outside a window the whole of [`Self::record`] is one thread-local read, so
+/// Outside a window the whole of the bookkeeping is one thread-local read, so
 /// the tests sharing the binary pay no tax for any of it.
 ///
 /// It counts heap *operations* rather than residency, so `dealloc` is passed

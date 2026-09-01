@@ -1019,14 +1019,24 @@ merges, it meshes, and it costs the heap nothing on the second call.
 - every lump shutting in material and every cavity the lack of it, measured
   through the mesher and read for its sign alone — the one break a shell turned
   through itself does not otherwise show;
-- **loops non-self-intersecting in parameter space**, each pair of chords held
-  against `intersect::spans` behind a box test.
+- **every loop a boundary of its own face, in that face's own parameters** —
+  non-self-intersecting, each pair of chords held against `intersect::spans`
+  behind a box test, and wound so the material lies on the side the face says
+  it does. Both off one flattening, because both ask whether the loop bounds
+  the face or something else.
 
 Run after every operation under `cfg!(debug_assertions)`, and directly in every
 test. **A kernel that cannot produce an invalid body has only local bugs.** Each
 thing it claims to catch is caught in a test that breaks a *valid* body one way,
 because a checker nothing has been proved against is a checker nobody should
 trust.
+
+**And a rule nothing checks is a comment.** The winding above went unchecked
+until a rounding believed it: a triangulator rewinds each fill from its own
+signed area and a boolean reads sides rather than turns, so every reader but one
+was blind to it — and the revolve wound every loop of every body it made against
+the rule for as long as nothing asked. What caught it was writing the check, not
+reading the code.
 
 ---
 

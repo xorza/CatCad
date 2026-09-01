@@ -365,6 +365,25 @@ pub(crate) mod internals {
             self.walks.get_mut(at)
         }
 
+        /// Turn every one of `faces` through itself: each facing the other way,
+        /// and each of its loops walked the other way round.
+        ///
+        /// **Both together, because they are one break and not two.** A face's
+        /// normal and the winding of its loops say the same thing twice — see
+        /// [`Face::loops`] — so a test that flipped only the flag would leave a
+        /// body wrong in a second way as well, and be caught by the check that
+        /// holds the two against each other rather than the one it was aimed
+        /// at.
+        pub(crate) fn turn_through(&mut self, faces: &[FaceId]) {
+            for &at in faces {
+                let face = self.face_mut(at);
+                face.outward = !face.outward;
+                for walk in face.loops.clone() {
+                    Coedge::turn(self.loop_mut(walk));
+                }
+            }
+        }
+
         pub(crate) fn shell_mut(&mut self, id: ShellId) -> &mut Shell {
             self.shells.get_mut(id).expect(STALE)
         }

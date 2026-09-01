@@ -27,11 +27,8 @@ enum Warmup {
     /// [`MAX_WARMUP`]. What any work that settles wants, and it saves tuning a
     /// count per test.
     ///
-    /// **Wrong for work that cycles.** The probe settles as soon as it sees two
-    /// quiet runs, and it can find those *within* one cycle — before the widest
-    /// run of that cycle has happened at all. The window then meets that run's
-    /// one-off growth and reads it as a per-run cost. Such a test wants
-    /// [`AllocTester::warmup`] with a count in whole cycles.
+    /// **Wrong for work that cycles**, which is why [`AllocTester::warmup`]
+    /// exists and where the case is argued.
     Probe,
     /// Exactly this many runs, warmed without any budget check.
     Fixed(usize),
@@ -46,8 +43,9 @@ enum Warmup {
 /// budget is about. The run that broke the budget is the run whose stacks are
 /// printed.
 ///
-/// The defaults are what a new test wants — the probe, [`RUNS`] measured runs,
-/// a strict-zero budget — so `AllocTester::new().run(..)` is the whole call for
+/// The defaults are what a new test wants — a probing warmup, enough measured
+/// runs that a once-in-a-hundred allocation lands inside the window, and a
+/// strict-zero budget — so `AllocTester::new().run(..)` is the whole call for
 /// most of them.
 ///
 /// ```no_run
@@ -76,8 +74,13 @@ impl AllocTester {
         Self::default()
     }
 
-    /// A fixed warmup in place of the probe — see [`Warmup::Probe`] for the
-    /// shape of work that needs one.
+    /// A fixed warmup in place of the probe.
+    ///
+    /// **What work that cycles wants.** The probe stops as soon as it sees two
+    /// quiet runs, and it can find those *within* one cycle — before the widest
+    /// run of that cycle has happened at all. The window then meets that run's
+    /// one-off growth and reads it as a per-run cost. Give this a count in
+    /// whole cycles instead.
     pub fn warmup(mut self, runs: usize) -> Self {
         self.warmup = Warmup::Fixed(runs);
         self

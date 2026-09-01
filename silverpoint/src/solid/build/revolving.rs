@@ -154,11 +154,12 @@ struct Spinning {
     /// Whether a loop is walked with the spin before the profile.
     ///
     /// **One flag for the whole revolve, not one per wall.** The spin and the
-    /// profile make a face's own two parameters, and which order winds them
-    /// counterclockwise about the material-free side turns only on whether the
-    /// frame `(along, out)` reads the drawing the way it was drawn. Per wall it
-    /// would differ, and two walls disagreeing would walk the circle between
-    /// them the same way twice.
+    /// profile make a face's own two parameters, and which order leaves the
+    /// face on the left of the walk seen from outside — `Face::loops`, and the
+    /// rule `Checking::loops_bound_their_face` holds it to — turns only on
+    /// whether the frame `(along, out)` reads the drawing the way it was drawn.
+    /// Per wall it would differ, and two walls disagreeing would walk the
+    /// circle between them the same way twice.
     forward: bool,
 }
 
@@ -423,12 +424,13 @@ impl Revolving {
             at: of.axis,
             along,
             out,
-            // The map from the drawing's own two to `(along, out)` reverses the
-            // handedness exactly when the region stands to the right of the
-            // line, and a spin the other way round reverses it again — so a
-            // negative sweep is the same solid turned the other way rather than
-            // one wound inside out.
-            forward: (side < 0.0) != (sweep < 0.0),
+            // Two reversals that compose. The map from the drawing's own two
+            // to `(along, out)` turns the handedness over exactly when the
+            // region stands to the right of the line, and a spin the other way
+            // round turns it back — so the frame reads the drawing as drawn
+            // where both hold or neither does, and a negative sweep is the same
+            // solid spun the other way rather than one wound inside out.
+            forward: (side < 0.0) == (sweep < 0.0),
         })
     }
 

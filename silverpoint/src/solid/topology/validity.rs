@@ -2,6 +2,7 @@
 
 use crate::math::chorded::Chorded;
 use crate::math::intersect::{self, Span};
+use crate::math::winding;
 use crate::number::predicate::{self, ApproxEq, slack};
 use crate::number::tolerance::CHORDED;
 use crate::solid::mesh::{Mesher, Patch};
@@ -43,7 +44,7 @@ pub(crate) struct Checking {
     mesher: Mesher,
     patch: Patch,
     /// One loop walked in the world, and the same loop in its face's own
-    /// parameters — see [`Checking::loops_do_not_cross_themselves`].
+    /// parameters — see [`Checking::loops_bound_their_face`].
     traced: Vec<DVec3>,
     flattened: Vec<DVec2>,
 }
@@ -62,7 +63,7 @@ impl Checking {
         self.faces_belong_to_one_shell(topology);
         self.shells_are_connected(topology);
         self.shells_are_closed_surfaces(topology);
-        self.loops_do_not_cross_themselves(topology);
+        self.loops_bound_their_face(topology);
         self.geometry_agrees(topology);
         self.creases_are_flagged(topology);
         self.tolerances_ladder(topology);
@@ -105,15 +106,37 @@ impl Checking {
         );
     }
 
-    /// No loop of a face crosses itself in that face's own parameters.
+    /// Every loop of a face is a boundary of that face, and not of something
+    /// else.
     ///
-    /// **The one break that leaves a face looking like a face.** A loop that
-    /// crosses itself still closes, still walks each of its edges once, and
-    /// still lies on the surface it names — so nothing above sees it. What it
-    /// is not is a *boundary*: the region it is supposed to enclose is on both
-    /// sides of it at the crossing, so what a triangulation makes of it, what a
-    /// sounding says about a place in it, and what area it covers are all
-    /// answers to a question with no answer.
+    /// **Two breaks that leave a face looking like a face**, and one flattening
+    /// answers both. A loop that crosses itself, and a loop that shuts in the
+    /// wrong side, each still close, still walk each of their edges once, and
+    /// still lie on the surface they name — so nothing above sees either.
+    ///
+    /// **A loop that crosses itself is not a boundary**: the region it is
+    /// supposed to enclose is on both sides of it at the crossing, so what a
+    /// triangulation makes of it, what a sounding says about a place in it, and
+    /// what area it covers are all answers to a question with no answer.
+    ///
+    /// **A loop wound the wrong way bounds the complement.**
+    /// [`Face::loops`](crate::solid::topology::face::Face) says which way that
+    /// is — the face on the left of the walk seen from outside — and in the
+    /// surface's own parameters that reads as a sign: `∂u × ∂v` points the way
+    /// [`Surface::normal`](crate::solid::geometry::surface::Surface) does, so an
+    /// outline shuts in *positive* area exactly where the material lies on that
+    /// side, and a hole shuts in the opposite. Nothing downstream reads the sign
+    /// — a triangulator rewinds each fill from its own area — so without this
+    /// the rule is a comment, and the one reader that believes it is
+    /// [`Rounding`](crate::Rounding), which reads a corner's convexity off the
+    /// walk.
+    ///
+    /// **Which loop is the outline comes off the order** `Face::loops` sets,
+    /// the first of them. Not re-derived, though the area would say — a hole
+    /// lies inside the outline and can never shut in more — because a body that
+    /// ordered its loops the other way round is a break no hook here can make
+    /// on its own: reversing a loop leaves an edge walked twice the same way,
+    /// which the check three above catches first.
     ///
     /// **Chorded, and that is the whole of what it costs.** A loop is walked at
     /// [`CHORDED`] into the surface's parameters, exactly as the boolean and the
@@ -128,12 +151,18 @@ impl Checking {
     /// another is caught as well — that is a pinch rather than a crossing, and
     /// a boundary that touches itself is no more a boundary than one that
     /// crosses.
-    fn loops_do_not_cross_themselves(&mut self, topology: &Topology) {
+    ///
+    /// **And the chording costs the sign nothing.** A chord lies within a
+    /// sagitta of the curve, so a chorded loop shuts in a little less than the
+    /// true one and shuts it in the same way round —
+    /// [`Checking::volumes_are_signed`] leans on the same fact one dimension
+    /// up.
+    fn loops_bound_their_face(&mut self, topology: &Topology) {
         let Self {
             traced, flattened, ..
         } = self;
         for (at, face) in topology.faces() {
-            for walk in topology.loops_of(face) {
+            for (which, walk) in topology.loops_of(face).enumerate() {
                 traced.clear();
                 for &coedge in walk {
                     topology.walked(coedge).walk(CHORDED, traced);
@@ -177,6 +206,25 @@ impl Checking {
                         );
                     }
                 }
+                // The outline first, then one per hole — see `Face::loops`,
+                // which is the order this reads `which` against. A hole shuts in
+                // the sign its outline does not, bounding the face from inside.
+                let punched = which > 0;
+                let shut_in = winding::doubled(&flattened[..]);
+                assert!(
+                    (shut_in > 0.0) == (face.outward != punched),
+                    "{at:?}: its {} shuts in {shut_in} where the material lies \
+                     on the {} of its surface, so the face is on the wrong side \
+                     of its own walk",
+                    match which {
+                        0 => "outline".to_string(),
+                        hole => format!("hole {hole}"),
+                    },
+                    match face.outward {
+                        true => "side its normal points at",
+                        false => "side its normal points away from",
+                    },
+                );
             }
         }
     }

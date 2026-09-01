@@ -253,10 +253,7 @@ impl Constraint {
     ///
     /// Read off the same list the sketch writes a dimension through, so which
     /// variants carry a magnitude is stated once rather than in two lists free
-    /// to disagree. Which is why there is no immutable `dimension` beside
-    /// [`Self::dimension_mut`]: a second match over the fourteen arms *is* the
-    /// second list, and the two would be free to disagree about one variant
-    /// without the compiler saying so.
+    /// to disagree.
     ///
     /// Taken by value because reaching that list wants a `&mut` of its own: a
     /// constraint is [`Copy`], so a caller holding one spends nothing, and one
@@ -286,6 +283,11 @@ impl Constraint {
     /// Inside `sketch` for [`Self::value_mut`]'s reason, and reached through
     /// the sketch by [`Sketch::set_value`](crate::Sketch::set_value) and
     /// [`Sketch::place`](crate::Sketch::place).
+    ///
+    /// **And no immutable twin beside it**, which is why [`Self::value`] reads
+    /// this rather than a list of its own: a second match over the fourteen
+    /// arms *is* a second list, and the two would be free to disagree about one
+    /// variant without the compiler saying so.
     pub(super) fn dimension_mut(&mut self) -> Option<&mut Dimension> {
         match self {
             Constraint::Distance { dimension, .. }

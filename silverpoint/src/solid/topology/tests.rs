@@ -272,19 +272,45 @@ fn a_vertex_tighter_than_its_edge_is_refused() {
 /// A shell turned through itself is the one break every other check passes.
 ///
 /// Every edge of the block is still walked twice and once each way, Euler is
-/// still two, every face still lies on the surface it names, and the ladder is
-/// untouched — turning a face round says nothing about any of them. What is
-/// left is the sign: the block shuts in `2 × 2 × 3`, and inside out it shuts in
-/// `−12`.
+/// still two, every face still lies on the surface it names, every loop still
+/// bounds its own face, and the ladder is untouched. What is left is the sign:
+/// the block shuts in `2 × 2 × 3`, and inside out it shuts in `−12`.
+///
+/// **Turned rather than merely flipped** — see
+/// [`Topology::turn_through`](crate::solid::topology::Topology). A face's
+/// normal and the winding of its loops say the same thing twice, so flipping
+/// the flag alone would be caught two checks earlier and prove nothing about
+/// this one.
 #[test]
 #[should_panic(expected = "faces inward")]
 fn a_lump_facing_inward_is_refused() {
     let mut body = block();
     let faces: Vec<FaceId> = body.topology().faces().map(|(at, _)| at).collect();
-    for at in faces {
-        let face = body.topology_mut().face_mut(at);
-        face.outward = !face.outward;
-    }
+    body.topology_mut().turn_through(&faces);
+    body.check();
+}
+
+/// A face bounding the side it does not face is refused.
+///
+/// **The one break the two readings of a boundary disagree about.** A face's
+/// normal says which side holds material, and the winding of its loops says the
+/// same thing again — see [`Face::loops`](crate::solid::topology::face::Face).
+/// Turn the flag over on its own and the
+/// two contradict each other, while every earlier check passes: the loops still
+/// close, every edge is still walked once each way, Euler is still two, and the
+/// face still lies on the surface it names.
+///
+/// Nothing downstream reads the winding — a triangulator rewinds each fill from
+/// its own signed area — so without this the rule is a comment. `Rounding` is
+/// the one reader that believes it, and it reads a corner's convexity off the
+/// walk.
+#[test]
+#[should_panic(expected = "wrong side of its own walk")]
+fn a_face_bounding_the_wrong_side_is_refused() {
+    let mut body = block();
+    let at = body.topology().faces().next().expect("a block has faces").0;
+    let face = body.topology_mut().face_mut(at);
+    face.outward = !face.outward;
     body.check();
 }
 

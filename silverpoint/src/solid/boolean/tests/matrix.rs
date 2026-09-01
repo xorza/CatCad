@@ -230,6 +230,11 @@ fn a_swallowed_body_leaves_a_shell_inside_a_shell() {
 /// Turned round it shuts in `+8` and describes a second solid standing inside
 /// the first — material in two places at once, and a body every check but this
 /// one calls valid.
+///
+/// **Turned through itself rather than merely flipped**, on the terms
+/// [`Topology::turn_through`](crate::solid::topology::Topology) states: the
+/// loops go round with the normals, or the break is the one the check before
+/// this catches.
 #[test]
 #[should_panic(expected = "faces outward")]
 fn a_cavity_facing_outward_is_refused() {
@@ -248,10 +253,7 @@ fn a_cavity_facing_outward_is_refused() {
         .first()
         .expect("the cavity the swallowed body left");
     let faces = body.topology().faces_of(hollow).to_vec();
-    for at in faces {
-        let face = body.topology_mut().face_mut(at);
-        face.outward = !face.outward;
-    }
+    body.topology_mut().turn_through(&faces);
     body.check();
 }
 
