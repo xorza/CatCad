@@ -18,6 +18,7 @@ pub(crate) mod curve;
 pub(crate) mod cylinder;
 pub(crate) mod ellipse;
 pub(crate) mod fitted;
+pub(crate) mod gusset;
 pub(crate) mod hyperbola;
 pub(crate) mod line;
 pub(crate) mod marchings;

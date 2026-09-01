@@ -386,8 +386,9 @@ cost. Torus, then the ruled patch §9.6 raises, then NURBS — all three
 
 A face's parameter domain is obtained by **inverting the surface**, which is
 closed-form for every natural quadric — `Plane::flatten` already is this — and
-for the torus. A Newton solve is what the other two fitted surfaces cost: the
-ruled patch §9.6 raises, and NURBS.
+for the torus and for the ruled patch §9.6 raises, whose every ruling lies in a
+tangent plane of one of the two cylinders it joins. A Newton solve is what NURBS
+will cost, and nothing else here does.
 
 **No parameter-space curves, ever.** ACIS hangs a pcurve on each coedge; OCCT
 stores one per edge-face pair. A pcurve is a second representation of a curve
@@ -484,7 +485,8 @@ silverpoint/src/
                    torus, line, circle, ellipse, hyperbola, parabola, saddle,
                    axis, bending, carried, fitted, natural, marchings, pencil,
                    quadric, quartic, quartics, roots, ruled, tests
-                   — to come: gusset, the ruled patch §9.6 is
+      gusset/      mod (Gusset), tests — ahead of its caller, and §9.6 says
+                   why
     topology/      mod (Topology, Walked), body, lump, shell, face, edge,
                    vertex, coedge, spreading, validity, tests
     build/         mod, builder (Builder, Extrusion), revolving, sector, strip,
@@ -1742,23 +1744,38 @@ axis lying in the shared face and the fillet's radial there being that face's
 own normal. What it divides vanishes with it, so the limit stands. A reader
 asking at the tip is asking at the one place the parameters say nothing.
 
-**What is left to write**, now that none of it is a search:
+**And it inverts in closed form**, which the module next door promises of every
+surface it holds and this one keeps. Every ruling lies in a tangent plane of the
+fillet, and those planes are one family — so a place off that cylinder stands in
+exactly two of them, `(x − o)·m = r` being one harmonic in the angle. Which of
+the two carries the place is a reading rather than a bit, the two rulings
+standing well apart wherever the question is asked. So no Newton solve is wanted
+after all, and §4.7's promise survives this surface untouched.
 
-- The surface itself, as a `Fitted` arm — `Gusset`, which is what a tailor lets
-  into a corner. Four fields and no more: the two cylinders, where its first
-  edge starts, and the branch bit. The touch point is the middle of the two
-  axes' common perpendicular and the cutting plane comes off those three, so
-  neither is held and neither can drift. `at` and `normal` are the ruling above,
-  `uv` inverts it, and `met_by`, `straying` and `strides` come off the ruling's
-  own bounds.
-- **And `met_by` is the one open question**, which nothing above settles: a ray
-  meets a ruled surface where it is coplanar with a ruling, and that is one
-  equation in the fillet's angle with no degree behind it. Every other surface
-  here answers a ray by a quadratic or a quartic and knows how many roots it
-  can have. This one has to fence its own turn before it bisects, and what
-  bounds the fencing is the next thing to work out.
-- **The arm cannot land before its producer**, a variant nothing constructs
-  being dead code — so the surface and the route below are one commit.
+**And the flat pair is no easier, which is worth saying because it looks it.**
+Two chamfers that disagree are planes, and two planes always cross — but the
+line they cross in leaves one strip going one way and the other going the other,
+so the two faces touch at the one point their rails cross and nowhere else, the
+same as the two cylinders. Nor does the ruled construction reach it: a patch
+tangent to a *plane* along a curve is that plane. So a flat corner wants its own
+answer, and this milestone does not carry one.
+
+**`Gusset` is in the tree**, with the ruling, the touch point, the place, the
+normal and the inversion, and seven tests over a square corner and a leaning
+one. It is kept ahead of its caller and says so.
+
+**What is left to write:**
+
+- **`met_by`, which is the one open question.** A ray meets a ruled surface
+  where it is coplanar with a ruling, and that is one equation in the fillet's
+  angle with no degree behind it. Every other surface here answers a ray by a
+  quadratic or a quartic and knows how many roots it can have. Measured over a
+  hundred and twenty thousand rays across the six corners, the patch is met
+  twice at most and never three times — which is evidence and not a bound, and
+  the bound is what has to be found.
+- The `Fitted` arm, which cannot land before that: `spans` is the patch's own
+  box and settles the culling outright, `straying` and `strides` come off the
+  ruling's bounds, and `singular` is the tip.
 - The second edge, walked against the first the way §7.5's rim arc is, filed as
   a run and carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`
@@ -1766,8 +1783,8 @@ asking at the tip is asking at the one place the parameters say nothing.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
   than either surface it joins.
 - The export, where a ruled patch has no analytic entity: it goes out as a
-  B-spline surface at the caller's sagitta, which is §9.5's chording read one
-  dimension up.
+  B-spline surface at the caller's sagitta, degree one across the ruling, which
+  is §9.5's chording read one dimension up.
 
 ---
 
