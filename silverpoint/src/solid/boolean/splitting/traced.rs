@@ -447,7 +447,7 @@ impl<'a> Traced<'a> {
     /// changes sign exactly where the cut is.
     pub(super) fn crossing(self, from: DVec2, to: DVec2) -> DVec2 {
         let at = |along: f64| self.side(from.lerp(to, along));
-        let along = bisect::crossed(0.0, 1.0, at).expect("the run crosses the cut");
+        let along = bisect::root(0.0, 1.0, at).expect("the run crosses the cut");
         from.lerp(to, along)
     }
 
@@ -537,7 +537,7 @@ impl<'a> Traced<'a> {
             // answer stands.
             let middle = (first + second) / 2.0;
             let read = |lo: f64, hi: f64, had: f64| {
-                bisect::crossed(lo, hi, |along| self.side(from.lerp(to, along))).unwrap_or(had)
+                bisect::root(lo, hi, |along| self.side(from.lerp(to, along))).unwrap_or(had)
             };
             [
                 from.lerp(to, read(0.0, middle, first)),
@@ -555,8 +555,8 @@ impl<'a> Traced<'a> {
     /// winds counterclockwise.
     pub(super) fn holds(self, at: DVec2) -> bool {
         let piece = self.pieces[self.found(at).piece];
-        let swept = winding::swept_over(self.flattened(piece).map(|(_, at)| at));
-        (swept > 0.0) == (piece.forward == self.inward)
+        let counterclockwise = winding::doubled_over(self.flattened(piece).map(|(_, at)| at)) > 0.0;
+        counterclockwise == (piece.forward == self.inward)
     }
 
     /// The corners of the cut between two places along it, in the direction it

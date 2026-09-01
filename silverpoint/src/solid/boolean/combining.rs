@@ -795,7 +795,7 @@ impl Combining {
                         .map(|(&at, &came)| Corner { at, came }),
                 );
                 if at == 0 {
-                    turned = winding::swept(corners) < 0.0;
+                    turned = winding::doubled(corners) < 0.0;
                 }
                 if turned {
                     corner::turned(corners);

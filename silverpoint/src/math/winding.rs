@@ -51,8 +51,8 @@ impl Place for DVec2 {
 ///
 /// The run is closed whether or not its last corner repeats its first — the
 /// walk wraps — so a caller need not decide which convention it is using.
-pub(crate) fn swept(walk: &[impl Place]) -> f64 {
-    swept_over(walk.iter().map(|it| it.place()))
+pub(crate) fn doubled(walk: &[impl Place]) -> f64 {
+    doubled_over(walk.iter().map(|it| it.place()))
 }
 
 /// The same, over a run read once rather than held in a slice.
@@ -60,11 +60,11 @@ pub(crate) fn swept(walk: &[impl Place]) -> f64 {
 /// **One rule and two ways in, not two rules.** A caller whose corners are
 /// worked out as they are walked has no slice to hand over, and a buffer for
 /// one would be a heap block on the path a body is rebuilt down — see
-/// `Traced::holds`. The body is here and [`swept`] is a call to it.
+/// `Traced::holds`. The body is here and [`doubled`] is a call to it.
 ///
 /// The closing term is nought, the last corner sweeping nothing against the
 /// first, so the run needs no wrap of its own.
-pub(crate) fn swept_over(places: impl Iterator<Item = DVec2>) -> f64 {
+pub(crate) fn doubled_over(places: impl Iterator<Item = DVec2>) -> f64 {
     let mut places = places;
     let Some(first) = places.next() else {
         return 0.0;
@@ -196,17 +196,17 @@ mod tests {
             "the terms no longer round, so nothing is tested"
         );
 
-        assert_eq!(swept(&far), 2.0, "a square out at {K} shut in nothing");
-        assert_eq!(swept(&square(DVec2::ZERO)), 2.0);
+        assert_eq!(doubled(&far), 2.0, "a square out at {K} shut in nothing");
+        assert_eq!(doubled(&square(DVec2::ZERO)), 2.0);
 
         let mut backwards = far;
         backwards.reverse();
-        assert_eq!(swept(&backwards), -2.0, "the hole did not read as one");
+        assert_eq!(doubled(&backwards), -2.0, "the hole did not read as one");
 
         // Nothing at all encloses nothing, which is the empty walk this used to
         // reach by not looping.
         let nowhere: [DVec2; 0] = [];
-        assert_eq!(swept(&nowhere), 0.0);
+        assert_eq!(doubled(&nowhere), 0.0);
     }
 
     /// **Both readings of one walk, against distances worked out by hand.**

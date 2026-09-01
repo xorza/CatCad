@@ -196,7 +196,7 @@ impl Shut {
             fills.hold(corner.at);
         }
         Self {
-            area: winding::swept(walk) / 2.0,
+            area: winding::doubled(walk) / 2.0,
             fills,
         }
     }

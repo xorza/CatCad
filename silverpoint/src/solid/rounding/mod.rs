@@ -1253,7 +1253,7 @@ impl Rounding {
             if along[side] == after.edge {
                 return None;
             }
-            let Cut {
+            let CutBack {
                 at: bound,
                 made: to,
             } = cut_back(
@@ -1293,7 +1293,7 @@ impl Rounding {
         let mut made = [DVec3::ZERO; 2];
         for side in 0..2 {
             along[side] = neighbour(topology, between[side], spine, at)?;
-            let Cut {
+            let CutBack {
                 at: bound,
                 made: to,
             } = cut_back(topology, along[side], rails[side], between[side], at)?;
@@ -1313,7 +1313,7 @@ impl Rounding {
         // than a half turn wherever the two planes meet at an angle at all. A
         // flat blend meets the face across a corner in a line, which comes back
         // to nowhere and asks nothing.
-        let bounds = swept(&curve, ends, carried, |middle| match blend.laid {
+        let bounds = arced(&curve, ends, carried, |middle| match blend.laid {
             Laid::Round(cylinder) => {
                 let axis = cylinder.axis;
                 let span = axis.bearing(rails[1].origin - axis.origin);
@@ -1371,7 +1371,7 @@ impl Rounding {
         // one's rail crosses it. The second one's crosses it at the same place,
         // both rails standing a radius off the face they share.
         let along = neighbour(topology, pair[0].between[1 - one], pair[0].edge, at)?;
-        let Cut {
+        let CutBack {
             at: cut,
             made: back,
         } = cut_back(
@@ -1394,7 +1394,7 @@ impl Rounding {
         // out to twice the radius and back — and the arc wanted is the one that
         // never stands further off the face than the corner on the edge already
         // does.
-        let bounds = swept(&curve, ends_along, carried, |middle| {
+        let bounds = arced(&curve, ends_along, carried, |middle| {
             plane.off(middle) <= plane.off(back)
         });
         Some(Junction {
@@ -2295,7 +2295,7 @@ impl Junction {
 
 /// Where one edge of the body is cut back to, and where that lands.
 #[derive(Debug, Clone, Copy)]
-struct Cut {
+struct CutBack {
     at: f64,
     made: DVec3,
 }
@@ -2312,7 +2312,7 @@ fn cut_back(
     rail: Line,
     on: FaceId,
     at: VertexId,
-) -> Option<Cut> {
+) -> Option<CutBack> {
     let run = topology.edge(along);
     let surface = topology.face(on).surface;
     let corner = topology.vertex(at).at;
@@ -2323,7 +2323,7 @@ fn cut_back(
         false => (last, first),
     };
     let reached = (cut - near) / (far - near);
-    (reached > 0.0 && reached < 1.0).then(|| Cut {
+    (reached > 0.0 && reached < 1.0).then(|| CutBack {
         at: cut,
         made: run.curve.at(cut, topology.carried()),
     })
@@ -2371,7 +2371,7 @@ fn cut_at(edge: &Edge, rail: Line, normal: DVec3) -> Option<f64> {
 /// on the answer is a question only the caller can put — so the arithmetic is
 /// here and the test is handed over, read at the middle of the arc it would
 /// choose. An open curve has one answer and asks nothing.
-fn swept(
+fn arced(
     curve: &Curve,
     ends: [f64; 2],
     carried: &Carried,

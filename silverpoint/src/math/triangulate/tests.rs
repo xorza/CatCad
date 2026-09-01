@@ -1,5 +1,5 @@
 use super::*;
-use crate::math::winding::swept;
+use crate::math::winding::doubled;
 
 /// One polygon cut, through a cutter stood up for the call.
 ///
@@ -273,7 +273,7 @@ fn two_holes_in_a_notched_outline_are_tiled_like_anything_else() {
     // winding went wrong, so on its own it says nothing, and it is here to
     // catch the opposite mistake rather than this one.
     let want =
-        swept(&outline).abs() / 2.0 - holes.iter().map(|h| swept(h).abs() / 2.0).sum::<f64>();
+        doubled(&outline).abs() / 2.0 - holes.iter().map(|h| doubled(h).abs() / 2.0).sum::<f64>();
     assert!(
         (fill.covered() - want).abs() < 1e-9,
         "tiled {} of the {want} it encloses",
@@ -352,8 +352,8 @@ fn a_notched_outline_is_tiled_whatever_is_punched_out_of_it() {
             all_wound_forward(&fill),
             "seed {seed}: {sides} sides and {holes} holes wound a triangle backwards"
         );
-        let want =
-            swept(&outline).abs() / 2.0 - punched.iter().map(|h| swept(h).abs() / 2.0).sum::<f64>();
+        let want = doubled(&outline).abs() / 2.0
+            - punched.iter().map(|h| doubled(h).abs() / 2.0).sum::<f64>();
         assert!(
             (fill.covered() - want).abs() < 1e-9,
             "seed {seed}: tiled {} of the {want} it encloses",
@@ -477,7 +477,7 @@ fn a_contour_that_is_no_simple_loop_is_still_cut() {
     ];
     for (name, shape, want) in cases {
         let places = corners(shape);
-        let encloses = swept(&places) / 2.0;
+        let encloses = doubled(&places) / 2.0;
         assert!(
             (encloses - want).abs() < 1e-12,
             "{name} encloses {encloses} rather than the {want} it was written to",
@@ -514,7 +514,7 @@ fn a_contour_that_crosses_itself_is_drawn_lobe_by_lobe() {
     let bowtie = corners(&[(0.0, 0.0), (2.0, 2.0), (2.0, 0.0), (0.0, 2.0)]);
     // The two lobes are `(0,0) (1,1) (0,2)` and `(1,1) (2,2) (2,0)`, a unit
     // each, and they cancel.
-    assert!(swept(&bowtie).abs() < 1e-12);
+    assert!(doubled(&bowtie).abs() < 1e-12);
 
     let fill = polygon(&bowtie, &[]);
     assert!(

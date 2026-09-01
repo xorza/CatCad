@@ -400,7 +400,7 @@ impl<'a> Cut<'a> {
             let along = start + (end - start) * part;
             reading.at(curve, along, from.at.lerp(to.at, part))
         };
-        let part = bisect::crossed(0.0, 1.0, |part| self.side(place(part)))?;
+        let part = bisect::root(0.0, 1.0, |part| self.side(place(part)))?;
         Some(place(part))
     }
 

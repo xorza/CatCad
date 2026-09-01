@@ -1,5 +1,5 @@
 use super::*;
-use crate::math::winding::swept;
+use crate::math::winding::doubled;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::bow::Bow;
 use crate::solid::boolean::splitting::corner::{Came, passing, turned};
@@ -76,7 +76,7 @@ fn leftward(x: f64) -> Cut<'static> {
 
 /// How much the region at `at` covers, holes taken out.
 fn covered(cells: &Cells, at: usize) -> f64 {
-    cells.cell(at).map(|loop_| swept(loop_) / 2.0).sum()
+    cells.cell(at).map(|loop_| doubled(loop_) / 2.0).sum()
 }
 
 /// How much every region covers between them.

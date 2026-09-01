@@ -436,7 +436,7 @@ impl Merging {
     /// parameters and signed.
     fn shut(&mut self, of: &Topology, face: &Face, at: usize) -> f64 {
         self.flattened(of, face, at);
-        winding::swept(&self.flat) / 2.0
+        winding::doubled(&self.flat) / 2.0
     }
 
     /// Trace the merged loop at `at` and flatten it into the face's own

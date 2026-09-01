@@ -208,14 +208,14 @@ impl Bow {
         // The derivative's own roots, which are where the difference turns.
         let mut turns: Inline<f64, 8> = Inline::two(0.0, 1.0);
         for pair in fences.windows(2) {
-            if let Some(root) = bisect::crossed(pair[0], pair[1], slope) {
+            if let Some(root) = bisect::root(pair[0], pair[1], slope) {
                 turns.push(root);
             }
         }
         let turns = sorted(turns.all_mut());
         let mut bowed = Bowed::none();
         for pair in turns.windows(2) {
-            let Some(root) = bisect::crossed(pair[0], pair[1], at) else {
+            let Some(root) = bisect::root(pair[0], pair[1], at) else {
                 continue;
             };
             if self.holds(from.lerp(to, root)) {

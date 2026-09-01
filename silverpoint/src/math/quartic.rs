@@ -10,7 +10,7 @@
 //!
 //! The derivative is a cubic, and that one *is* solved in closed form — a cubic
 //! has no interval to isolate over, and its roots here are only ever used as
-//! fences. What walks each bracket down is [`bisect::crossed`], which is where
+//! fences. What walks each bracket down is [`bisect::root`], which is where
 //! the graze policy lives.
 
 use crate::inline::Inline;
@@ -48,7 +48,7 @@ pub(crate) fn roots(a: f64, b: f64, c: f64, d: f64, e: f64) -> Inline<f64, 4> {
     fence.push(reach);
     fence.all_mut().sort_by(f64::total_cmp);
     for pair in fence.all().windows(2) {
-        if let Some(root) = bisect::crossed(pair[0], pair[1], at) {
+        if let Some(root) = bisect::root(pair[0], pair[1], at) {
             found.push(root);
         }
     }

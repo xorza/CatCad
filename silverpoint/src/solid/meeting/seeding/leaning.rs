@@ -113,7 +113,7 @@ impl Leaning {
                     true => 1.0,
                     false => -1.0,
                 };
-                if let Some(end) = bisect::crossed(lo, hi, side) {
+                if let Some(end) = bisect::root(lo, hi, side) {
                     if ends.all().len() == ENDS {
                         return None;
                     }

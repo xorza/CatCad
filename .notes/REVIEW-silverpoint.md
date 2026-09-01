@@ -56,22 +56,3 @@ These rules are spelled more than once.
   `solid/boolean/splitting/flare.rs:180` (`Flare::grazes`) are two spellings
   of one walk: lay chords, intersect a span against each, deduplicate within
   `PLACED`, cap at two, refuse more. Each one's comment points at the other.
-
-## One name, several meanings
-
-The crate states "give one word one meaning" for its number vocabulary. These
-names carry several unrelated meanings across modules.
-
-- [ ] `swept` is four unrelated functions: `math/winding.rs:54` (signed area),
-  `math/intersect/mod.rs:283` (determinant sign),
-  `solid/boolean/sewing/mod.rs:97` (arc bounds by accumulation), and
-  `solid/rounding/mod.rs:2374` (arc selection on a closed curve).
-- [ ] `crossed` is three: `math/bisect.rs:37` (root bracketing),
-  `math/intersect/mod.rs:250` (crossing fold), `solid/rounding/mod.rs:2448`
-  (two lines in a plane).
-- [ ] Type names collide pairwise: `Cut` (`splitting/cut.rs:48` enum against
-  `rounding/mod.rs:2298` struct), `Crossing` (`math/intersect/mod.rs:79`
-  against `rounding/mod.rs:527`), `Stretch`
-  (`sketch/solver/elimination/mod.rs:55` against
-  `solid/geometry/quartic.rs:52`), `Laid` (`rounding/mod.rs:94` against
-  `build/revolving.rs:1076`).

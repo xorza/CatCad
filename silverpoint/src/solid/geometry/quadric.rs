@@ -88,7 +88,7 @@ impl Quadric {
     pub(crate) fn of(surface: &Natural) -> Self {
         match surface {
             Natural::Plane(plane) => {
-                let [x, y, z] = crossed(plane.x, plane.y);
+                let [x, y, z] = cross(plane.x, plane.y);
                 Self::about(
                     [
                         x.clone() * x.clone(),
@@ -409,7 +409,7 @@ fn placed(place: DVec3) -> [Rational; 3] {
 }
 
 /// `one × two`, exactly.
-fn crossed(one: DVec3, two: DVec3) -> [Rational; 3] {
+fn cross(one: DVec3, two: DVec3) -> [Rational; 3] {
     let [ax, ay, az] = placed(one);
     let [bx, by, bz] = placed(two);
     [

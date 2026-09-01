@@ -93,7 +93,7 @@ fn encircled(walk: &[Corner]) -> Option<u32> {
 /// curve exactly for a cut like that and a chord's breadth inside it for a
 /// flattened one — and a place a chord's breadth inside a circle stands at the
 /// angle the arc's middle does.
-fn swept(
+fn bounded(
     walk: &[Corner],
     from: usize,
     to: usize,
@@ -529,7 +529,7 @@ impl Sewing {
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
-        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve, carried);
+        let [from, round] = bounded(&self.scratch.turning, 0, 0, on, curve, carried);
         // A loop of one closed imprint is the whole of that curve, so its lap
         // is a whole turn — and the sign of it is the only thing read below, so
         // a loop that was not would be turned into arcs the wrong way round
@@ -635,7 +635,7 @@ impl Sewing {
                     Came::Arc(run) => {
                         let upto = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
                         let curve = imprints.curve(run);
-                        let bounds = swept(
+                        let bounds = bounded(
                             &self.scratch.turning,
                             step,
                             upto,
@@ -659,7 +659,7 @@ impl Sewing {
                         // the high one.
                         //
                         // Exactly nought rather than nearly, the two ends
-                        // coming off one accumulation — see [`swept`].
+                        // coming off one accumulation — see [`bounded`].
                         if bounds[0] == bounds[1] {
                             continue;
                         }

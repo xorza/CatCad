@@ -422,7 +422,7 @@ impl Arrangement {
     /// The shoelace over the corners, plus what each arc bulges past the chord
     /// across it — which is the whole of the difference between a drawing of
     /// circles and a drawing of the polygons through their ends. Its own
-    /// spelling rather than [`winding::swept`](crate::math::winding), which
+    /// spelling rather than [`winding::doubled`](crate::math::winding), which
     /// walks places and has no arc to add.
     ///
     /// **About the loop's own first corner**, exactly as that one is and for

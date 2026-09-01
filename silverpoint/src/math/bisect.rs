@@ -34,7 +34,7 @@
 /// other — so the bracket stays wide and the count rises. Illinois and a halving
 /// every other step both came out above plain halving; the figures are in
 /// `.notes/KERNEL.md` §11.
-pub(crate) fn crossed(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> Option<f64> {
+pub(crate) fn root(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> Option<f64> {
     debug_assert!(!lo.is_nan() && !hi.is_nan(), "{lo}..{hi} is no bracket");
     let (mut lo, mut hi) = (lo, hi);
     let (under, over) = (at(lo), at(hi));
@@ -100,10 +100,10 @@ mod tests {
         asked: usize,
     }
 
-    /// [`crossed`], with the readings counted.
+    /// [`root`], with the readings counted.
     fn counted(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> Walked {
         let asked = Cell::new(0);
-        let found = crossed(lo, hi, |x| {
+        let found = root(lo, hi, |x| {
             asked.set(asked.get() + 1);
             at(x)
         });
@@ -195,14 +195,14 @@ mod tests {
     /// sign — the two ways there is no single crossing to walk down to.
     #[test]
     fn a_graze_and_a_pair_on_one_side_are_both_refused() {
-        assert_eq!(crossed(0.0, 2.0, |x| x * x), None, "a root at an end");
-        assert_eq!(crossed(-2.0, 0.0, |x| x * x), None, "and at the other");
-        assert_eq!(crossed(1.0, 2.0, |x| x + 1.0), None, "both above");
-        assert_eq!(crossed(-2.0, -1.0, |x| x + 5.0), None, "both above again");
+        assert_eq!(root(0.0, 2.0, |x| x * x), None, "a root at an end");
+        assert_eq!(root(-2.0, 0.0, |x| x * x), None, "and at the other");
+        assert_eq!(root(1.0, 2.0, |x| x + 1.0), None, "both above");
+        assert_eq!(root(-2.0, -1.0, |x| x + 5.0), None, "both above again");
         // A root inside a bracket whose ends agree is two roots or none, and
         // this answers neither — the caller fences its own interval so that it
         // cannot ask.
-        assert_eq!(crossed(-3.0, 3.0, |x| x * x - 1.0), None, "two inside");
+        assert_eq!(root(-3.0, 3.0, |x| x * x - 1.0), None, "two inside");
     }
 
     /// **The bracket is never left**, which is what a caller leans on when it
@@ -214,7 +214,7 @@ mod tests {
     fn no_reading_is_taken_outside_the_bracket() {
         let (lo, hi) = (0.0, 1.0);
         let seen = Cell::new(true);
-        let found = crossed(lo, hi, |x| {
+        let found = root(lo, hi, |x| {
             seen.set(seen.get() && x >= lo && x <= hi);
             // Nearly flat at one end and near-vertical at the other.
             (x - 0.999_999).powi(3)

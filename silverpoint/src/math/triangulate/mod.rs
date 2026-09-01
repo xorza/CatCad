@@ -148,7 +148,7 @@ fn wound(loop_: &[DVec2], counterclockwise: bool, corners: &mut Vec<DVec2>, into
     corners.extend_from_slice(loop_);
     let from = into.len();
     into.extend(first..first + loop_.len() as u32);
-    if (winding::swept(loop_) > 0.0) != counterclockwise {
+    if (winding::doubled(loop_) > 0.0) != counterclockwise {
         into[from..].reverse();
     }
 }
@@ -584,7 +584,7 @@ fn triangle(corners: &[DVec2], contour: &[u32], at: usize) -> [DVec2; 3] {
 #[cfg(test)]
 mod measuring {
     use crate::math::triangulate::Fill;
-    use crate::math::winding::swept;
+    use crate::math::winding::doubled;
     use glam::DVec2;
 
     impl Fill {
@@ -600,7 +600,7 @@ mod measuring {
         /// measured by the same reading that decided which way its outline was
         /// walked in the first place.
         pub(super) fn sweep_of(&self, at: usize) -> f64 {
-            swept(&self.corners_of(at))
+            doubled(&self.corners_of(at))
         }
 
         /// Where the middle of one triangle falls.

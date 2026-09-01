@@ -84,7 +84,7 @@ impl Ripple {
     ///
     /// Converged rather than tolerated, which is the distinction that matters:
     /// what comes back is the root to the precision the numbers hold, not a
-    /// place within some bound of it. Through [`bisect::crossed`], which is
+    /// place within some bound of it. Through [`bisect::root`], which is
     /// where both that and the graze policy are stated — an end that comes to
     /// nought is a turning place touching the wave rather than crossing it, and
     /// `Bow` next door is fenced and bisected the same way.
@@ -107,7 +107,7 @@ impl Ripple {
         turns.sort_by(f64::total_cmp);
         let mut crested = Crested::none();
         for pair in turns.windows(2) {
-            if let Some(root) = bisect::crossed(pair[0], pair[1], at) {
+            if let Some(root) = bisect::root(pair[0], pair[1], at) {
                 crested.push(root);
             }
         }

@@ -305,7 +305,7 @@ fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
 /// origin, so its terms ran to `10¹⁶` where a place in the last is worth two —
 /// the sixteen and the four both came back under [`ENCLOSED`] and both loops
 /// were thrown away as slivers. Taken about each loop's own first corner they
-/// are the areas the drawing has. See [`winding::swept`](crate::math::winding).
+/// are the areas the drawing has. See [`winding::doubled`](crate::math::winding).
 ///
 /// **And the hole finds the face it was cut from by a ray**, which out there is
 /// the decision a quotient cannot take: the crossing it works out rounds onto

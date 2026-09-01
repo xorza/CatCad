@@ -96,7 +96,7 @@ pub(crate) type Crossings = Inline<Crossing, 2>;
 
 /// Two places a pair of curves crosses at, folded to one where the two are the
 /// same place to within [`PLACED`].
-fn crossed(first: Crossing, second: Crossing) -> Crossings {
+fn folded(first: Crossing, second: Crossing) -> Crossings {
     let apart = first.at.distance(second.at);
     if apart <= PLACED {
         // The midpoint rather than either, so a grazing pair answers with the
@@ -719,7 +719,7 @@ pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
         })
     });
     match kept {
-        [Some(near), Some(far)] => crossed(near, far),
+        [Some(near), Some(far)] => folded(near, far),
         [Some(only), None] | [None, Some(only)] => Crossings::one(only),
         [None, None] => Crossings::none(),
     }
@@ -784,7 +784,7 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
         });
     }
     let step = between.perp() * halved.half;
-    crossed(
+    folded(
         Crossing {
             at: base + step,
             reached: placed,

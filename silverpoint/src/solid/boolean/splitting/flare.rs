@@ -162,7 +162,7 @@ impl Flare {
     /// [`Traced::crossing`](super::traced::Traced) strikes.
     pub(crate) fn crossing(self, from: DVec2, to: DVec2) -> DVec2 {
         let at = |along: f64| self.side(from.lerp(to, along));
-        let along = bisect::crossed(0.0, 1.0, at).expect("the run crosses the cut");
+        let along = bisect::root(0.0, 1.0, at).expect("the run crosses the cut");
         from.lerp(to, along)
     }
 

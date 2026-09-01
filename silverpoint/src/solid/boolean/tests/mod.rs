@@ -113,7 +113,7 @@ fn covered(combining: &Combining) -> f64 {
         .map(|kept| {
             kept.loops
                 .clone()
-                .map(|run| winding::swept(combining.loops().get(run)) / 2.0)
+                .map(|run| winding::doubled(combining.loops().get(run)) / 2.0)
                 .sum::<f64>()
         })
         .sum()
@@ -195,7 +195,7 @@ fn a_cut_turns_the_tools_faces_over_and_leaves_the_cubes_alone() {
     let covered: f64 = base
         .iter()
         .flat_map(|kept| kept.loops.clone())
-        .map(|run| winding::swept(combining.loops().get(run)) / 2.0)
+        .map(|run| winding::doubled(combining.loops().get(run)) / 2.0)
         .sum();
     assert!(
         (covered - 16.0).abs() < 1e-9,
@@ -409,10 +409,10 @@ fn a_block_bored_through_comes_out_a_solid_with_a_hole_through_it() {
             circle == rim(0.0) || circle == rim(4.0),
             "an arc landed on {circle:?}",
         );
-        let swept = edge.bounds[1] - edge.bounds[0];
+        let doubled = edge.bounds[1] - edge.bounds[0];
         assert!(
-            (swept.abs() - PI).abs() < 1e-12,
-            "an arc swept {swept} rather than half a turn",
+            (doubled.abs() - PI).abs() < 1e-12,
+            "an arc doubled {doubled} rather than half a turn",
         );
     }
     // Two each way round: a rim is walked one way by the face it is a hole in
@@ -491,7 +491,7 @@ fn a_round_tool_leaves_the_volume_the_arithmetic_says() {
 /// whole of what a cut does with the body it takes away with.
 ///
 /// One name over both halves of it, because a wall is named by the curve it was
-/// swept off and not by how §4.4 had to cut it — see
+/// doubled off and not by how §4.4 had to cut it — see
 /// [`Grown::Side`](crate::solid::grown::Grown). The cube's own faces keep their
 /// names through all of it: a bore takes a bite out of one of them, and a face
 /// with a hole in it is the same face.
@@ -796,10 +796,10 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
                 && (oval.minor - want.minor).abs() < 1e-12,
             "an arc landed on {oval:?} rather than {want:?}",
         );
-        let swept = edge.bounds[1] - edge.bounds[0];
+        let doubled = edge.bounds[1] - edge.bounds[0];
         assert!(
-            (swept.abs() - PI).abs() < 1e-12,
-            "an arc swept {swept} rather than half the frame",
+            (doubled.abs() - PI).abs() < 1e-12,
+            "an arc doubled {doubled} rather than half the frame",
         );
     }
     // The two together are the whole ellipse, once round — one loop of the lid
@@ -1423,7 +1423,7 @@ fn a_turned_taper_is_bored_up_its_own_axis() {
 /// `.notes/KERNEL.md` §7.3 — so this is the whole of the exact tier's algebraic
 /// route, from the pencil down to the sewn body.
 ///
-/// **The arithmetic.** The profile `(1,0) (3,0) (2,2) (1,2)` swept whole about
+/// **The arithmetic.** The profile `(1,0) (3,0) (2,2) (1,2)` doubled whole about
 /// the `y` axis is a tube: by Pappus it covers `2π · x̄ · A`, and the shoelace
 /// gives `A = 3` and `x̄ = 16/9`, so the taper is `32π/3`. The bore takes a bite
 /// out of that, and the bite is bounded by the quartic — its volume is an
@@ -1638,7 +1638,7 @@ fn a_ring_drilled_through_its_wall_and_the_slug_it_took_put_the_ring_back() {
 /// this the seeding handed back nothing and the boolean refused the pair.
 ///
 /// **The arithmetic, read off the ring rather than off the answer.** What the
-/// drill takes is its own cross-section swept along its axis, so the bore is
+/// drill takes is its own cross-section doubled along its axis, so the bore is
 /// the drill's disc integrated against how much ring stands over each column of
 /// it — and how much stands over one column is where that column's line crosses
 /// the torus, which [`Torus::met_by`] solves in closed form and the boolean has
@@ -1905,7 +1905,7 @@ fn ball(at: DVec3, radius: f64, by: Step) -> Body {
             return body;
         }
     }
-    panic!("neither half of the disc swept a ball")
+    panic!("neither half of the disc doubled a ball")
 }
 
 /// **A ball and a cone are cut clean through the places their own parameters
