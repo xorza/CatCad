@@ -25,6 +25,22 @@ use crate::solid::geometry::surface::Crossings;
 use glam::{BVec2, DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
+/// How many chords the second edge is first walked in.
+///
+/// Small, because the doubling below reaches a fine walk in a handful of rounds
+/// and most corners are small — where starting fine would pay for every corner
+/// whose reach makes it coarse enough not to need it.
+const FIRST: usize = 4;
+
+/// How many times that walk may double before it hands back what it reached.
+///
+/// **A stray over the sagitta asked for is an answer rather than a failure.**
+/// What a run carries is what it was walked to — see
+/// [`Strayed::most`](super::marchings::Strayed) — and §4.1's tier is about
+/// saying how far a fit stands rather than about always reaching a number.
+/// Twelve doublings is sixteen thousand chords, which no corner wants.
+const DOUBLINGS: usize = 12;
+
 /// The patch between two blends of one reach whose picks do not agree.
 ///
 /// **Parameterized by the fillet's own angle and the run along the ruling**, in
@@ -167,6 +183,81 @@ impl Gusset {
     /// and `v` names no direction at that one place.
     pub(crate) fn singular(&self, at: DVec3) -> bool {
         at.approx_eq(self.met(), PLACED)
+    }
+
+    /// The patch's second edge, walked from its first edge round to the tip,
+    /// and how far the chords stand from the edge itself.
+    ///
+    /// **Walked rather than written down**, which is what puts the patch in the
+    /// fitted tier although both of its joins are exact. The first edge is a
+    /// plane section of the fillet and so an exact ellipse; the second follows
+    /// from it and is then not planar — over the whole pencil of planes through
+    /// its two ends it stands between a seventeenth and a tenth of its own size
+    /// out of flat, and never approaches nought. See `.notes/KERNEL.md` §9.6.
+    ///
+    /// **Probed rather than bounded**, exactly as a marched meeting is — see
+    /// [`Marching`](crate::solid::meeting::marching::Marching), where the same
+    /// reading is argued. Nothing writes this edge's curvature down, so no step
+    /// count can be read off a radius the way [`arc::chords`] reads one:
+    /// instead the walk doubles until three places along the worst chord all
+    /// stand within `sagitta` of the edge, and what comes back is what that
+    /// walk measured.
+    ///
+    /// **Against the edge at the same share of the angle**, which overstates
+    /// the distance to the curve where the two do not run in step — and
+    /// overstating a stray is the safe way to be wrong about one.
+    ///
+    /// The tip is the last place written, so a caller sewing this edge finds
+    /// the corner the two edges share where it expects it.
+    pub(crate) fn walked(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
+        debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
+        let framing = self.framing();
+        let [from, to] = self.bounds();
+        let mut steps = FIRST;
+        let mut most = self.laid(from, to, steps, framing, into);
+        while most > sagitta && steps < FIRST << DOUBLINGS {
+            steps *= 2;
+            most = self.laid(from, to, steps, framing, into);
+        }
+        most
+    }
+
+    /// Lay the second edge down in `steps` chords from `from` to `to`, and say
+    /// how far the worst of them stands from the edge.
+    ///
+    /// Three places along each chord, which is what a marched curve is measured
+    /// by and for the same reason: a smooth curve leaves its chord furthest
+    /// near the middle, so three catch what one would and a leaning chord
+    /// besides.
+    fn laid(
+        &self,
+        from: f64,
+        to: f64,
+        steps: usize,
+        framing: Framing,
+        into: &mut Vec<DVec3>,
+    ) -> f64 {
+        let foot = |u: f64| self.ruled(u, framing).foot;
+        let step = (to - from) / steps as f64;
+        into.clear();
+        into.reserve_exact(steps + 1);
+        into.extend((0..steps).map(|at| foot(from + step * at as f64)));
+        // **The tip is written rather than read.** Where the ruling has closed
+        // to nothing both edges are the touch point, and how far along the
+        // round's axis the ruling lands is nought over nought there — see
+        // `.notes/KERNEL.md` §9.6, which is where that limit is argued. The
+        // probing below stops three quarters of a chord short of it, so
+        // nothing reads the quotient at the one angle it has no value at.
+        into.push(self.met());
+        let mut most = 0.0_f64;
+        for (at, pair) in into.windows(2).enumerate() {
+            let began = from + step * at as f64;
+            for share in [0.25, 0.5, 0.75] {
+                let along = pair[0].lerp(pair[1], share);
+                most = most.max(along.distance(foot(began + step * share)));
+            }
+        }
+        most
     }
 
     /// Where the two blends touch, which is the tip the patch closes to.

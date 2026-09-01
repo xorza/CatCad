@@ -452,3 +452,59 @@ fn a_patch_keys_by_everything_it_is_made_of() {
         "where the first edge starts is not in the key"
     );
 }
+
+/// **The second edge walks onto the round and reaches the tip, and asking for
+/// less stray buys more chords.**
+///
+/// Every place of it lies on the round — that is what the edge *is*, the
+/// tangency the rulings land at — and the last is the tip both edges share, so
+/// a caller sewing it finds the corner where it expects one.
+///
+/// **The stray is measured and not predicted**, so what is held is that it
+/// answers under what was asked and falls as the walk is refined. Between a
+/// hundredth and a ten-thousandth the chord count has to rise, a curve that
+/// came back the same either way being one nothing was measuring.
+#[test]
+fn the_second_edge_is_walked_onto_the_round_and_reaches_the_tip() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let mut walked = Vec::new();
+        let mut counted = Vec::new();
+        let mut strayed = Vec::new();
+        for sagitta in [1e-2, 1e-3, 1e-4] {
+            let most = gusset.walked(sagitta, &mut walked);
+            assert!(most <= sagitta, "{named}: {most} strays past {sagitta}");
+            assert!(
+                walked.len() >= 5,
+                "{named}: {} chords is no walk",
+                walked.len(),
+            );
+            for &at in &walked {
+                assert!(
+                    (gusset.cut.axis.off(at) - gusset.cut.radius).abs() < 1e-9,
+                    "{named}: {at} is off the round",
+                );
+            }
+            let last = *walked.last().expect("a walk has an end");
+            assert!(
+                last.distance(gusset.met()) < 1e-9,
+                "{named}: {last} is not the tip",
+            );
+            let first = walked[0];
+            let began = gusset.at(DVec2::new(gusset.bounds()[0], 1.0));
+            assert!(
+                first.distance(began) < 1e-9,
+                "{named}: {first} is not the foot of the ruling the patch begins at",
+            );
+            counted.push(walked.len());
+            strayed.push(most);
+        }
+        assert!(
+            counted[0] < counted[2],
+            "{named}: {counted:?} chords for a hundredth and a ten-thousandth",
+        );
+        assert!(
+            strayed[2] < strayed[0],
+            "{named}: {strayed:?} strayed the same however finely it was walked",
+        );
+    }
+}

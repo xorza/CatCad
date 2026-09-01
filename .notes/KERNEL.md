@@ -1828,11 +1828,21 @@ so.
 
 - **The `Fitted` arm, and a box round the patch is what it waits on.** `spans`
   has to settle the culling outright, `off` having no closed form for a ruled
-  surface to fall back on — and a box wants the two edges' own extents, of
-  which the second is walked rather than written down. `fills` is the
-  boundary's own box and needs nothing: every ruling has both ends on the
-  boundary, so the patch lies inside its convex hull. `straying` and `strides`
-  come off the ruling's bounds, and `singular` is the tip, which is written.
+  surface to fall back on. `fills` is the boundary's own box and needs nothing:
+  every ruling has both ends on the boundary, so the patch lies inside its
+  convex hull. `straying` and `strides` come off the ruling's bounds, and
+  `singular` is the tip, which is written.
+- **The box's first half is written down and its second is not.** The first
+  edge is an exact ellipse in the world — `head(u)` comes to a fixed place plus
+  `cos u` and `sin u` times two fixed vectors, so its box is that place plus
+  the hypotenuse of the two per axis, over the whole turn and coarser still
+  over the arc. The second edge lies on the round at exactly the reach from its
+  axis, so it is bounded across that axis and wants only its extent *along* it
+  — which is `step(u)`, whose denominator `d·m` vanishes at the tip. So the
+  extent is the walk's, and `Gusset::walked` is what supplies it.
+  **The tangent length is not a shortcut**: a ruling is tangent to the round
+  but not square to its axis, so `√(d² − r²)` bounds the across component of a
+  ruling and nothing else.
 - **`off` wants an answer of its own, and the inversion is not it.** Tried:
   `at(uv(at))` for a place off the patch lands on a *different* ruling, because
   `uv` answers the ruling whose line the place stands nearest and a place moved
@@ -1842,8 +1852,16 @@ so.
   every edge against both its faces, and `Surface::nearest` and `Fitted::uv`'s
   own promise — the nearest place for anything off the surface — want the same
   thing.
-- The second edge, walked against the first the way §7.5's rim arc is, filed as
-  a run and carrying its stray onto the edge and the corners at either end.
+- ~~The second edge, walked~~ — `Gusset::walked` lays it down from the first
+  edge round to the tip and answers the stray it measured, doubling the chord
+  count until three places along the worst chord all stand within the sagitta.
+  Probed rather than bounded, on `Marching::sagging`'s own terms. **The tip is
+  written rather than read**: `step(u)` is nought over nought there, and
+  reading it hands back a wrong finite place rather than a `NaN` — measured at
+  0.61 off on the square corner, which no refinement moved.
+  What is left is the *filing*: handing the walk to `Marchings::add` and
+  carrying its stray onto the edge and the corners at either end, which is
+  `Rounding`'s to do.
 - The route in `Rounding` that raises it, which is the one test `joining`
   refuses on today, answered instead of refused.
 - `Checking` over it, and the mesher, which reads a ruled surface more cheaply
