@@ -65,10 +65,12 @@ impl Cells {
         let from = self.loops.len();
         write(&mut self.loops);
         if self.loops.len() > from {
-            let mut fills = Bounds::default();
-            for corner in self.loops.get(from) {
-                fills.hold(corner.at);
-            }
+            let fills = self
+                .loops
+                .get(from)
+                .iter()
+                .map(|corner| corner.at)
+                .collect();
             self.owned.push(from..self.loops.len());
             self.fills.push(fills);
         }

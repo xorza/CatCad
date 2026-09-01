@@ -1,8 +1,8 @@
 //! Putting one face back together out of what a cut split it into.
 
+use crate::groups::Groups;
 use crate::inline::Inline;
 use crate::loops::Loops;
-use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::tolerance::{CHORDED, WRAPPING};
 use crate::solid::copying;
@@ -53,8 +53,8 @@ pub struct Merging {
     walked: Vec<Inline<u32, 2>>,
     /// Whether each coedge is one of a cancelling pair.
     dropped: Vec<bool>,
-    /// Which group each face falls in, by slot — see [`Merging::group`].
-    grouped: Vec<u32>,
+    /// Which faces are pieces of one, by slot — see [`Merging::group`].
+    groups: Groups,
     /// Whether each coedge has been taken into a merged loop.
     taken: Vec<bool>,
     /// One merged loop on its way into `laid`, which is borrowed while it is
@@ -152,15 +152,14 @@ impl Merging {
     /// handed the identical one, and two faces that worked one out separately
     /// fall a rounding apart and are two faces of the body — see §5.
     fn group(&mut self, of: &Topology) {
-        self.grouped.clear();
-        self.grouped.extend(0..of.face_slots() as u32);
+        self.groups.apart(of.face_slots());
         for (_, edge) in of.edges() {
             let [one, two] = edge.between.map(|face| of.face(face));
             if one.surface != two.surface || one.name != two.name || one.outward != two.outward {
                 continue;
             }
             let [here, there] = edge.between.map(|face| face.slot());
-            self.join(here, there);
+            self.groups.join(here, there);
         }
         self.dropped.clear();
         self.dropped.resize(self.coedges.len(), false);
@@ -170,32 +169,8 @@ impl Merging {
             };
             let sides =
                 [here, there].map(|at| self.holder[self.within[at as usize] as usize] as usize);
-            self.dropped[at] = self.found(sides[0]) == self.found(sides[1]);
+            self.dropped[at] = self.groups.of(sides[0]) == self.groups.of(sides[1]);
         }
-    }
-
-    /// Put the faces at the slots `here` and `there` in one group.
-    fn join(&mut self, here: usize, there: usize) {
-        let (here, there) = (self.found(here), self.found(there));
-        if here != there {
-            self.grouped[there] = here as u32;
-        }
-    }
-
-    /// Which group the face at the slot `at` falls in, flattening the chain it
-    /// was found down as it goes.
-    fn found(&mut self, at: usize) -> usize {
-        let mut root = at;
-        while self.grouped[root] as usize != root {
-            root = self.grouped[root] as usize;
-        }
-        let mut walk = at;
-        while self.grouped[walk] as usize != walk {
-            let next = self.grouped[walk] as usize;
-            self.grouped[walk] = root as u32;
-            walk = next;
-        }
-        root
     }
 
     /// Chain what did not cancel into the loops of each merged face.
@@ -208,7 +183,9 @@ impl Merging {
             if self.taken[at] || self.dropped[at] {
                 continue;
             }
-            let group = self.found(self.holder[self.within[at] as usize] as usize);
+            let group = self
+                .groups
+                .of(self.holder[self.within[at] as usize] as usize);
             self.walk.clear();
             let mut step = at;
             loop {
@@ -273,7 +250,7 @@ impl Merging {
         self.counted.clear();
         self.counted.resize(of.face_slots(), 0);
         for (id, _) in of.faces() {
-            let group = self.found(id.slot());
+            let group = self.groups.of(id.slot());
             self.counted[group] += 1;
             self.first[group].get_or_insert(id);
         }
@@ -300,7 +277,7 @@ impl Merging {
         self.made.clear();
         self.made.resize(of.face_slots(), None);
         for (id, face) in of.faces() {
-            let group = self.found(id.slot());
+            let group = self.groups.of(id.slot());
             let at = match self.whole[group] {
                 true => group,
                 false => id.slot(),
@@ -332,7 +309,7 @@ impl Merging {
         self.kept.clear();
         self.kept.resize(of.edge_slots(), None);
         for (id, face) in of.faces() {
-            let group = self.found(id.slot());
+            let group = self.groups.of(id.slot());
             let raised = self.made[id.slot()].expect("every face was raised");
             let from = into.topology().loops_added();
             if self.whole[group] {
@@ -428,9 +405,7 @@ impl Merging {
     /// parameters, into [`Merging::flat`].
     fn flattened(&mut self, of: &Topology, face: &Face, at: usize) {
         self.traced.clear();
-        for &coedge in self.laid.get(at) {
-            of.walked(coedge).walk(CHORDED, &mut self.traced);
-        }
+        of.trace(self.laid.get(at), CHORDED, &mut self.traced);
         self.flat.clear();
         face.flatten(&self.traced, None, &mut self.flat);
     }

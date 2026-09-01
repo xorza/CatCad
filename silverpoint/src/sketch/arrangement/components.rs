@@ -1,5 +1,6 @@
 //! Which piece of a drawing each corner belongs to.
 
+use crate::groups::Groups;
 use crate::sketch::arrangement::edge::Edge;
 use glam::DVec2;
 
@@ -14,8 +15,9 @@ use glam::DVec2;
 /// and neither says anything about a drawing nobody has walked yet.
 #[derive(Debug, Default)]
 pub(super) struct Components {
-    /// Union-find over the corners, which the fill collapses as it goes.
-    parent: Vec<usize>,
+    /// Which corners the edges join, collapsed as the fill goes — see
+    /// [`Groups`].
+    groups: Groups,
     /// The piece each corner ended up in.
     joined: Vec<usize>,
 }
@@ -29,34 +31,21 @@ impl Components {
     /// which piece a corner is in follows from what the edges join, not from
     /// where anything lies.
     pub(super) fn fill(&mut self, corners: &[DVec2], edges: &[Edge]) {
-        let Self { parent, joined } = self;
-        parent.clear();
-        parent.reserve_exact(corners.len());
-        parent.extend(0..corners.len());
+        let Self { groups, joined } = self;
+        groups.apart(corners.len());
         for edge in edges {
-            let (a, b) = (root(parent, edge.from), root(parent, edge.to));
-            parent[a] = b;
+            groups.join(edge.from, edge.to);
         }
+        // Read out once here rather than asked of the groups per question: what
+        // a caller wants is a number to compare, and reading one back would
+        // want the groups mutably for the flattening.
         joined.clear();
         joined.reserve_exact(corners.len());
-        for at in 0..corners.len() {
-            joined.push(root(parent, at));
-        }
+        joined.extend((0..corners.len()).map(|at| groups.of(at)));
     }
 
     /// Which piece `corner` ended up in.
     pub(super) fn of(&self, corner: usize) -> usize {
         self.joined[corner]
     }
-}
-
-/// Which corner stands for the piece `at` belongs to.
-fn root(parent: &mut [usize], mut at: usize) -> usize {
-    while parent[at] != at {
-        // Halve the path on the way up, which is what keeps the walk from
-        // growing into a list.
-        parent[at] = parent[parent[at]];
-        at = parent[at];
-    }
-    at
 }

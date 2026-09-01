@@ -81,6 +81,44 @@ impl Topology {
         self.edges.insert(edge)
     }
 
+    /// Add an edge between two faces, flagged as no crease where the two run
+    /// out into each other along it.
+    ///
+    /// **The flag is read off the faces rather than stated**, which is what the
+    /// checking holds it to — see
+    /// [`Face::smooth`](crate::solid::topology::face::Face::smooth). Every edge
+    /// a build, a sew or a rounding puts in is this shape, and a flag written by
+    /// hand at each of them is a chance to call a crease smooth.
+    ///
+    /// **`tolerance` stays the caller's**, the three of them knowing their edges
+    /// to different widths: an exact construction to nothing at all, a rounding
+    /// to whatever its curve strays, and a sew to the width the two regions were
+    /// found to share the edge by.
+    ///
+    /// A caller stating the flag rather than reading it reaches
+    /// [`Topology::add_edge`] — an extrusion's cap-to-wall edge is a crease by
+    /// construction and says so.
+    pub(crate) fn add_arc(
+        &mut self,
+        curve: Curve,
+        bounds: [f64; 2],
+        ends: [VertexId; 2],
+        between: [FaceId; 2],
+        tolerance: f64,
+    ) -> EdgeId {
+        let [one, two] = between.map(|face| self.face(face));
+        let artificial = one.smooth(two, &curve, bounds, self.carried());
+        self.add_edge(Edge {
+            curve,
+            bounds,
+            from: ends[0],
+            to: ends[1],
+            between,
+            artificial,
+            tolerance,
+        })
+    }
+
     /// **Not the way a face joins a body** — see
     /// [`Body::add_face`](body::Body), which is, and which files the name at
     /// the same time. Reachable only from within this module so that the two
@@ -109,8 +147,27 @@ impl Topology {
     }
 
     /// Record that `face` belongs to the shell being gathered.
+    ///
+    /// For a caller whose faces are written *by* something else while the shell
+    /// is open — see [`copying::gathered`](crate::solid::copying::gathered),
+    /// which hands a body to a closure between the two marks. A caller that has
+    /// its faces to hand asks [`Topology::add_shell_of`] instead.
     pub(crate) fn add_shelled(&mut self, face: FaceId) {
         self.shelled.push(face);
+    }
+
+    /// Gather `faces` into a shell of their own.
+    ///
+    /// The stretch of the body's own run they occupy is what a shell keeps —
+    /// see [`Shell::faces`] — so the marks either side of the gathering are
+    /// taken here rather than at each caller, where the two could come to name
+    /// a stretch neither of them wrote.
+    pub(crate) fn add_shell_of(&mut self, faces: impl IntoIterator<Item = FaceId>) -> ShellId {
+        let from = self.shelled.len();
+        self.shelled.extend(faces);
+        self.add_shell(Shell {
+            faces: from..self.shelled.len(),
+        })
     }
 
     /// How many faces have been gathered into shells, which is where the next
@@ -268,6 +325,21 @@ impl Topology {
         Walked {
             topology: self,
             coedge,
+        }
+    }
+
+    /// The corners of a polyline following `walk`, no further than `sagitta`
+    /// from the curves it runs along.
+    ///
+    /// **Appends**, so a caller tracing several loops traces them into one
+    /// buffer and a caller wanting the buffer to itself empties it first — the
+    /// rule [`Chorded::walk`] states one edge down, read here over a whole loop.
+    ///
+    /// Each corner named once: every edge stops short of its own end, so the
+    /// walk closes on the corner it began at rather than writing it twice.
+    pub(crate) fn trace(&self, walk: &[Coedge], sagitta: f64, into: &mut Vec<DVec3>) {
+        for &coedge in walk {
+            self.walked(coedge).walk(sagitta, into);
         }
     }
 

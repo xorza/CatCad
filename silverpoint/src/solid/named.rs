@@ -43,7 +43,7 @@ pub struct Named {
 
 impl Named {
     /// The key several of these are filed under — see
-    /// [`Buckets`](crate::solid::buckets::Buckets). A body files one per face
+    /// [`Keyed`](crate::solid::keyed::Keyed). A body files one per face
     /// it is told about.
     ///
     /// Over the whole of it, a name being nothing but whole numbers: the step

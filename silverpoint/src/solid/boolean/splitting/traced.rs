@@ -218,10 +218,9 @@ impl Piece {
             first.1 + left.normalize_or_zero() * ahead.length(),
         ) > 0.0;
 
-        let mut fills = Bounds::default();
-        for (_, at) in flattened(on, sampled, from, about, DVec2::ZERO) {
-            fills.hold(at);
-        }
+        let fills: Bounds<DVec2> = flattened(on, sampled, from, about, DVec2::ZERO)
+            .map(|(_, at)| at)
+            .collect();
         // Onto the face's own turn, and only where the parameter has turns to
         // be moved by.
         let turns = ((about - fills.middle()) / TAU).round() * TAU;
@@ -484,9 +483,7 @@ impl<'a> Traced<'a> {
             return None;
         }
         let span = Span { from, to };
-        let mut run = Bounds::default();
-        run.hold(from);
-        run.hold(to);
+        let run: Bounds<DVec2> = [from, to].into_iter().collect();
         let mut dipped = Dipped::default();
         for piece in self.pieces {
             if !piece.fills.meets(run, 0.0) {

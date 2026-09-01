@@ -1,6 +1,7 @@
 //! A whole solid.
 
-use crate::solid::buckets::{Buckets, NONE};
+use crate::solid::buckets::NONE;
+use crate::solid::keyed::Keyed;
 use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::face::{Face, FaceId};
@@ -21,7 +22,8 @@ use crate::solid::topology::face::{Face, FaceId};
 #[derive(Debug, Default)]
 pub struct Body {
     topology: Topology,
-    /// The distinct names its faces carry, in the order they were made.
+    /// The distinct names its faces carry, in the order they were made, each
+    /// with the chain of faces carrying it.
     ///
     /// **A face of a body is the set of faces sharing a name**, and this is
     /// that set's index — see `.notes/KERNEL.md` §5. A pocket cut across the
@@ -33,27 +35,36 @@ pub struct Body {
     /// what lets a renderer's batch be refilled in place rather than
     /// renumbered — the same reasoning as
     /// [`Arrangement::faces`](crate::Arrangement).
-    names: Vec<Named>,
-    /// Which of those names key alike, so asking whether a name is already
-    /// here reads a handful rather than all of them — see [`Body::add_face`],
-    /// which every face raised goes through.
-    known: Buckets,
+    ///
+    /// Keyed, so asking whether a name is already here reads a handful rather
+    /// than all of them — see [`Body::add_face`], which every face raised goes
+    /// through.
+    named: Keyed<Naming>,
     /// Every face of the body in the order it was made, and which entry
     /// carries the next face of the same name.
     ///
-    /// **Forward-linked where [`Buckets`] links back**, which is the whole
-    /// reason it is written out here rather than filed there: what reads a face
-    /// of the body wants its patches in the order they were made, and a chain
-    /// grown from the head hands them back newest first.
+    /// **Forward-linked where [`Keyed`] links back**, which is the whole reason
+    /// it is written out here rather than filed there: what reads a face of the
+    /// body wants its patches in the order they were made, and a chain grown
+    /// from the head hands them back newest first.
     faced: Vec<FaceId>,
     after: Vec<u32>,
-    /// Where each name's chain begins and ends in [`Body::faced`], by that
-    /// name's own position in [`Body::names`].
-    ///
-    /// The end as well as the beginning, so that adding a face to a name that
-    /// already has one is a link rather than a walk of everything it has.
-    first: Vec<u32>,
-    last: Vec<u32>,
+}
+
+/// One name a body's faces carry, and the chain of faces carrying it.
+///
+/// **The chain rides with the name** rather than in two lists beside it: the
+/// three are written in one breath and read in one, and held apart they are two
+/// more places for an index to lose step with what it names.
+///
+/// The end as well as the beginning, so that adding a face to a name that
+/// already has one is a link rather than a walk of everything it has.
+#[derive(Debug, Clone, Copy)]
+struct Naming {
+    named: Named,
+    /// Where its chain begins and ends in [`Body::faced`].
+    first: u32,
+    last: u32,
 }
 
 impl Body {
@@ -63,7 +74,7 @@ impl Body {
     /// which is the order a prism answered in before there was a body, so that
     /// everything naming a face of a solid goes on naming the same one.
     pub fn names(&self) -> impl Iterator<Item = Named> + '_ {
-        self.names.iter().copied()
+        self.named.all().iter().map(|held| held.named)
     }
 
     /// Whether `named` is one of its faces.
@@ -78,16 +89,16 @@ impl Body {
 
     /// Where `named` sits among the body's own names, or `None` where no face
     /// of it carries that name.
-    fn at(&self, named: Named) -> Option<usize> {
-        self.known
+    fn at(&self, named: Named) -> Option<u32> {
+        self.named
             .under(named.key())
-            .map(|at| at as usize)
-            .find(|&at| self.names[at] == named)
+            .find(|(_, held)| held.named == named)
+            .map(|(at, _)| at)
     }
 
     /// Whether it shuts in nothing at all.
     pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
+        self.named.is_empty()
     }
 
     /// Whether every surface it stands on is of the exact tier.
@@ -132,7 +143,9 @@ impl Body {
     /// reading both stops the walk where the name runs out and answers nothing
     /// at all for a name no face carries.
     pub(crate) fn patches(&self, named: Named) -> impl Iterator<Item = (FaceId, &Face)> {
-        let mut at = self.at(named).map_or(NONE, |name| self.first[name]);
+        let mut at = self
+            .at(named)
+            .map_or(NONE, |name| self.named.get(name).first);
         std::iter::from_fn(move || {
             let step = at as usize;
             let &id = self.faced.get(step)?;
@@ -158,12 +171,9 @@ impl Body {
     /// `Topology::clear`, which this is the public half of.
     pub fn clear(&mut self) {
         self.topology.clear();
-        self.names.clear();
-        self.known.clear();
+        self.named.clear();
         self.faced.clear();
         self.after.clear();
-        self.first.clear();
-        self.last.clear();
     }
 
     /// Add `face`, recording the name it carries among the body's own.
@@ -189,15 +199,20 @@ impl Body {
         self.after.push(NONE);
         match self.at(named) {
             Some(name) => {
-                self.after[self.last[name] as usize] = at;
-                self.last[name] = at;
+                let held = self.named.get_mut(name);
+                let last = held.last;
+                held.last = at;
+                self.after[last as usize] = at;
             }
             None => {
-                let name = self.known.file(named.key());
-                debug_assert_eq!(name as usize, self.names.len(), "the index lost step");
-                self.names.push(named);
-                self.first.push(at);
-                self.last.push(at);
+                self.named.file(
+                    named.key(),
+                    Naming {
+                        named,
+                        first: at,
+                        last: at,
+                    },
+                );
             }
         }
         id
@@ -220,7 +235,6 @@ pub(crate) mod internals {
     use crate::solid::topology::edge::Edge;
     use crate::solid::topology::face::{Face, FaceId};
     use crate::solid::topology::lump::Lump;
-    use crate::solid::topology::shell::Shell;
     use crate::solid::topology::validity::{Checking, Reckoning};
     use crate::solid::topology::vertex::Vertex;
     use glam::DVec3;
@@ -394,16 +408,8 @@ pub(crate) mod internals {
         /// Gather `faces` into one shell and that shell into one lump, which is
         /// how a closed body ends however it was built.
         pub(crate) fn sealed(&mut self, faces: &[FaceId]) {
-            let from = self.topology().faces_shelled();
-            for &face in faces {
-                self.topology_mut().add_shelled(face);
-            }
-            let to = self.topology().faces_shelled();
-            let shell = self.topology_mut().add_shell(Shell { faces: from..to });
-            self.topology_mut().add_lump(Lump {
-                outer: shell,
-                voids: 0..0,
-            });
+            let outer = self.topology_mut().add_shell_of(faces.iter().copied());
+            self.topology_mut().add_lump(Lump { outer, voids: 0..0 });
         }
     }
 }

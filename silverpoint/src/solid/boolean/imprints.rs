@@ -1,7 +1,7 @@
 //! Every curve a boundary runs along, and which run lies on which.
 
-use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::keyed::Keyed;
 
 /// One curve, and the run every crossing along it shares.
 #[derive(Debug)]
@@ -34,21 +34,18 @@ struct Along {
 /// what both callers wanted and neither could have had alone.
 #[derive(Debug, Default)]
 pub(super) struct Imprints {
-    /// Every distinct curve, in the order they were first met.
-    along: Vec<Along>,
+    /// Every distinct curve, in the order they were first met — keyed, so a
+    /// curve met again is told from a handful rather than from every curve met
+    /// so far. See [`Imprints::met`].
+    along: Keyed<Along>,
     /// Which of those each run lies on.
     runs: Vec<u32>,
-    /// Which of the curves above key alike, so a curve met again is told from
-    /// a handful rather than from every curve met so far — see
-    /// [`Imprints::met`].
-    found: Buckets,
 }
 
 impl Imprints {
     pub(super) fn clear(&mut self) {
         self.along.clear();
         self.runs.clear();
-        self.found.clear();
     }
 
     /// Make room for `curves` curves and the runs along them.
@@ -80,11 +77,11 @@ impl Imprints {
     /// they are one edge.
     pub(super) fn crossing(&mut self, curve: Curve) -> u32 {
         let on = self.met(curve);
-        match self.along[on as usize].crossing {
+        match self.along.get(on).crossing {
             Some(run) => run,
             None => {
                 let run = self.ran(on);
-                self.along[on as usize].crossing = Some(run);
+                self.along.get_mut(on).crossing = Some(run);
                 run
             }
         }
@@ -102,7 +99,7 @@ impl Imprints {
 
     /// The curve the run at `run` lies on.
     pub(super) fn curve(&self, run: u32) -> Curve {
-        self.along[self.runs[run as usize] as usize].curve
+        self.along.get(self.runs[run as usize]).curve
     }
 
     /// *Which* curve it lies on, as the number two runs share exactly when they
@@ -128,20 +125,16 @@ impl Imprints {
     /// distinct, so the first confirmed is the answer.
     fn met(&mut self, curve: Curve) -> u32 {
         let key = curve.key();
-        let found = self
-            .found
-            .under(key)
-            .find(|&at| self.along[at as usize].curve == curve);
-        if let Some(found) = found {
-            return found;
+        if let Some((at, _)) = self.along.under(key).find(|(_, it)| it.curve == curve) {
+            return at;
         }
-        let at = self.found.file(key);
-        debug_assert_eq!(at as usize, self.along.len(), "the index lost step");
-        self.along.push(Along {
-            curve,
-            crossing: None,
-        });
-        at
+        self.along.file(
+            key,
+            Along {
+                curve,
+                crossing: None,
+            },
+        )
     }
 
     /// One more run along the curve at `on`.

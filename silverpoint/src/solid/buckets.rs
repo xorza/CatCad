@@ -104,18 +104,18 @@ fn bucket(key: u64, width: usize) -> usize {
 /// The entries of a caller's list that share a key.
 ///
 /// **Not a map.** It holds no values at all, only a key and a chain link per
-/// entry: the caller keeps its own list, in the order it filed the entries
-/// here, and decides for itself whether a candidate is the one it wanted. That
-/// is what lets one index serve a lookup settled by exact equality and one
-/// settled by a tolerance — and it is why a key may be coarser than the value
-/// it stands for.
+/// entry: [`Keyed`](super::keyed::Keyed) keeps the list beside it, in the order
+/// the entries were filed here, and its caller decides for itself whether a
+/// candidate is the one it wanted. That is what lets one index serve a lookup
+/// settled by exact equality and one settled by a tolerance — and it is why a
+/// key may be coarser than the value it stands for.
 ///
 /// **Emptied rather than dropped between rebuilds, buckets and all.** The
 /// table keeps whatever width it grew to, so a body rebuilt to the size it was
 /// last frame widens nothing and rehashes nothing. Growth is the one uneven
 /// frame, and it is the frame the model got bigger.
 #[derive(Default)]
-pub(crate) struct Buckets {
+pub(super) struct Buckets {
     /// The newest entry filed in each bucket, [`NONE`] where none is. A power
     /// of two wide, or empty before the first entry.
     heads: Vec<u32>,
@@ -143,7 +143,7 @@ impl fmt::Debug for Buckets {
 
 impl Buckets {
     /// Forget every entry, keeping the buckets they were filed in.
-    pub(crate) fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.keys.clear();
         self.next.clear();
         self.heads.fill(NONE);
@@ -154,7 +154,7 @@ impl Buckets {
     /// A caller wanting the answer a walk of its whole list would have given
     /// takes the *smallest* of what it confirms, the order here being the
     /// other way round.
-    pub(crate) fn under(&self, key: u64) -> Chain<'_> {
+    pub(super) fn under(&self, key: u64) -> Chain<'_> {
         let at = match self.heads.is_empty() {
             true => NONE,
             false => self.heads[bucket(key, self.heads.len())],
@@ -171,7 +171,7 @@ impl Buckets {
     ///
     /// The caller pushes its own entry in the same breath, so what comes back
     /// is the position both are at.
-    pub(crate) fn file(&mut self, key: u64) -> u32 {
+    pub(super) fn file(&mut self, key: u64) -> u32 {
         if self.keys.len() >= self.heads.len() {
             self.widen();
         }
@@ -203,7 +203,7 @@ impl Buckets {
 
 /// The entries sharing one key, newest first.
 #[derive(Debug)]
-pub(crate) struct Chain<'a> {
+pub(super) struct Chain<'a> {
     keys: &'a [u64],
     next: &'a [u32],
     key: u64,

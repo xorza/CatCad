@@ -180,13 +180,9 @@ struct Shut {
 
 impl Shut {
     fn of(walk: &[Corner]) -> Self {
-        let mut fills = Bounds::default();
-        for corner in walk {
-            fills.hold(corner.at);
-        }
         Self {
             area: winding::doubled(walk) / 2.0,
-            fills,
+            fills: walk.iter().map(|corner| corner.at).collect(),
         }
     }
 }

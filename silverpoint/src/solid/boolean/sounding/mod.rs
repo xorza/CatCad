@@ -24,7 +24,6 @@
 
 use crate::math::bounds::Bounds;
 use crate::math::branch;
-use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::CHORDED;
@@ -300,19 +299,12 @@ impl Sounding {
             let mut boundary = Bounds::default();
             for round in topology.loops_of(face) {
                 self.traced.clear();
-                for coedge in round {
-                    topology.walked(*coedge).walk(CHORDED, &mut self.traced);
-                }
-                for &at in &self.traced {
-                    boundary.hold(at);
-                }
+                topology.trace(round, CHORDED, &mut self.traced);
+                boundary.extend(self.traced.iter().copied());
                 face.flatten(&self.traced, about, &mut self.walk);
                 self.starts.push(self.walk.len());
                 about = about.or_else(|| {
-                    let mut laid = Bounds::default();
-                    for at in &self.walk[began..] {
-                        laid.hold(*at);
-                    }
+                    let laid: Bounds<DVec2> = self.walk[began..].iter().copied().collect();
                     Some(laid.middle())
                 });
             }

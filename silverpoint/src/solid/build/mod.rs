@@ -11,7 +11,6 @@ use crate::solid::geometry::surface::Surface;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::{Shell, ShellId};
 
 pub(crate) mod builder;
 pub(crate) mod revolving;
@@ -38,24 +37,13 @@ struct Running {
     bounds: [f64; 2],
 }
 
-/// Gather `faces` into one shell.
-fn shelled(into: &mut Body, faces: impl Iterator<Item = FaceId>) -> ShellId {
-    let topology = into.topology_mut();
-    let from = topology.faces_shelled();
-    for face in faces {
-        topology.add_shelled(face);
-    }
-    let to = topology.faces_shelled();
-    topology.add_shell(Shell { faces: from..to })
-}
-
 /// Gather `faces` into the one shell around the one lump.
 ///
 /// **Only where the sweep closed every hole of the profile off**, which an
 /// extrusion's two caps do and a whole turn does not — see
 /// [`Revolving::gather`](revolving::Revolving::gather), which shells a cavity
 /// per hole instead.
-fn gathered(into: &mut Body, faces: impl Iterator<Item = FaceId>) {
-    let outer = shelled(into, faces);
+fn gathered(into: &mut Body, faces: impl IntoIterator<Item = FaceId>) {
+    let outer = into.topology_mut().add_shell_of(faces);
     into.topology_mut().add_lump(Lump { outer, voids: 0..0 });
 }

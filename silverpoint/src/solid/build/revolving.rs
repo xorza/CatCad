@@ -6,7 +6,7 @@ use crate::number::tolerance::{EXACT, PLACED, WRAPPING};
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::sector::Sector;
 use crate::solid::build::strip::{Strip, Strips, Turn};
-use crate::solid::build::{Running, Walled, shelled};
+use crate::solid::build::{Running, Walled, gathered};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
@@ -22,7 +22,7 @@ use crate::solid::grown::Grown;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
-use crate::solid::topology::edge::{Edge, EdgeId};
+use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::{Face, FaceId};
 use crate::solid::topology::lump::Lump;
 use crate::solid::topology::vertex::{Vertex, VertexId};
@@ -711,18 +711,8 @@ impl Revolving {
         // two at the ends of a partial turn divide a wall from a cap, which is
         // a crease unless the two run out into each other there — see
         // `.notes/KERNEL.md` §4.4.
-        let topology = into.topology();
-        let [one, two] = between.map(|face| topology.face(face));
-        let smooth = one.smooth(two, &curve, bounds, topology.carried());
-        into.topology_mut().add_edge(Edge {
-            curve,
-            bounds,
-            from,
-            to,
-            between,
-            artificial: smooth,
-            tolerance: EXACT,
-        })
+        into.topology_mut()
+            .add_arc(curve, bounds, [from, to], between, EXACT)
     }
 
     /// The curve a strip's own copy at a spin of `u` runs along.
@@ -780,18 +770,9 @@ impl Revolving {
             // drawn straight through a corner both do.
             let curve = Curve::Circle(Circle { axis, radius: at.y });
             let bounds = [spinning.seamed(part), spinning.seamed(part + 1)];
-            let topology = into.topology();
-            let [one, two] = faces.map(|face| topology.face(face));
-            let smooth = one.smooth(two, &curve, bounds, topology.carried());
-            into.topology_mut().add_edge(Edge {
-                curve,
-                bounds,
-                from: raised[part],
-                to: raised[part + 1],
-                between: faces,
-                artificial: smooth,
-                tolerance: EXACT,
-            })
+            let ends = [raised[part], raised[part + 1]];
+            into.topology_mut()
+                .add_arc(curve, bounds, ends, faces, EXACT)
         });
         self.circling[corner] = Some(parts);
     }
@@ -982,14 +963,15 @@ impl Revolving {
     fn gather(&self, strips: &Strips, into: &mut Body) {
         if let Some(caps) = self.caps {
             let walls = (0..strips.loops()).flat_map(|loop_| self.walled(strips.run(loop_)));
-            let outer = shelled(into, walls.chain(caps));
-            into.topology_mut().add_lump(Lump { outer, voids: 0..0 });
+            gathered(into, walls.chain(caps));
             return;
         }
-        let outer = shelled(into, self.walled(strips.run(0)));
+        let outer = into.topology_mut().add_shell_of(self.walled(strips.run(0)));
         let from = into.topology().shells_voided();
         for loop_ in 1..strips.loops() {
-            let void = shelled(into, self.walled(strips.run(loop_)));
+            let void = into
+                .topology_mut()
+                .add_shell_of(self.walled(strips.run(loop_)));
             into.topology_mut().add_voided(void);
         }
         let to = into.topology().shells_voided();

@@ -410,18 +410,9 @@ impl Builder {
             direction: raising.normal,
         });
         let bounds = [0.0, raising.distance];
-        let topology = into.topology();
-        let [one, two] = between.map(|face| topology.face(face));
-        let smooth = one.smooth(two, &curve, bounds, topology.carried());
-        let climbing = into.topology_mut().add_edge(Edge {
-            curve,
-            bounds,
-            from,
-            to,
-            between,
-            artificial: smooth,
-            tolerance: EXACT,
-        });
+        let climbing = into
+            .topology_mut()
+            .add_arc(curve, bounds, [from, to], between, EXACT);
         self.climbing[corner] = Some(climbing);
     }
 

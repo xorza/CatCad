@@ -11,7 +11,6 @@ mod refining;
 
 use crate::loops::Loops;
 use crate::math::bounds::Bounds;
-use crate::math::chorded::Chorded;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::solid::mesh::lattice::Lattice;
 use crate::solid::mesh::refining::Refining;
@@ -177,20 +176,14 @@ impl Mesher {
         outline.clear();
         holes.clear();
 
-        for &coedge in topology.outline_of(face) {
-            topology.walked(coedge).walk(sagitta, traced);
-        }
+        topology.trace(topology.outline_of(face), sagitta, traced);
         face.flatten(&traced[..], None, outline);
         face.doubled(&traced[..], &traced[..], standing);
         // **The turn the outline was laid out in**, which every hole of the
         // face has to be read into as well — see [`Face::flatten`]. Taken
         // before the cells below, the lattice being a reading of these and not
         // a replacement for them.
-        let mut laid = Bounds::default();
-        for uv in outline.iter() {
-            laid.hold(*uv);
-        }
-        let about = laid.middle();
+        let about = outline.iter().copied().collect::<Bounds<_>>().middle();
         // **Measured in the cells the surface itself rules over**, which is
         // what makes a triangulator's idea of near the same as a face's — see
         // [`Lattice`]. Everything below runs in those units, and the corners
@@ -201,9 +194,7 @@ impl Mesher {
         }
         let mut done = traced.len();
         for hole in topology.holes_of(face) {
-            for &coedge in hole {
-                topology.walked(coedge).walk(sagitta, traced);
-            }
+            topology.trace(hole, sagitta, traced);
             let from = done;
             done = traced.len();
             face.doubled(&traced[from..done], &traced[from..done], standing);

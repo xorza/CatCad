@@ -130,6 +130,29 @@ impl<At: Axial> Default for Bounds<At> {
     }
 }
 
+/// Over whatever the box already holds rather than in place of it, so a caller
+/// growing one across several walks takes them in a walk at a time.
+impl<At: Axial> Extend<At> for Bounds<At> {
+    fn extend<Of: IntoIterator<Item = At>>(&mut self, places: Of) {
+        for at in places {
+            self.hold(at);
+        }
+    }
+}
+
+/// The smallest box holding a run of places.
+///
+/// **What a caller drawing one round a walk it already has wants**, which is
+/// nearly every caller here: a face's boundary is traced to be flattened, and
+/// what the box costs beside that walk is four floats.
+impl<At: Axial> FromIterator<At> for Bounds<At> {
+    fn from_iter<Of: IntoIterator<Item = At>>(places: Of) -> Self {
+        let mut fills = Self::default();
+        fills.extend(places);
+        fills
+    }
+}
+
 impl<At: Axial> Bounds<At> {
     /// The box reaching `radius` from `middle` on every axis.
     pub(crate) fn about(middle: At, radius: f64) -> Self {

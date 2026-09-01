@@ -23,6 +23,7 @@ pub(crate) mod build;
 pub(crate) mod copying;
 pub(crate) mod geometry;
 pub(crate) mod grown;
+pub(crate) mod keyed;
 pub(crate) mod meeting;
 pub(crate) mod merging;
 pub(crate) mod mesh;

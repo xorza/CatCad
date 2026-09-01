@@ -22,18 +22,19 @@ use crate::number::tolerance::{EXACT, PLACED};
 use crate::solid::boolean::combining::{Kept, Sewn};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
-use crate::solid::buckets::{Buckets, Key};
+use crate::solid::buckets::Key;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::keyed::Keyed;
 use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
-use crate::solid::topology::edge::{Edge, EdgeId};
+use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::{Face, FaceId};
 use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::{Shell, ShellId};
+use crate::solid::topology::shell::ShellId;
 use crate::solid::topology::spreading::Spreading;
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
@@ -200,11 +201,10 @@ fn tied(ends: [VertexId; 2]) -> u64 {
 pub(super) struct Sewing {
     /// Where each vertex made so far stands, and which one it is.
     ///
-    /// `nearby` files each of them under the cell it stands in, so the vertex
-    /// at a place is found by asking eight cells rather than by walking all of
-    /// them — see [`Sewing::vertex`].
-    placed: Vec<Placed>,
-    nearby: Buckets,
+    /// Keyed by the cell it stands in, so the vertex at a place is found by
+    /// asking eight cells rather than by walking all of them — see
+    /// [`Sewing::vertex`].
+    placed: Keyed<Placed>,
     /// Every loop of every face, as vertices, laid end to end.
     walks: Vec<Stepped>,
     /// Where each of those loops begins, with a sentinel on the end.
@@ -214,11 +214,10 @@ pub(super) struct Sewing {
     owned: Vec<Range<usize>>,
     /// The edges found, and the edge each step of each loop walks.
     ///
-    /// `joined` files each edge under the pair of vertices it runs between —
-    /// see [`tied`] — so a step claims one by asking the few edges between its
-    /// own two ends rather than every edge found so far.
-    joins: Vec<Join>,
-    joined: Buckets,
+    /// Keyed by the pair of vertices each runs between — see [`tied`] — so a
+    /// step claims one by asking the few edges between its own two ends rather
+    /// than every edge found so far.
+    joins: Keyed<Join>,
     steps: Vec<Step>,
     edges: Vec<EdgeId>,
     scratch: Scratch,
@@ -287,14 +286,17 @@ impl Sewing {
             into.clear();
             return false;
         }
-        self.link(imprints, carried, into);
-        self.write(into);
         // **The runs change hands here**, which is after everything that reads
         // them from the operation and before anything that reads them off the
-        // body: what sorts the shells below sounds them, and the checker walks
-        // their edges, and an edge on a marched curve has nothing to walk until
-        // the body holds what it is made of.
+        // body: an edge being minted asks whether its two faces meet smoothly
+        // along its curve, what sorts the shells below sounds them, and the
+        // checker walks their edges — and an edge on a marched curve has nothing
+        // to walk until the body holds what it is made of. The same handover
+        // [`Rounding::round`](crate::Rounding) makes, at the same place in the
+        // stage and for the same reason.
         into.topology_mut().trade_curves(carried);
+        self.link(imprints, into);
+        self.write(into);
         if !self.gather(into) {
             into.clear();
             return false;
@@ -307,14 +309,12 @@ impl Sewing {
 
     fn reset(&mut self) {
         self.placed.clear();
-        self.nearby.clear();
         self.walks.clear();
         self.starts.clear();
         self.starts.push(0);
         self.raised.clear();
         self.owned.clear();
         self.joins.clear();
-        self.joined.clear();
         self.steps.clear();
         self.edges.clear();
     }
@@ -745,19 +745,18 @@ impl Sewing {
         let cells = celled(at);
         let found = cells
             .iter()
-            .flat_map(|&cell| self.nearby.under(filed(cell)))
-            .filter(|&candidate| self.placed[candidate as usize].at.approx_eq(at, PLACED))
+            .flat_map(|&cell| self.placed.under(filed(cell)))
+            .filter(|(_, placed)| placed.at.approx_eq(at, PLACED))
+            .map(|(candidate, _)| candidate)
             .min();
         if let Some(found) = found {
-            return self.placed[found as usize].vertex;
+            return self.placed.get(found).vertex;
         }
         let vertex = into.topology_mut().add_vertex(Vertex {
             at,
             tolerance: PLACED,
         });
-        let slot = self.nearby.file(filed(cells[0]));
-        debug_assert_eq!(slot as usize, self.placed.len(), "the index lost step");
-        self.placed.push(Placed { at, vertex });
+        self.placed.file(filed(cells[0]), Placed { at, vertex });
         vertex
     }
 
@@ -796,7 +795,7 @@ impl Sewing {
                 }
             }
         }
-        self.joins.iter().all(|join| join.claims == 2)
+        self.joins.all().iter().all(|join| join.claims == 2)
     }
 
     /// Claim the edge between `ends` and through `middle` for `face`, finding
@@ -813,27 +812,27 @@ impl Sewing {
     fn claim(&mut self, ends: [VertexId; 2], middle: DVec3, along: Runs, face: FaceId) -> Step {
         let key = tied(ends);
         let found = self
-            .joined
+            .joins
             .under(key)
-            .filter(|&at| {
-                let join = &self.joins[at as usize];
+            .filter(|(_, join)| {
                 (join.ends == ends || join.ends == [ends[1], ends[0]])
                     && join.middle.approx_eq(middle, PLACED)
             })
-            .min()
-            .map(|at| at as usize);
+            .map(|(at, _)| at)
+            .min();
         let Some(join) = found else {
-            let slot = self.joined.file(key);
-            debug_assert_eq!(slot as usize, self.joins.len(), "the index lost step");
-            self.joins.push(Join {
-                ends,
-                middle,
-                along,
-                between: [Some(face), None],
-                claims: 1,
-            });
+            let at = self.joins.file(
+                key,
+                Join {
+                    ends,
+                    middle,
+                    along,
+                    between: [Some(face), None],
+                    claims: 1,
+                },
+            );
             return Step {
-                join: self.joins.len() - 1,
+                join: at as usize,
                 forward: true,
             };
         };
@@ -841,20 +840,21 @@ impl Sewing {
         // will not close, and [`Sewing::join`] is what says so — the claim is
         // counted whether or not there is room to record it, so the number it
         // reads is the true one.
-        self.joins[join].claims += 1;
-        if self.joins[join].between[1].is_none() {
-            self.joins[join].between[1] = Some(face);
+        let held = self.joins.get_mut(join);
+        held.claims += 1;
+        if held.between[1].is_none() {
+            held.between[1] = Some(face);
         }
         Step {
-            join,
-            forward: self.joins[join].ends == ends,
+            join: join as usize,
+            forward: held.ends == ends,
         }
     }
 
     /// Make the edges, now that each knows both the faces that use it.
-    fn link(&mut self, imprints: &Imprints, carried: &Carried, into: &mut Body) {
+    fn link(&mut self, imprints: &Imprints, into: &mut Body) {
         self.edges.clear();
-        for join in &self.joins {
+        for join in self.joins.all() {
             let between = join
                 .between
                 .map(|face| face.expect("every edge was claimed twice"));
@@ -880,24 +880,20 @@ impl Sewing {
                     [0.0, here.distance(there)],
                 ),
             };
-            let [one, two] = between.map(|face| into.topology().face(face));
-            let smooth = one.smooth(two, &curve, bounds, carried);
             // **A marched edge is as wide as its own walk**, which is the
             // fitted tier's bargain read out loud: the curve is a run of chords
             // and a place read off one stands a sagitta from the true curve,
             // where the vertices at its ends are exact crossings of two
             // surfaces. So the edge stands for that tube, and the balls at its
             // ends are widened to hold it.
-            let strays = curve.strays(carried);
-            let edge = into.topology_mut().add_edge(Edge {
-                curve,
-                bounds,
-                from,
-                to,
-                between,
-                artificial: smooth,
-                tolerance: PLACED.max(strays),
-            });
+            //
+            // Floored at [`PLACED`] whatever the curve says, the two regions
+            // having been found to share this edge by where they are rather
+            // than by who made them — see the module's own note.
+            let strays = curve.strays(into.topology().carried());
+            let edge =
+                into.topology_mut()
+                    .add_arc(curve, bounds, [from, to], between, PLACED.max(strays));
             if strays > 0.0 {
                 for end in [from, to] {
                     into.topology_mut().widen(end, strays);
@@ -947,12 +943,7 @@ impl Sewing {
                 continue;
             }
             let reached = self.scratch.spreading.across(into.topology(), face);
-            let from = into.topology().faces_shelled();
-            for &held in reached {
-                into.topology_mut().add_shelled(held);
-            }
-            let to = into.topology().faces_shelled();
-            let shell = into.topology_mut().add_shell(Shell { faces: from..to });
+            let shell = into.topology_mut().add_shell_of(reached.iter().copied());
             if !self.claim_corners(into, shell) {
                 return false;
             }

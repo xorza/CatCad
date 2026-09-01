@@ -6,7 +6,7 @@ use crate::inline::Inline;
 use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, CHORDED, EXACT, PLACED};
-use crate::solid::buckets::{Buckets, Key};
+use crate::solid::buckets::Key;
 use crate::solid::copying;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
@@ -22,6 +22,7 @@ use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
+use crate::solid::keyed::Keyed;
 use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
 use crate::solid::named::{Named, Step};
@@ -384,15 +385,13 @@ struct Picked {
 /// of a drag.
 #[derive(Debug, Default)]
 pub struct Rounding {
-    /// Every edge of the body filed by the pair of faces it divides, and which
-    /// edge each entry is.
+    /// Every edge of the body, keyed by the pair of faces it divides.
     ///
     /// **What a pick is matched through.** A pick names a pair of faces and
     /// nothing else, so matching it by a walk of the body costs every edge per
     /// pick — the cost of the two together, which is the argument
     /// [`Body::named`](crate::Body) makes one shelf up for a face's own name.
-    filed: Buckets,
-    edged: Vec<EdgeId>,
+    edged: Keyed<EdgeId>,
     /// The edges the picks found, and the blend worked out for each.
     picked: Vec<Picked>,
     blends: Vec<Blend>,
@@ -541,22 +540,18 @@ impl Rounding {
         }
         self.meeting.clear();
         self.meeting.resize(topology.vertex_slots(), 0);
-        self.filed.clear();
         self.edged.clear();
         for (id, edge) in topology.edges() {
             for end in edge.ends(true) {
                 self.meeting[end.slot()] += 1;
             }
             let here = edge.between.map(|face| topology.face(face).name);
-            let at = self.filed.file(paired(here));
-            debug_assert_eq!(at as usize, self.edged.len(), "the index lost step");
-            self.edged.push(id);
+            self.edged.file(paired(here), id);
         }
         self.picked.clear();
         for (pick, names) in of.along.iter().enumerate() {
             let found = self.picked.len();
-            for at in self.filed.under(paired(*names)) {
-                let edge = self.edged[at as usize];
+            for (_, &edge) in self.edged.under(paired(*names)) {
                 // Confirmed either way round. The key is over the pair sorted,
                 // so the chain holds every edge naming these two faces however
                 // its own walk ordered them — and a chain a bucket happens to
@@ -1950,18 +1945,15 @@ impl Rounding {
         }
     }
 
-    /// Mint one exact edge of the answer, flagged as no crease where the two
-    /// faces it divides run out into each other.
+    /// Mint one edge of the answer, as wide as its own curve strays.
     ///
-    /// Its own call because everything the rounding puts in is this shape — the
-    /// two rulings, the arc across a corner, the arc two blends share, and the
-    /// circle a patch touches a cylinder along — and the flag has to be read
-    /// the way the checking reads it. See [`Face::smooth`].
+    /// Its own call because everything the rounding puts in is written down to
+    /// that width — the two rulings, the arc across a corner, the arc two blends
+    /// share, and the circle a patch touches a cylinder along — which is nought
+    /// for every curve of the exact tier and the walk's own bound for a marched
+    /// one. That is §4.1's tier read off the curve rather than assumed about it.
     ///
-    /// **Read rather than stated**, which the chamfer is what made necessary: a
-    /// round blend runs out into the face it was cut from and a flat one
-    /// creases against it, and a flag written by hand would have had to know
-    /// which.
+    /// The crease is [`Topology::add_arc`]'s to read.
     fn arc(
         into: &mut Body,
         curve: Curve,
@@ -1969,21 +1961,9 @@ impl Rounding {
         ends: [VertexId; 2],
         between: [FaceId; 2],
     ) -> EdgeId {
-        let [one, two] = between.map(|id| into.topology().face(id));
-        let artificial = one.smooth(two, &curve, bounds, into.topology().carried());
-        // **What the curve says it strays**, which is nought for everything
-        // written down and the walk's own bound for a marched arc — §4.1's tier
-        // read off the curve rather than assumed about it.
         let tolerance = curve.strays(into.topology().carried());
-        into.topology_mut().add_edge(Edge {
-            curve,
-            bounds,
-            from: ends[0],
-            to: ends[1],
-            between,
-            artificial,
-            tolerance,
-        })
+        into.topology_mut()
+            .add_arc(curve, bounds, ends, between, tolerance)
     }
 
     /// Note that the edge `along` is cut back at the end it meets `swallowed`
@@ -2634,7 +2614,7 @@ fn shared(topology: &Topology, along: [EdgeId; 2], between: [FaceId; 2]) -> Opti
         .find(|face| !between.contains(face) && topology.edge(along[1]).between.contains(face))
 }
 
-/// The key a pair of face names is filed under — see [`Rounding::filed`].
+/// The key a pair of face names is filed under — see [`Rounding::edged`].
 ///
 /// **The pair has no order.** An edge names the two faces it divides the way
 /// its own walk goes, and a pick names them the way the caller typed them, so

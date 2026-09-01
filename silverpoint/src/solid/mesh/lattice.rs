@@ -57,11 +57,7 @@ impl Lattice {
     /// millimetres stood a thousandfold apart against a fixed figure on one
     /// axis, and against a radian that had not moved at all on the other.
     pub(super) fn of(surface: &Surface, outline: &[DVec2], sagitta: f64) -> Self {
-        let mut fills = Bounds::default();
-        for &uv in outline {
-            fills.hold(uv);
-        }
-        let Bounds { low, high } = fills;
+        let Bounds { low, high } = outline.iter().copied().collect();
         let step = surface
             .strides(low.y.abs().max(high.y.abs()), sagitta)
             .min(high - low);

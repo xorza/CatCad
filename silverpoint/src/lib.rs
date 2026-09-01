@@ -36,6 +36,7 @@
 //! is twice the point count plus one per circle. Everything is `f64`: the
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 pub(crate) mod arena;
+pub(crate) mod groups;
 pub(crate) mod inline;
 pub(crate) mod loops;
 pub(crate) mod math;

@@ -1,6 +1,5 @@
 //! Everything a body promises, checked from scratch.
 
-use crate::math::chorded::Chorded;
 use crate::math::intersect::{self, Span};
 use crate::math::winding;
 use crate::number::predicate::{self, ApproxEq, slack};
@@ -160,9 +159,7 @@ impl Checking {
         for (at, face) in topology.faces() {
             for (which, walk) in topology.loops_of(face).enumerate() {
                 traced.clear();
-                for &coedge in walk {
-                    topology.walked(coedge).walk(CHORDED, traced);
-                }
+                topology.trace(walk, CHORDED, traced);
                 flattened.clear();
                 // One loop at a time and against itself alone, which is what
                 // this check asks — so each is read on its own branch and there

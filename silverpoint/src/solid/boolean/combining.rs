@@ -25,7 +25,6 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Piece, Traced};
-use crate::solid::buckets::Buckets;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
@@ -37,6 +36,7 @@ use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::quartic::Quartic;
 use crate::solid::geometry::quartics::Quartered;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::keyed::Keyed;
 use crate::solid::meeting::marching::Marching;
 use crate::solid::meeting::seeding;
 use crate::solid::meeting::{Curves, Meeting};
@@ -102,10 +102,9 @@ pub(super) struct Combining {
     /// Which surface pairs have been marched already, and the runs each was
     /// laid down as — see [`Combining::march`].
     ///
-    /// `paired` is which of them key alike, so a pair met again is told from a
-    /// handful rather than from every pair marched so far.
-    pairs: Vec<Paired>,
-    paired: Buckets,
+    /// Keyed, so a pair met again is told from a handful rather than from every
+    /// pair marched so far.
+    pairs: Keyed<Paired>,
     /// Every curve either store was asked for, in the stretches [`Paired`]
     /// names.
     ///
@@ -186,10 +185,9 @@ struct Scratch {
     /// — see [`Combining::against`], which says why they are surfaces rather
     /// than faces, and why "reach it" is asked of the whole body.
     ///
-    /// `reached` is which of them key alike, so a face's surface is told from
-    /// a handful rather than compared against every surface already collected.
-    met: Vec<Surface>,
-    reached: Buckets,
+    /// Keyed, so a face's surface is told from a handful rather than compared
+    /// against every surface already collected.
+    met: Keyed<Surface>,
     /// Each face of the two bodies with the box it fills, one body's run
     /// after the other's, and where the second run begins.
     ///
@@ -229,7 +227,6 @@ impl Combining {
         self.imprints.clear();
         self.carried.clear();
         self.pairs.clear();
-        self.paired.clear();
         self.curves.clear();
         // Every curved edge of either body takes a curve in the imprint list
         // and a run per face that walks it, before one crossing has been found
@@ -331,7 +328,6 @@ impl Combining {
             return true;
         }
         self.scratch.met.clear();
-        self.scratch.reached.clear();
         let mut reach = Bounds::default();
         for at in here.clone() {
             reach.swallow(self.scratch.boxed[at].fills);
@@ -348,15 +344,13 @@ impl Combining {
             let key = other.surface.key();
             if self
                 .scratch
-                .reached
+                .met
                 .under(key)
-                .any(|at| self.scratch.met[at as usize] == other.surface)
+                .any(|(_, held)| *held == other.surface)
             {
                 continue;
             }
-            let slot = self.scratch.reached.file(key);
-            debug_assert_eq!(slot as usize, self.scratch.met.len(), "the index lost step");
-            self.scratch.met.push(other.surface);
+            self.scratch.met.file(key, other.surface);
         }
         for at in here {
             let Boxed { face: id, fills } = self.scratch.boxed[at];
@@ -367,7 +361,7 @@ impl Combining {
             // splitter beside it is taken mutably.
             let on = face.surface;
             for which in 0..self.scratch.met.len() {
-                let other = self.scratch.met[which];
+                let other = self.scratch.met.all()[which];
                 // **And only the surfaces that reach this face.** A surface
                 // whose faces reach the body was kept above; one that comes
                 // nowhere near *this* face of it divides nothing here, and
@@ -532,25 +526,24 @@ impl Combining {
     /// working it out twice would be a walk or an algebraic route run twice.
     fn filed(&self, on: &Surface, other: &Surface) -> Option<Range<u32>> {
         let key = on.paired(other).done();
-        let at = self.paired.under(key).find(|&at| {
-            let it = &self.pairs[at as usize];
+        let (_, it) = self.pairs.under(key).find(|(_, it)| {
             (it.on == *on && it.other == *other) || (it.on == *other && it.other == *on)
         })?;
-        let it = &self.pairs[at as usize];
         Some(it.from..it.upto)
     }
 
     /// File the handles pushed since `from` as what `on` and `other` meet in.
     fn file(&mut self, on: &Surface, other: &Surface, from: u32) -> Range<u32> {
         let upto = self.curves.len() as u32;
-        let slot = self.paired.file(on.paired(other).done());
-        debug_assert_eq!(slot as usize, self.pairs.len(), "the index lost step");
-        self.pairs.push(Paired {
-            on: *on,
-            other: *other,
-            from,
-            upto,
-        });
+        self.pairs.file(
+            on.paired(other).done(),
+            Paired {
+                on: *on,
+                other: *other,
+                from,
+                upto,
+            },
+        );
         from..upto
     }
 
@@ -704,16 +697,11 @@ impl Combining {
     fn reach(&mut self, body: &Body, face: &Face) -> Bounds<DVec3> {
         let topology = body.topology();
         self.scratch.traced.clear();
-        for coedge in topology.loops_of(face).flatten() {
-            topology
-                .walked(*coedge)
-                .walk(CHORDED, &mut self.scratch.traced);
+        for walk in topology.loops_of(face) {
+            topology.trace(walk, CHORDED, &mut self.scratch.traced);
         }
-        let mut boundary = Bounds::default();
-        for &at in &self.scratch.traced {
-            boundary.hold(at);
-        }
-        face.surface.fills(boundary)
+        face.surface
+            .fills(self.scratch.traced.iter().copied().collect())
     }
 
     /// Lay one face out in its own parameters as the one region to cut.
@@ -772,9 +760,7 @@ impl Combining {
                 // outline comes first, so what `laid` already holds is it.
                 let about = (at > 0).then(|| laid.middle());
                 face.flatten(traced, about, walk);
-                for at in walk.iter() {
-                    laid.hold(*at);
-                }
+                laid.extend(walk.iter().copied());
                 spread.clear();
                 face.doubled(traced, marks, spread);
                 corners.clear();

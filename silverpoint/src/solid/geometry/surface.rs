@@ -84,7 +84,7 @@ impl Surface {
     }
 
     /// The key several of these are filed under — see
-    /// [`Buckets`](crate::solid::buckets::Buckets).
+    /// [`Keyed`](crate::solid::keyed::Keyed).
     pub(crate) fn key(&self) -> u64 {
         match self {
             Self::Natural(of) => of.key(),

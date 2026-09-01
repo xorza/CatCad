@@ -64,7 +64,7 @@ pub(crate) enum Curve {
 
 impl Curve {
     /// The key several of these are filed under — see
-    /// [`Buckets`](crate::solid::buckets::Buckets).
+    /// [`Keyed`](crate::solid::keyed::Keyed).
     ///
     /// Over the numbers the curve is made of, and sound for the reason
     /// [`Surface::key`](super::surface::Surface::key) is: a crossing met from

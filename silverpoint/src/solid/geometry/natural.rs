@@ -45,7 +45,7 @@ pub(crate) enum Natural {
 
 impl Natural {
     /// The key several of these are filed under — see
-    /// [`Buckets`](crate::solid::buckets::Buckets).
+    /// [`Keyed`](crate::solid::keyed::Keyed).
     ///
     /// Over the numbers the surface is made of, which is what makes it a key
     /// two equal surfaces cannot disagree on: two faces of one surface were
