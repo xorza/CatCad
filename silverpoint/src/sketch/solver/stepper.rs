@@ -111,8 +111,8 @@ pub(super) struct Stepper {
     trial: System,
     /// `JᵀJ + λD`, `n × n` row-major, and only ever the lower triangle of it:
     /// the matrix is symmetric and the Cholesky it is handed to reads nothing
-    /// above the diagonal, so the other half is left at the zero
-    /// [`Stepper::iterate`] clears it to.
+    /// above the diagonal, so the other half stands at the nought
+    /// [`Stepper::reset`] left it at and is never written.
     normal: Vec<f64>,
     step: Vec<f64>,
     /// How far left each row of the normal equations reaches, which is what the
@@ -124,6 +124,9 @@ pub(super) struct Stepper {
     /// which column it was. Rebuilt every iteration beside the matrix it
     /// describes, so a partial that happens to come out at zero narrows it for
     /// that step rather than being remembered as structure.
+    ///
+    /// Read once more before it is rebuilt, to empty the cells the round it
+    /// described filled — see [`Stepper::iterate`].
     first: Vec<usize>,
     /// Where the run stands, and where a step would put it — the two points the
     /// system it was handed and [`Stepper::trial`] are the assemblies of.
@@ -183,7 +186,21 @@ impl Stepper {
             && (system.max_residual() > TOLERANCE || arrived(drive, &self.params) > TOLERANCE)
         {
             iterations += 1;
-            self.normal.fill(0.0);
+            // **Emptied by the envelope the round before filled**, and not by
+            // the whole matrix. Everything that writes a cell here writes it
+            // inside `first[a]..=a` — the accumulation below, the damping after
+            // it, and the factorisation alike — so a cell the round ahead
+            // reaches was either written last round, and lies inside that
+            // envelope, or has stood at the nought [`Stepper::reset`] left it at
+            // since the run began.
+            //
+            // The whole matrix is the square of the sketch where the envelope is
+            // a few cells a row, and this runs every iteration of every drag.
+            // `elimination` measured the same clearing at three quarters of a
+            // reduction and dropped it the same way.
+            for (a, &from) in self.first.iter().enumerate() {
+                self.normal[a * n + from..=a * n + a].fill(0.0);
+            }
             self.step.fill(0.0);
             // Every row starts reaching no further than its own diagonal, which
             // is where a cell nothing writes to belongs: the damping below puts
@@ -304,7 +321,10 @@ impl Stepper {
         self.normal.clear();
         self.normal.resize(n * n, 0.0);
         self.first.clear();
-        self.first.resize(n, 0);
+        // Its own diagonal apiece, which is the envelope of a matrix nothing
+        // has written yet — so the first round empties `n` cells already at
+        // nought rather than the whole triangle.
+        self.first.extend(0..n);
         self.step.clear();
         self.step.resize(n, 0.0);
         self.params.clear();

@@ -18,18 +18,30 @@ use glam::DVec2;
 ///
 /// The caller hands over a zeroed row, so where nothing collides an addition is
 /// what an assignment would have written anyway.
+///
+/// **Every column written is written down**, in `touched`, because the caller
+/// reading the row out has no other way to find the few of them: a row is dense
+/// and nearly empty, and scanning it costs the width of the sketch per equation
+/// to rediscover what this was just told. Duplicates and no order are the
+/// reader's to settle, which keeps every write below to one push.
 #[derive(Debug)]
 pub(super) struct JacobianRow<'a> {
     params: Params<'a>,
     cells: &'a mut [f64],
+    touched: &'a mut Vec<u32>,
 }
 
 impl<'a> JacobianRow<'a> {
     /// Read `cells` as the row of the sketch `params` describes, which it must
-    /// already be as wide as.
-    pub(super) fn new(params: Params<'a>, cells: &'a mut [f64]) -> Self {
+    /// already be as wide as, writing every column named into `touched`.
+    pub(super) fn new(params: Params<'a>, cells: &'a mut [f64], touched: &'a mut Vec<u32>) -> Self {
         debug_assert_eq!(cells.len(), params.count());
-        Self { params, cells }
+        debug_assert!(touched.is_empty(), "a row of another equation");
+        Self {
+            params,
+            cells,
+            touched,
+        }
     }
 
     /// Add `gradient` to a point's two cells.
@@ -37,6 +49,8 @@ impl<'a> JacobianRow<'a> {
         let [x, y] = self.params.of_point(point);
         self.cells[x] += gradient.x;
         self.cells[y] += gradient.y;
+        self.touched.push(x as u32);
+        self.touched.push(y as u32);
     }
 
     /// Add `gradient` to a segment's endpoints, as the partials of a residual
@@ -52,6 +66,8 @@ impl<'a> JacobianRow<'a> {
 
     /// Add `partial` to a circle's radius cell.
     pub(super) fn radius(&mut self, circle: CircleId, partial: f64) {
-        self.cells[self.params.of_radius(circle)] += partial;
+        let at = self.params.of_radius(circle);
+        self.cells[at] += partial;
+        self.touched.push(at as u32);
     }
 }

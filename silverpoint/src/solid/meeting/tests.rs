@@ -1273,3 +1273,50 @@ fn coaxial_surfaces_meet_in_the_circles_their_profiles_cross_at() {
     assert_eq!(radii(Meeting::of(&torus, &beside(2.0))), vec![3.0]);
     assert_eq!(Meeting::of(&torus, &beside(3.0)), Meeting::Apart);
 }
+
+/// **A coaxial cone and torus meet in four circles**, which is the most any
+/// pair answers and the whole of why [`Curves`](crate::solid::meeting::Curves)
+/// holds four.
+///
+/// A cone is two rays in the half-plane where every other surface here is one
+/// run, so it crosses a torus's profile circle twice per ray.
+///
+/// Every figure by hand. The apex is at the origin and the half angle is `π/4`,
+/// so the rays are `h = ±r`. The torus's profile is a circle of `√20` about
+/// `(6, 0)`, so a ray meets it where `(r − 6)² + r² = 20` — that is
+/// `r² − 6r + 8 = 0`, whose roots are two and four. Each ray gives both, so the
+/// four circles are two wide at `h = ±2` and four wide at `h = ±4`.
+#[test]
+fn a_coaxial_cone_and_torus_meet_in_four_circles() {
+    let axis = || Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X);
+    let cone = Surface::Natural(Natural::Cone(Cone {
+        axis: axis(),
+        half_angle: FRAC_PI_4,
+    }));
+    let torus = Surface::Fitted(Fitted::Torus(Torus {
+        axis: axis(),
+        major: 6.0,
+        minor: 20.0f64.sqrt(),
+    }));
+
+    let meeting = Meeting::of(&cone, &torus);
+    let wide = radii(meeting);
+    assert_eq!(wide.len(), 4, "{meeting:?} is not four circles");
+    for (got, want) in wide.iter().zip([2.0, 2.0, 4.0, 4.0]) {
+        assert!(
+            (got - want).abs() < NEAR,
+            "{wide:?}: {got} rather than {want}"
+        );
+    }
+    let ups = measured(meeting, |circle| circle.axis.origin.y);
+    for (got, want) in ups.iter().zip([-4.0, -2.0, 2.0, 4.0]) {
+        assert!(
+            (got - want).abs() < NEAR,
+            "{ups:?}: {got} rather than {want}"
+        );
+    }
+    lies_on(meeting, &cone, &torus, "a coaxial cone and torus");
+
+    // Read the same either way round, the pair being folded onto one order.
+    assert_eq!(radii(Meeting::of(&torus, &cone)), wide);
+}

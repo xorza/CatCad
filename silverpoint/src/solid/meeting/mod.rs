@@ -64,7 +64,15 @@ mod chord;
 /// of two coincident faces survives; [`Meeting::Touching`] is the tangency that
 /// every kernel's bug list is made of. Folding either into "nothing" would be
 /// throwing away the cases that matter.
+///
+/// **Four hundred bytes wide, and boxing the curves would be the wrong trade.**
+/// A [`Curve`] is a hundred-odd on its own and [`Curves`] holds four of them,
+/// so [`Meeting::Along`] dwarfs every other arm. What that buys is a value that
+/// is returned and matched on the spot: a boolean asks this per pair of
+/// surfaces of a body it rebuilds every frame of a drag, so an indirection here
+/// would be a heap block on that path to save a copy on the stack.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Meeting {
     /// Nowhere at all.
     Apart,
@@ -72,7 +80,7 @@ pub(crate) enum Meeting {
     Same,
     /// At one point, where the two graze without crossing.
     Touching(DVec3),
-    /// Along one curve or two.
+    /// Along one curve, up to the four [`Curves`] holds.
     Along(Curves),
     /// Along a curve this route does not parameterize.
     ///
@@ -101,12 +109,17 @@ pub(crate) enum Meeting {
     Marched,
 }
 
-/// One curve or two.
+/// One curve to four.
 ///
-/// Two is the most a reducible case gives: a plane cuts a cylinder in two
+/// **Two is what a pair of quadrics gives**: a plane cuts a cylinder in two
 /// lines, two equal cylinders on meeting axes cross in two ellipses, and a
 /// sphere on a cylinder's axis in two circles.
-pub(crate) type Curves = Inline<Curve, 2>;
+///
+/// **Four is what a coaxial pair with a cone in it gives**, which is the whole
+/// of the rest: a cone's profile is a pair of rays, so it crosses a torus's
+/// circle four times and each crossing is a circle about the axis. The bound is
+/// [`Profile::crossed`]'s own, read one dimension up.
+pub(crate) type Curves = Inline<Curve, 4>;
 
 impl Meeting {
     /// Work out where `one` and `two` meet.
@@ -217,9 +230,8 @@ impl Meeting {
     /// place. A plane square across and a cylinder about the axis are lines, a
     /// sphere on it and a torus are circles.
     ///
-    /// **`None` where this row has no answer** — either surface not of this
-    /// axis, or the two crossing in more circles than a meeting carries — which
-    /// is the caller's cue to try what else it has.
+    /// **`None` where either surface is not of this axis**, which is the
+    /// caller's cue to try what else it has.
     fn coaxial(one: &Surface, two: &Surface, axis: Axis) -> Option<Self> {
         let (Some(here), Some(there)) = (Profile::of(one, axis), Profile::of(two, axis)) else {
             return None;
@@ -257,22 +269,21 @@ impl Meeting {
             .iter()
             .filter(|at| at.x > PLACED)
             .map(|at| round(*at));
-        let (first, second) = (round.next(), round.next());
-        match (first, second, round.next()) {
-            // More circles than a meeting carries, which a coaxial cone and
-            // torus genuinely make. Handed back as no answer rather than cut
-            // down, so the caller falls through to whatever it keeps for a pair
-            // this row does not reduce.
-            (Some(_), Some(_), Some(_)) => None,
-            (Some(near), Some(far), None) => Some(Self::Along(Curves::two(near, far))),
-            (Some(only), None, None) => Some(Self::Along(Curves::one(only))),
-            _ => Some(
+        // Built from the first rather than from none, a curve having no
+        // [`Default`] to stand in the slots it does not fill — see [`Inline`].
+        let Some(first) = round.next() else {
+            return Some(
                 match crossings.all().iter().find(|at| at.x.abs() <= PLACED) {
                     Some(apex) => Self::Touching(axis.origin + axis.direction * apex.y),
                     None => Self::Apart,
                 },
-            ),
+            );
+        };
+        let mut along = Curves::one(first);
+        for more in round {
+            along.push(more);
         }
+        Some(Self::Along(along))
     }
 
     /// A plane cuts a torus in circles two ways it is not square to the axis

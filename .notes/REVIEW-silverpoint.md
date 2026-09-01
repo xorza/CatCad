@@ -9,34 +9,7 @@ rewritten to fit a better production shape.
 
 Line numbers are as of the working tree at the time of the review.
 
-## 1. A limit the container states and the geometry does not
-
-- [ ] `Curves` is `Inline<Curve, 2>`, so `Meeting::coaxial` counts its circles
-  into `(first, second, third)` and refuses four (`solid/meeting/mod.rs:260-277`).
-  A coaxial cone and torus meet in four circles and are refused by that cap, not
-  by the geometry. Widen `Curves` to four or state the limit on `Curves` itself.
-
-## 2. Per-frame work that grows as the square of the sketch
-
-Both are on the solve path a drag runs every frame. The elimination next door
-avoids the same costs and says why.
-
-- [ ] `System::assemble` scans the whole scratch row once per equation to find
-  the handful of cells the equation wrote
-  (`sketch/solver/system.rs:157-165`). `JacobianRow` knows every column it
-  touched: `point` writes two, `segment` four, `radius` one
-  (`sketch/jacobian_row.rs:36-56`). Record the touched columns in a small inline
-  list on the row and compact and clear only those. Assembly then costs the
-  non-zeros rather than rows times parameters, and a solve assembles `2k + 1`
-  times.
-- [ ] `Stepper::iterate` zeroes the whole `n × n` normal matrix every iteration
-  (`sketch/solver/stepper.rs:186`). The accumulation writes only the lower
-  envelope `first[i]..=i`, and the Cholesky reads only that. Clear by the
-  envelope the previous iteration used instead of `fill(0.0)`.
-  `elimination/mod.rs:384-391` measured the same clearing at three quarters of
-  a reduction and removed it.
-
-## 3. Code kept ahead of any caller
+## 1. Code kept ahead of any caller
 
 Each is justified in a comment. Each is still production code nothing runs.
 
@@ -51,7 +24,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   (`number/exact/expansion/mod.rs:148`) and exists for one test cross-check.
   Move it into the test module.
 
-## 4. Files and functions past the size they read well at
+## 2. Files and functions past the size they read well at
 
 - [ ] `solid/rounding/mod.rs` is 2639 lines and `Rounding` has 38 fields, most
   of them scratch for one stage. Split by stage the way `boolean/` is split into
@@ -72,7 +45,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   exist in both, with `Raising` and `Spinning` as twin contexts. An extrusion is
   a revolve with a straight spine. At minimum share the cap-loop reversal.
 
-## 5. Smaller things
+## 3. Smaller things
 
 - [ ] `use super::decides::Decides` at `number/exact/filtered.rs:3` and
   `number/exact/rational.rs:3` are the only production `super::` imports in the
@@ -107,7 +80,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   never sort.
 - [ ] `Sphere::centre()` exists (`solid/geometry/sphere.rs:43`) while `Cone`,
   `Cylinder` and `Torus` read `axis.origin` directly, and
-  `solid/meeting/mod.rs:356` and `:761` mix the two on one line.
+  `solid/meeting/mod.rs:367` and `:772` mix the two on one line.
 - [ ] `Stepping::write` checks its public `sagitta` with `debug_assert!`
   (`solid/stepping/mod.rs:118`) and `Mesher::cut` does not check it at all.
   Public-API misuse outside a hot path is a release `assert!`.

@@ -50,10 +50,21 @@ struct Row {
 
 fn evaluate(sketch: &Sketch, equation: Constraint) -> Row {
     let mut partials = vec![0.0; sketch.params().count()];
+    let mut touched = Vec::new();
     let residual = equation.evaluate(
         sketch,
-        &mut JacobianRow::new(sketch.params(), &mut partials),
+        &mut JacobianRow::new(sketch.params(), &mut partials, &mut touched),
     );
+    // **Every column written is a column named.** An assembly reads a row out
+    // by what the row said it touched and by nothing else, so a partial in a
+    // column missing from that list is one no solve would ever see. Asked here
+    // because this is where every equation of every constraint is evaluated.
+    for (col, partial) in partials.iter().enumerate() {
+        assert!(
+            *partial == 0.0 || touched.contains(&(col as u32)),
+            "{equation:?} wrote column {col} without naming it",
+        );
+    }
     Row { residual, partials }
 }
 

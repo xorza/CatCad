@@ -51,10 +51,21 @@ pub(super) struct System {
     /// The one row being written, dense, so that a partial can be *added* to a
     /// column the equation names twice.
     ///
-    /// Kept and emptied rather than stood up per row: it is the one place an
-    /// assembly still pays by the width of the sketch, and paying for it once a
-    /// row is what compacting out of it costs.
+    /// Kept and emptied rather than stood up per row. Zeroed by the width of
+    /// the sketch once an assembly, and read out by the handful of columns the
+    /// equation named rather than by that width — see `touched`.
     scratch: Vec<f64>,
+    /// Which columns the row in hand wrote, in the order it wrote them.
+    ///
+    /// **What spares the read-out a walk of the whole row.** An equation names
+    /// at most two entities, so it writes five columns in a sketch of any
+    /// width — and a scan to find them was the width per equation, a solve
+    /// assembling `2k + 1` times over. [`JacobianRow`] knows every column as it
+    /// writes it, so it says so.
+    ///
+    /// Unsorted and free to repeat, which is what keeps the writing to a push:
+    /// a constraint may name one entity twice, and the read-out settles both.
+    touched: Vec<u32>,
     /// Which constraint wrote each equation, one entry per row.
     pub(super) equations: Vec<ConstraintId>,
     /// Whether the solve may move each parameter, one entry per parameter.
@@ -144,25 +155,34 @@ impl System {
                 // [`JacobianRow`] — so it wants somewhere it can reach any
                 // column, and only once it has finished is it known which few it
                 // touched.
-                let mut row = JacobianRow::new(sketch.params(), &mut self.scratch);
+                let mut row =
+                    JacobianRow::new(sketch.params(), &mut self.scratch, &mut self.touched);
                 let residual = equation.evaluate(sketch, &mut row);
                 largest = largest.max(residual.abs());
                 squares += residual * residual;
                 self.residuals.push(residual);
                 self.equations.push(id);
-                // One walk that empties the scratch and keeps what was in it, so
+                // **Only the columns the equation named**, which it wrote down
+                // as it went — a handful of numbers rather than the width of the
+                // sketch. Sorted and deduplicated on the way, for the reasons
+                // `touched` states.
+                //
+                // The same walk empties the scratch and keeps what was in it, so
                 // the next equation starts on a clean row without a second pass
                 // to clear it. The mask is spent here too: a column the solve may
                 // not move is simply not kept, which is what zeroing it came to.
-                for (col, cell) in self.scratch.iter_mut().enumerate() {
-                    if *cell != 0.0 {
-                        if self.movable[col] {
-                            self.cols.push(col as u32);
-                            self.cells.push(*cell);
-                        }
-                        *cell = 0.0;
+                self.touched.sort_unstable();
+                self.touched.dedup();
+                for &col in &self.touched {
+                    let col = col as usize;
+                    let cell = self.scratch[col];
+                    self.scratch[col] = 0.0;
+                    if cell != 0.0 && self.movable[col] {
+                        self.cols.push(col as u32);
+                        self.cells.push(cell);
                     }
                 }
+                self.touched.clear();
                 self.starts.push(self.cols.len() as u32);
             }
         }
