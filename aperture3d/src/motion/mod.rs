@@ -2,7 +2,7 @@
 
 use crate::aim::Aim;
 use crate::ray::MIN_FACING;
-use crate::viewport::{self, MIN_RUN_PX2};
+use crate::viewport;
 use glam::Vec3;
 
 /// How far in front of the eye a point has to be for its projection to mean
@@ -74,88 +74,93 @@ impl Motion {
     /// question about the projection.
     pub fn resolve(&self, aim: &Aim) -> Option<Vec3> {
         match *self {
-            Motion::Plane { origin, normal } => {
-                let ray = aim.ray();
-                let facing = ray.direction.dot(normal);
-                // Weighed against the normal's own length — see [`MIN_FACING`],
-                // which is a cosine and not a projection — because
-                // `Motion::Plane` does not require a unit normal and its tests
-                // say so. The answer below is scale-free in it either way, and
-                // the refusal has no business not being.
-                if facing * facing <= MIN_FACING * MIN_FACING * normal.length_squared() {
-                    return None;
-                }
-                let along = (origin - ray.origin).dot(normal) / facing;
-                // Behind the eye is the plane the cursor is *not* pointing at,
-                // which the arithmetic is happy to answer for and shouldn't.
-                (along >= 0.0).then(|| ray.at(along))
+            Motion::Plane { origin, normal } => Self::on_plane(aim, origin, normal),
+            Motion::Line { origin, along } => Self::on_line(aim, origin, along),
+        }
+    }
+
+    /// Where the cursor's ray crosses the plane through `origin` square to
+    /// `normal`, or `None` where it meets it too obliquely to say.
+    fn on_plane(aim: &Aim, origin: Vec3, normal: Vec3) -> Option<Vec3> {
+        let ray = aim.ray();
+        let facing = ray.direction.dot(normal);
+        // Weighed against the normal's own length — see [`MIN_FACING`], which is
+        // a cosine and not a projection — because `Motion::Plane` does not
+        // require a unit normal and its tests say so. The answer below is
+        // scale-free in it either way, and the refusal has no business not
+        // being.
+        if facing * facing <= MIN_FACING * MIN_FACING * normal.length_squared() {
+            return None;
+        }
+        let travelled = (origin - ray.origin).dot(normal) / facing;
+        // Behind the eye is the plane the cursor is *not* pointing at, which the
+        // arithmetic is happy to answer for and shouldn't.
+        (travelled >= 0.0).then(|| ray.at(travelled))
+    }
+
+    /// The point of the line through `origin` along `along` that *looks*
+    /// nearest the cursor, or `None` where the projection leaves nothing to
+    /// slide along.
+    ///
+    /// A crossing is a question about the ray alone; this is a question about
+    /// the projection, which is why it is the longer of the two and why it
+    /// reads the aim rather than the ray.
+    fn on_line(aim: &Aim, origin: Vec3, along: Vec3) -> Option<Vec3> {
+        // Measured on *screen* rather than in the world, which is the whole of
+        // what makes a drag along a line track the pointer. The point of the
+        // line nearest the cursor's ray in three dimensions is not the point
+        // that looks nearest: distance from a ray grows with depth, so the same
+        // pointer travel moves it by different amounts at different places in
+        // the view — as much as double what was asked at one edge and a fraction
+        // of it at the other, and by different amounts either side of a mirrored
+        // viewpoint. What the cursor can see is where the line *looks*, so that
+        // is what it is answered against.
+        let unit = along.normalize_or_zero();
+        if unit == Vec3::ZERO {
+            return None;
+        }
+        // Clip space is affine in world position, so the line is a line there
+        // too and one parameter names a point of both.
+        let base = aim.view_proj * origin.extend(1.0);
+        let step = aim.view_proj * unit.extend(0.0);
+        let depth = |at: f32| base.w + step.w * at;
+
+        // Two points of it in front of the eye, far enough apart to say which
+        // way it runs on screen. Neither is nearer than the other by anything
+        // but accident — what they are is a pair. Depth is affine along the line
+        // as well, so what is in front of the eye is a half-line, and this walks
+        // to the inside of it by a whole step past the end, `unit` being one
+        // world unit long.
+        let mut first = 0.0;
+        if depth(first) <= MIN_DEPTH {
+            if step.w == 0.0 {
+                return None;
             }
-            Motion::Line { origin, along } => {
-                // Measured on *screen* rather than in the world, which is the
-                // whole of what makes a drag along a line track the pointer. The
-                // point of the line nearest the cursor's ray in three dimensions
-                // is not the point that looks nearest: distance from a ray grows
-                // with depth, so the same pointer travel moves it by different
-                // amounts at different places in the view — as much as double
-                // what was asked at one edge and a fraction of it at the other,
-                // and by different amounts either side of a mirrored viewpoint.
-                // What the cursor can see is where the line *looks*, so that is
-                // what it is answered against.
-                let unit = along.normalize_or_zero();
-                if unit == Vec3::ZERO {
-                    return None;
-                }
-                // Clip space is affine in world position, so the line is a line
-                // there too and one parameter names a point of both.
-                let base = aim.view_proj * origin.extend(1.0);
-                let step = aim.view_proj * unit.extend(0.0);
-                let depth = |at: f32| base.w + step.w * at;
-
-                // Two points of it in front of the eye, far enough apart to say
-                // which way it runs on screen. Neither is nearer than the other
-                // by anything but accident — what they are is a pair. Depth is
-                // affine along the line as well, so what is in front of the eye
-                // is a half-line, and this walks to the inside of it by a whole
-                // step past the end, `unit` being one world unit long.
-                let mut first = 0.0;
-                if depth(first) <= MIN_DEPTH {
-                    if step.w == 0.0 {
-                        return None;
-                    }
-                    first = (MIN_DEPTH - base.w) / step.w + step.w.signum();
-                    if depth(first) <= MIN_DEPTH {
-                        return None;
-                    }
-                }
-                let second = [first + 1.0, first - 1.0]
-                    .into_iter()
-                    .find(|&at| depth(at) > MIN_DEPTH)?;
-
-                let (at_first, at_second) = (base + step * first, base + step * second);
-                let (from, to) = (
-                    aim.viewport.pixel_from_clip(at_first),
-                    aim.viewport.pixel_from_clip(at_second),
-                );
-                let run = to - from;
-                let length = run.length_squared();
-                // A line pointing straight at the eye projects to a point, and a
-                // point leaves the cursor nothing to slide along. Asked of the
-                // projection, because that is where the answer is read: an angle
-                // that looked safe in space can still land both probes on one
-                // pixel.
-                if length <= MIN_RUN_PX2 {
-                    return None;
-                }
-                let on_screen = (aim.cursor - from).dot(run) / length;
-
-                // Refused rather than fallen back on where the projection says
-                // nothing: a stroke asking this of itself has ends to answer
-                // with, and an unbounded line has none.
-                let along_it = viewport::unsqueezed(on_screen, at_first.w, at_second.w)?;
-                let travelled = first + (second - first) * along_it;
-                (depth(travelled) > MIN_DEPTH).then(|| origin + unit * travelled)
+            first = (MIN_DEPTH - base.w) / step.w + step.w.signum();
+            if depth(first) <= MIN_DEPTH {
+                return None;
             }
         }
+        let second = [first + 1.0, first - 1.0]
+            .into_iter()
+            .find(|&at| depth(at) > MIN_DEPTH)?;
+
+        let (at_first, at_second) = (base + step * first, base + step * second);
+        // A line pointing straight at the eye projects to a point, and a point
+        // leaves the cursor nothing to slide along. Refused on the projection
+        // rather than in space, because that is where the answer is read: an
+        // angle that looked safe can still land both probes on one pixel.
+        let projected = aim.projected(at_first, at_second);
+        if !projected.runs {
+            return None;
+        }
+
+        // Refused rather than fallen back on where the projection says nothing:
+        // a stroke asking this of itself has ends to answer with, and an
+        // unbounded line has none.
+        let along_it = viewport::unsqueezed(projected.at, at_first.w, at_second.w)?;
+        let travelled = first + (second - first) * along_it;
+        (depth(travelled) > MIN_DEPTH).then(|| origin + unit * travelled)
     }
 }
 

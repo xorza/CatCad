@@ -21,10 +21,11 @@ use crate::viewport;
 ///
 /// Not the whole of what crosses. The uniform buffer carries numbers too, and
 /// one of them — `probe_reach` — is a tuning constant rather than a measurement
-/// of the frame; see [`Uniforms::probe_reach`](super::uniforms::Uniforms). The
-/// split is per-frame against per-pipeline and nothing else: a value the camera
-/// moves cannot be baked into a pipeline, and one that never changes should not
-/// be re-uploaded sixty times a second.
+/// of the frame; see
+/// [`Uniforms::probe_reach`](super::uniforms::Uniforms::probe_reach). The split
+/// is per-frame against per-pipeline and nothing else: a value the camera moves
+/// cannot be baked into a pipeline, and one that never changes should not be
+/// re-uploaded sixty times a second.
 ///
 /// The first two are the same for every pass and the last is the pass's own,
 /// which is what makes this a function rather than the constant it was.
@@ -304,9 +305,10 @@ impl Pass {
     /// the queue its staging whatever is in it, so the half that did not move is
     /// worth not asking about.
     ///
-    /// The same shape [`Passes::upload`](super::held::Passes) reads the overlays
-    /// through, which is the point of it: a buffer and its mark arrive together
-    /// or not at all, so there is no reading one and uploading the other.
+    /// The same shape [`Passes::upload`](super::held::Passes::upload) reads the
+    /// overlays through, which is the point of it: a buffer and its mark arrive
+    /// together or not at all, so there is no reading one and uploading the
+    /// other.
     pub(super) fn upload_mesh(
         &mut self,
         device: &wgpu::Device,

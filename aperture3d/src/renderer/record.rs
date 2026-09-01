@@ -322,7 +322,7 @@ impl Instance for GlyphInstance {
 /// renderer naming each kind would drop that check without a word — which is
 /// why `paint` names three and stops there.
 ///
-/// [`Flatten::Record`]: crate::primitive::Flatten
+/// [`Flatten::Record`]: crate::primitive::Flatten::Record
 /// [`Records`]: crate::renderer::cpu::records::Records
 pub(crate) trait Attributed: bytemuck::Pod {
     /// Whether the buffer advances per vertex or per instance.

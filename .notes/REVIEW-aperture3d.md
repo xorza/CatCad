@@ -10,40 +10,6 @@ sorted by what they cost, worst first.
 
 ---
 
-## The same projected-stretch arithmetic in two places
-
-- [ ] `curve/mod.rs:187` (`nearest_on_segment`) and `motion/mod.rs:75`
-      (`Motion::resolve`, the `Line` arm) both project two clip positions, take
-      pixels through `pixel_from_clip`, weigh `run.length_squared()` against
-      `MIN_RUN_PX2`, dot the cursor onto the run, and finish through
-      `viewport::unsqueezed`. They differ in the clamp and in refusing rather
-      than falling back. `unsqueezed` is already shared for this reason; the
-      ten lines in front of it are not.
-
-## `Motion::resolve` is two algorithms in one match
-
-- [ ] `motion/mod.rs:75` — the `Line` arm runs about sixty lines inside a match
-      arm inside a method. Two private methods named for what each answers, and
-      a `match` that reads as the two-way choice it is.
-
-## Doc links that name a member the reader cannot find
-
-The crate writes a member link two ways: the full path where the member is
-public, and the type alone where it is private. `broken_intra_doc_links` is
-denied at the workspace, and the type-only form passes it whatever the display
-text says — so the text is unchecked.
-
-- [ ] Eleven links use the type-only form for a member that is private or
-      crate-visible: `Renderer::gpu`, `Records::ordinary_to_upload`,
-      `Passes::upload`, `Viewport::screen_tangent`, `PassSpec::depth_bias`,
-      `PassSpec::depth_test`, `Uniforms::probe_reach`, `Scene::faces`,
-      `Scene::grabbed`, `Text::anchor` (twice in `text/turn.rs`), `Text::pick`,
-      `Object::pick`, `Bounds::crossed`. Pick one shape and hold every link to
-      it — `private_intra_doc_links` denies the full path for these, so the
-      choice is this form or naming the member in prose.
-- [ ] `Camera::ray_through` is linked as a full path in `aim.rs:71` and as the
-      bare type in `object.rs:127`.
-
 ## Files holding more than one major type
 
 One major struct, one file, same name. Seven files hold two to six.

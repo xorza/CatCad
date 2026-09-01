@@ -4,8 +4,8 @@ use crate::camera::Camera;
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::ray::Ray;
 use crate::tag::Tag;
-use crate::viewport::Viewport;
-use glam::{Mat4, Vec2, Vec3};
+use crate::viewport::{MIN_RUN_PX2, Viewport};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use palantir::Rect;
 
 /// Where the cursor is, how far it reaches, and the projection that puts the
@@ -96,6 +96,48 @@ impl Aim {
         self.radius.max(drawn_width * 0.5)
     }
 
+    /// Where the cursor falls along the stretch the projection draws between
+    /// two clip positions.
+    ///
+    /// **The projection half of two questions that are otherwise different**: a
+    /// stroke asks where along itself the cursor fell, and a drag along an axis
+    /// asks the same of a line. [`unsqueezed`](crate::viewport::unsqueezed) is already
+    /// shared between them, for the reason its own doc gives — the two must not
+    /// answer differently — and this is the arithmetic in front of it.
+    ///
+    /// Both positions have to be ones the projection draws: `w` is divided by
+    /// here, which is what [`Viewport::pixel_from_clip`] makes its caller
+    /// justify. A stroke clips before it asks; a line walks to a point in front
+    /// of the eye.
+    ///
+    /// What comes back is a reading of the *projection*, so a fraction of it is
+    /// not a fraction of the world stretch it came from — that is what
+    /// [`unsqueezed`](crate::viewport::unsqueezed) undoes, and it is left to the caller
+    /// because the two disagree about what its refusal means.
+    ///
+    /// [`Viewport::pixel_from_clip`]: crate::viewport::Viewport::pixel_from_clip
+    pub(crate) fn projected(&self, near: Vec4, far: Vec4) -> Projected {
+        let (from, to) = (
+            self.viewport.pixel_from_clip(near),
+            self.viewport.pixel_from_clip(far),
+        );
+        let run = to - from;
+        let length = run.length_squared();
+        let runs = length > MIN_RUN_PX2;
+        let at = if runs {
+            (self.cursor - from).dot(run) / length
+        } else {
+            0.0
+        };
+        Projected {
+            at,
+            runs,
+            cursor: self.cursor,
+            from,
+            run,
+        }
+    }
+
     /// A hit on `world`, measured from the eye along the cursor's own ray so
     /// that two hits at the same screen distance still order front to back.
     pub(crate) fn hit(
@@ -117,6 +159,45 @@ impl Aim {
     }
 }
 
+/// A stretch of the world as the projection draws it, with the cursor dropped
+/// onto it. See [`Aim::projected`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Projected {
+    /// The fraction of the projected run nearest the cursor.
+    ///
+    /// Unclamped: a cursor past either end answers outside `0..=1`, which is
+    /// what an unbounded line wants and what a bounded stroke clamps away.
+    ///
+    /// Zero where the run has no direction — see [`Projected::runs`], which is
+    /// what says whether that zero is an answer.
+    pub(crate) at: f32,
+    /// Whether the two ends landed far enough apart to leave a direction to
+    /// project the cursor onto. See [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX).
+    ///
+    /// What to do about `false` is the caller's, and the two callers differ: a
+    /// stroke that lands on one pixel is still a stroke the cursor is on, and
+    /// either end answers the same, where a line pointing straight at the eye
+    /// leaves a drag nothing to slide along.
+    pub(crate) runs: bool,
+    /// The cursor [`Projected::at`] was measured against, so that asking how
+    /// far it fell cannot be asked about a different one.
+    cursor: Vec2,
+    from: Vec2,
+    run: Vec2,
+}
+
+impl Projected {
+    /// How far the cursor fell from the point `at` of the run, in pixels.
+    ///
+    /// Takes the fraction rather than reading [`Projected::at`], because what a
+    /// bounded stretch measures against is the *clamped* one: a cursor past an
+    /// end is that far from the end, not from a point of the line the stretch
+    /// does not reach.
+    pub(crate) fn screen(&self, at: f32) -> f32 {
+        self.cursor.distance(self.from + self.run * at)
+    }
+}
+
 /// From `at` to the nearest point of `rect` — the zero vector anywhere within
 /// it.
 ///
@@ -131,7 +212,7 @@ impl Aim {
 /// its length, because the box is not always on screen: a run of text laid in a
 /// plane is a rectangle in its own frame, so what is brought into that frame is
 /// the cursor and what has to come back out of it is the overshoot. See
-/// [`Text::pick`](crate::Text).
+/// [`Text::pick`](crate::Text::pick).
 pub(crate) fn into_box(at: Vec2, rect: Rect) -> Vec2 {
     at.clamp(rect.min, rect.max()) - at
 }

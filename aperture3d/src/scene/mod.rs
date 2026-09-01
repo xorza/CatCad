@@ -75,7 +75,8 @@ pub struct Scene {
     ///
     /// It also picks as the opposite of what it is made of: a stroke of the
     /// drawing is ranked by shape like anything else, where a control outranks
-    /// every kind there is. See [`Scene::grabbed`](Scene).
+    /// every kind there is — which is this batch's doing rather than the
+    /// stroke's, and settled where a [`Scene`] answers a pick.
     pub gizmos: Batch<Curve>,
     pub curves: Batch<Curve>,
     pub rings: Batch<Ring>,
@@ -371,11 +372,12 @@ impl Scene {
     /// are held.
     ///
     /// **One walk, five kinds.** All five answer
-    /// [`Primitive::pick`](crate::primitive::Primitive) — the arithmetic behind
-    /// it is each kind's own and the answer is one [`Hit`] — so what a batch is
-    /// made of reaches no further than the type parameter. A kind walked by a
-    /// copy of this would be a kind free to forget the standing filter, or to
-    /// answer a scene's pick by a rule the other four do not keep.
+    /// [`Primitive::pick`](crate::primitive::Primitive::pick) — the arithmetic
+    /// behind it is each kind's own and the answer is one [`Hit`] — so what a
+    /// batch is made of reaches no further than the type parameter. A kind
+    /// walked by a copy of this would be a kind free to forget the standing
+    /// filter, or to answer a scene's pick by a rule the other four do not
+    /// keep.
     ///
     /// The standing is a parameter rather than a filter over what comes back,
     /// and that is what keeps the second walk from costing what the first does.

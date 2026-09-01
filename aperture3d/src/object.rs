@@ -74,10 +74,11 @@ impl Styled for Object {
 /// How far along the ray from `origin` in `direction` it goes through the
 /// triangle, or `None` where it misses.
 ///
-/// Named apart from [`Bounds::crossed`](crate::Bounds), which a pick asks first
-/// of the box: that one answers whether the triangles are worth walking, this
-/// one answers where one of them was met. Two questions in one call chain, and
-/// one word for both would have been one word for a `bool` and a distance.
+/// Named apart from [`Bounds::crossed`](crate::Bounds::crossed), which a pick
+/// asks first of the box: that one answers whether the triangles are worth
+/// walking, this one answers where one of them was met. Two questions in one
+/// call chain, and one word for both would have been one word for a `bool` and
+/// a distance.
 ///
 /// Möller–Trumbore, without the early-out that culls a back face: the
 /// determinant's *sign* is which side is being entered, and only its magnitude
@@ -124,11 +125,11 @@ fn pierced(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
     }
     // Behind the near plane is not something the cursor is over. The ray starts
     // *on* that plane rather than at the eye — see
-    // [`Camera::ray_through`](crate::Camera) — so this one comparison refuses
-    // both what is behind the viewer and what the near plane cut away, which is
-    // what keeps a surface pickable exactly where it is drawn. The overlays
-    // reach the same answer by a different route, testing the clip position
-    // against the planes the hardware clips against.
+    // [`Camera::ray_through`](crate::Camera::ray_through) — so this one
+    // comparison refuses both what is behind the viewer and what the near plane
+    // cut away, which is what keeps a surface pickable exactly where it is
+    // drawn. The overlays reach the same answer by a different route, testing
+    // the clip position against the planes the hardware clips against.
     let travelled = across.dot(upward) * inverse;
     (travelled >= 0.0).then_some(travelled)
 }
@@ -150,15 +151,16 @@ impl Primitive for Object {
     /// **Always a [`HitAt::Surface`]**, which is the one kind a mesh can be: a
     /// backdrop, ranked against other backdrops and never against what is drawn
     /// on it. The kind that beats every other is [`HitAt::Gizmo`], and no mesh
-    /// is ever one — a control is a stroke of [`crate::Scene::gizmos`], and
-    /// which batch a *stroke* is in is the [`crate::Scene`]'s to say.
+    /// is ever one — a control is a stroke of
+    /// [`Scene::gizmos`](crate::Scene::gizmos), and which batch a *stroke* is
+    /// in is the [`Scene`](crate::Scene)'s to say.
     ///
     /// Every triangle tested, front and back alike. A sheet has no outside to
-    /// be culled from — see [`Scene::faces`](crate::Scene) — and one that could
-    /// only be picked from the side it happens to face would be one that stops
-    /// answering as the view goes round it. A solid is tested by the same rule
-    /// rather than a stricter one: which batch an object is in decides how it
-    /// is drawn, and picking asks only where the mesh is.
+    /// be culled from — see [`Scene::faces`](crate::Scene::faces) — and one
+    /// that could only be picked from the side it happens to face would be one
+    /// that stops answering as the view goes round it. A solid is tested by the
+    /// same rule rather than a stricter one: which batch an object is in
+    /// decides how it is drawn, and picking asks only where the mesh is.
     ///
     /// The screen distance comes back zero, because a surface is not something
     /// the cursor is *near*: it is either over it or it is not, and a face
@@ -257,13 +259,12 @@ mod tests {
     /// The box in front of the triangles admits every ray they could answer,
     /// including down the axis it has no thickness on.
     ///
-    /// Asked of [`Bounds::crossed`](crate::Bounds) rather than through a camera,
-    /// because the cases that matter are exact: a direction with a hard zero in
-    /// it, and an
-    /// origin lying exactly in the sheet's own plane. No camera reaches either —
-    /// a quarter turn puts `cos` at 4.4e-8 rather than at nothing — so a test
-    /// that went through one would be asking the ordinary case three times and
-    /// calling it coverage.
+    /// Asked of [`Bounds::crossed`](crate::Bounds::crossed) rather than through
+    /// a camera, because the cases that matter are exact: a direction with a
+    /// hard zero in it, and an origin lying exactly in the sheet's own plane.
+    /// No camera reaches either — a quarter turn puts `cos` at 4.4e-8 rather
+    /// than at nothing — so a test that went through one would be asking the
+    /// ordinary case three times and calling it coverage.
     ///
     /// What the box may never do is refuse what the triangles would have found.
     /// It is free to admit what they then reject, which is why the grazing case

@@ -6,7 +6,7 @@ use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use crate::viewport::{self, Inside, MIN_RUN_PX2};
+use crate::viewport::{self, Inside};
 use glam::Vec3;
 
 /// A polyline through world-space points, stroked at a constant width in
@@ -195,20 +195,13 @@ fn nearest_on_segment(a: Vec3, b: Vec3, aim: &Aim) -> Option<Nearest> {
     let near = a_clip.lerp(b_clip, span.start);
     let far = a_clip.lerp(b_clip, span.end);
 
-    let (from, to) = (
-        aim.viewport.pixel_from_clip(near),
-        aim.viewport.pixel_from_clip(far),
-    );
-    let run = to - from;
-    let length = run.length_squared();
-    // A segment that lands on one pixel has no direction to project onto, and
-    // either end answers the same.
-    let on_screen = if length > MIN_RUN_PX2 {
-        ((aim.cursor - from).dot(run) / length).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let screen = aim.cursor.distance(from + run * on_screen);
+    // Clamped, because a segment has ends: a cursor past one is that far from
+    // the end rather than from a point of the line the segment does not reach.
+    // A segment landing on one pixel has no direction to project onto and
+    // answers zero, which is the near end — and either end answers the same.
+    let projected = aim.projected(near, far);
+    let on_screen = projected.at.clamp(0.0, 1.0);
+    let screen = projected.screen(on_screen);
 
     // Screen distance runs evenly along the *projected* segment, and under
     // perspective that is not evenly along the world one — the far half of a

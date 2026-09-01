@@ -183,7 +183,7 @@ impl Camera {
     /// screen without the camera reaching the scene at all. From outside, this
     /// is the whole number.
     ///
-    /// [`Pane::camera`]: crate::Pane
+    /// [`Pane::camera`]: crate::Pane::camera
     pub fn world_per_pixel(&self, at: Vec3, viewport: Viewport) -> f32 {
         self.view_depth(at) * self.world_per_clip_w(viewport)
     }

@@ -20,7 +20,7 @@ use glam::Vec3;
 ///
 /// Object space for a mesh, so it survives the transform moving: a mesh that is
 /// spun or slid is the same mesh, and a pick puts its ray into that space to
-/// ask — see [`Object::pick`](crate::Object).
+/// ask — see how an [`Object`](crate::Object) answers one.
 ///
 /// May hold nothing, where an [`Extent`] may not. That is the difference
 /// between the two and the whole of it: this is what a walk builds up, and an

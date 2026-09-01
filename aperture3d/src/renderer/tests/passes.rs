@@ -57,7 +57,7 @@ fn every_pipeline_builds() {
         // Meshes are the one kind whose list changes, so a mirror grows its own
         // beside its records and there is nothing in either yet. All three of
         // them: a solid, a face and a ghost are one shader told apart by
-        // pipeline state — see [`Pass::mesh`](crate::renderer::pass::Pass).
+        // pipeline state — see [`Pass::mesh`](crate::renderer::pass::Pass::mesh).
         for mesh in [&mirror.solids, &mirror.faces, &mirror.ghosts] {
             assert_eq!(mesh.index_count, 0);
             assert!(mesh.indices.buffer().is_none());

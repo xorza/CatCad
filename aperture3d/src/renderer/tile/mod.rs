@@ -23,8 +23,8 @@ use glam::{IVec2, Mat4, UVec2, Vec2, Vec4};
 /// rectangle reaching backwards is not a shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Tile {
-    /// Where the tile begins — [`Rect::min`](palantir::Rect)'s counterpart, and
-    /// named for it so the crate has one word for a corner.
+    /// Where the tile begins — [`Rect::min`](palantir::Rect::min)'s
+    /// counterpart, and named for it so the crate has one word for a corner.
     pub(super) min: IVec2,
     pub(super) size: UVec2,
 }

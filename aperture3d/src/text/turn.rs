@@ -143,21 +143,23 @@ pub struct Turn {
     /// along `normal × right`.
     ///
     /// **Nothing the projection decides reaches it, and that is the whole of
-    /// what it is for.** An offset written into [`Text::anchor`](crate::Text) rides in the
-    /// run's *own* frame, and both rules that settle that frame move it: the
-    /// mirror that keeps a run readable from behind its plane, and the half turn
-    /// that keeps it the right way up. Either swings the box off whatever it was
-    /// standing clear of. Stated here it is fixed in the plane, so a run that
-    /// comes round to stay readable only changes direction.
+    /// what it is for.** An offset written into
+    /// [`Text::anchor`](crate::Text::anchor) rides in the run's *own* frame,
+    /// and both rules that settle that frame move it: the mirror that keeps a
+    /// run readable from behind its plane, and the half turn that keeps it the
+    /// right way up. Either swings the box off whatever it was standing clear
+    /// of. Stated here it is fixed in the plane, so a run that comes round to
+    /// stay readable only changes direction.
     ///
     /// Resolved in the world rather than against the run's own settled axes,
     /// because those carry *two* camera-dependent signs — the mirror and the
     /// half turn — and a lift that went through them would pick up both.
     ///
     /// Which leaves one thing for the caller: a box hung off a *centred* anchor
-    /// is mapped onto itself by that half turn, so its place holds outright. One
-    /// hung off any other fraction is reflected through the lifted point, which
-    /// is a real answer but rarely the wanted one — see [`Text::anchor`](crate::Text).
+    /// is mapped onto itself by that half turn, so its place holds outright.
+    /// One hung off any other fraction is reflected through the lifted point,
+    /// which is a real answer but rarely the wanted one — see
+    /// [`Text::anchor`](crate::Text::anchor).
     ///
     /// In pixels rather than world units, like everything else about a laid
     /// run's size: how far a mark stands off the line it measures is a thing you
@@ -223,7 +225,7 @@ impl Turn {
     /// The box is built along these and a pick brings the cursor onto them, so
     /// what is drawn and what is clicked cannot disagree. The vertex shader
     /// cannot call it and builds the same two rules — the same arrangement
-    /// [`MIN_RUN_PX`](crate::Viewport) is under, where one number is stated in
+    /// [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX) is under, where one number is stated in
     /// Rust and handed to the shader.
     ///
     /// `at` is expected to be somewhere the projection draws. Behind the eye
@@ -310,10 +312,10 @@ pub(crate) struct Axes {
     /// were settled at, with y running down the screen.
     ///
     /// The projection's own tangent — see
-    /// [`Viewport::screen_tangent`](crate::Viewport). Carried because settling
-    /// the signs above had to ask for it, and because the one reader that
-    /// inverts the pair to bring a cursor into the run's frame would otherwise
-    /// ask for it a second time.
+    /// [`Viewport::screen_tangent`](crate::Viewport::screen_tangent). Carried
+    /// because settling the signs above had to ask for it, and because the one
+    /// reader that inverts the pair to bring a cursor into the run's frame
+    /// would otherwise ask for it a second time.
     pub(crate) advance_px: Vec2,
     /// The same along [`Axes::down`].
     pub(crate) down_px: Vec2,

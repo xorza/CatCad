@@ -19,7 +19,7 @@ use glam::Vec3;
 /// Not what a run of text calls grazing, which is a policy about where a label
 /// takes its depth from rather than whether a crossing can be divided for.
 ///
-/// [`Motion::Plane`]: crate::Motion
+/// [`Motion::Plane`]: crate::Motion::Plane
 pub(crate) const MIN_FACING: f32 = 1e-6;
 
 /// A start and a unit direction.

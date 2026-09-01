@@ -46,7 +46,7 @@ pub(super) struct Mirror {
     /// empty one has nothing to light.
     pub(super) relight: bool,
     /// `None` until the first paint, on the terms
-    /// [`Renderer::gpu`](super::Renderer) is.
+    /// [`Renderer::gpu`](super::Renderer::gpu) is.
     pub(super) held: Option<Held>,
 }
 

@@ -18,7 +18,7 @@ use crate::renderer::retained::Retained;
 use glam::{UVec2, Vec3};
 
 /// The depth ladder every layer of a drawing stands on, in steps of depth
-/// resolution — see [`PassSpec::depth_bias`](super::pass::PassSpec).
+/// resolution — see [`PassSpec::depth_bias`](super::pass::PassSpec::depth_bias).
 ///
 /// Solids are the ground and sit at zero. Each layer above says how far forward
 /// it reads, and the numbers are here together because a ladder is a set of
@@ -69,11 +69,11 @@ const FACE_OPACITY: f32 = 0.45;
 /// How solid a body shown as a *preview* reads.
 ///
 /// **A ghost, and it declines the depth test** — see
-/// [`PassSpec::depth_test`](super::pass::PassSpec). Both things a ghost is
-/// drawn for stand *inside* the model: a tool too detailed to combine on a
-/// frame's clock is a tool sitting where it would cut, and a cut whose answer
-/// is buried in the part is buried by definition. A ghost that took the test
-/// would be hidden in exactly the two cases it exists for.
+/// [`PassSpec::depth_test`](super::pass::PassSpec::depth_test). Both things a
+/// ghost is drawn for stand *inside* the model: a tool too detailed to combine
+/// on a frame's clock is a tool sitting where it would cut, and a cut whose
+/// answer is buried in the part is buried by definition. A ghost that took the
+/// test would be hidden in exactly the two cases it exists for.
 ///
 /// **What that costs is that a ghost reads as though it were in front**, which
 /// is a lie about where it is, and it is the price of the thing being visible

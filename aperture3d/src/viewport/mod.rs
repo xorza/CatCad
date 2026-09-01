@@ -44,7 +44,9 @@ const MIN_RECIP_W: f32 = 1e-6;
 /// caller reading a position back out of the result justifies it with. Stated
 /// once because it is stated subtly — a stroke asks where along itself a cursor
 /// fell and a drag asks the same of an axis, and the two must not answer
-/// differently.
+/// differently. The arithmetic in front of it is shared for the same reason:
+/// both reach here through [`Aim::projected`](crate::aim::Aim::projected), and what each does
+/// with a refusal is the whole of what they still decide apart.
 pub(crate) fn unsqueezed(on_screen: f32, near_w: f32, far_w: f32) -> Option<f32> {
     let recip = (1.0 - on_screen) / near_w + on_screen / far_w;
     (recip.abs() > MIN_RECIP_W).then(|| (on_screen / far_w) / recip)
@@ -151,10 +153,11 @@ impl Viewport {
     /// position that survived clipping may be handed here.
     ///
     /// Kept inside the crate for exactly that reason: the contract is between
-    /// this and the handful of places that clip before reaching it, so the
-    /// assert fires when one of them stopped — where a published one would be an
-    /// assert on whatever a caller happened to pass. [`Viewport::pixel_of`] is
-    /// the answer for anyone else, and asks the question safely.
+    /// this and [`Aim::projected`](crate::aim::Aim::projected), the one place that clips before
+    /// reaching it, so the assert fires when that clipping stopped — where a
+    /// published one would be an assert on whatever a caller happened to pass.
+    /// [`Viewport::pixel_of`] is the answer for anyone else, and asks the
+    /// question safely.
     pub(crate) fn pixel_from_clip(&self, clip: Vec4) -> Vec2 {
         debug_assert!(clip.w > 0.0, "{clip:?} is not in front of the near plane");
         self.pixel_from_ndc(clip.xy() / clip.w)
