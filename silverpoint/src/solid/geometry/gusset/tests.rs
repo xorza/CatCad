@@ -523,9 +523,7 @@ fn the_second_edge_is_walked_onto_the_round_and_reaches_the_tip() {
 #[test]
 fn the_box_holds_every_place_of_the_patch() {
     for (named, gusset) in [("square", square()), ("leaning", leaning())] {
-        let mut walked = Vec::new();
-        let strayed = gusset.walked(1e-4, &mut walked);
-        let fills = gusset.fills(&walked, strayed);
+        let fills = gusset.fills();
         let bounds = gusset.bounds();
         for round in 0..=8 {
             let u = bounds[0] + (bounds[1] - bounds[0]) * f64::from(round) / 8.0;

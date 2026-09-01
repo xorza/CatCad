@@ -1843,16 +1843,18 @@ so.
   of every one being on those two edges. **The tangent length is not a
   shortcut**: a ruling is tangent to the round but not square to its axis, so
   `√(d² − r²)` bounds the across component of a ruling and nothing else.
-- **How a bounded surface carries its own extent is the arm's open question.**
-  `Fitted::spans` is asked of a surface with no face and no walk in hand, and
-  every other surface in either tier is unbounded, so none of them has had to
-  answer. A gusset is the first that is bounded, and its extent is measured
-  rather than written. The tree's own precedent is `Marched`, which carries the
-  `run` its walk was filed under together with the readings a caller needs
-  without reaching the store — its key and its reach. The same shape here is a
-  `Gusset` carrying its run, its box and its stray beside the four things it is
-  made of, which is a change to what the type *is* rather than a method added
-  to it: it would stop being constructible from geometry alone.
+- **A bounded surface carries no extent, it walks one — settled.** Every other
+  surface in either tier is unbounded, so `Fitted::spans` has never had to ask
+  a surface how far it reaches; a gusset is the first that is bounded, and its
+  extent is measured rather than written. Storing it was the shape `Marched`
+  suggests, and it is the wrong one here: a box is a reading of a walk at some
+  fineness, so two patches that are one patch would compare unequal for having
+  been measured differently, and `Gusset` would stop being constructible from
+  geometry alone. So `Gusset::fills` walks its own coarse box instead —
+  sixteen chords and a probe apiece, a few hundred flops against the eight
+  box-halvings and an `off` each that `Surface::narrowed` would otherwise
+  spend. Identity stays over the four things a patch is made of, which is what
+  `Gusset::key` already keys.
 - **`off` wants an answer of its own, and the inversion is not it.** Tried:
   `at(uv(at))` for a place off the patch lands on a *different* ruling, because
   `uv` answers the ruling whose line the place stands nearest and a place moved

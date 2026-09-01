@@ -42,6 +42,14 @@ const FIRST: usize = 4;
 /// Twelve doublings is sixteen thousand chords, which no corner wants.
 const DOUBLINGS: usize = 12;
 
+/// How many chords the box's own walk of the second edge takes.
+///
+/// **Coarse deliberately**, the box being grown by whatever that walk strayed —
+/// so a finer one moves the box by less than the stray it saves. This runs per
+/// surface per face a boolean culls, where the walk that *files* the edge runs
+/// once and is as fine as its caller asked.
+const BOXED: usize = 16;
+
 /// The patch between two blends of one reach whose picks do not agree.
 ///
 /// **Parameterized by the fillet's own angle and the run along the ruling**, in
@@ -103,6 +111,10 @@ struct Framing {
     swung: [DVec3; 2],
     /// Which of the two tangents through a head the ruling is, as a sign.
     side: f64,
+    /// The stretch of the fillet's angle the patch covers — see
+    /// [`Gusset::bounds`], which is the reading, and [`Gusset::along`], which
+    /// walks it.
+    bounds: [f64; 2],
 }
 
 /// One ruling of a [`Gusset`], and how fast each of its ends moves.
@@ -171,9 +183,7 @@ impl Gusset {
     /// Not ascending — which end is the greater is which way the fillet was
     /// framed, and a reader wanting the span takes the difference.
     pub(crate) fn bounds(&self) -> [f64; 2] {
-        let axis = self.filled.axis;
-        let start = axis.angle_of(self.from);
-        [start, branch::nearest(axis.angle_of(self.met()), start)]
+        self.framing().bounds
     }
 
     /// Which of the two parameters run round the patch, so that a face on it
@@ -223,88 +233,97 @@ impl Gusset {
     pub(crate) fn walked(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
         debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         let framing = self.framing();
-        let [from, to] = self.bounds();
         let mut steps = FIRST;
-        let mut most = self.laid(from, to, steps, framing, into);
+        let mut most = self.laid(steps, framing, into);
         while most > sagitta && steps < FIRST << DOUBLINGS {
             steps *= 2;
-            most = self.laid(from, to, steps, framing, into);
+            most = self.laid(steps, framing, into);
         }
         most
     }
 
-    /// The box the whole patch fills, given `walked` — its second edge laid
-    /// down by [`Gusset::walked`] — and how far that walk `strayed` from the
-    /// edge itself.
+    /// The box the whole patch fills.
     ///
     /// **Half of it is written down and half of it is walked.** The first edge
-    /// is a plane section of the fillet, so it is an ellipse in the world: a
-    /// fixed place plus `cos u` and `sin u` times two fixed vectors, whose box
-    /// is that place give or take the hypotenuse of the two on each axis. The
-    /// second edge lies on the round and wants its extent *along* that axis,
-    /// which is the quotient with no value at the tip — so it comes off the
-    /// walk, grown by what the walk strayed.
+    /// is a plane section of the fillet, so it is an ellipse in the world — see
+    /// [`Framing::swung`] — and `a cos u + b sin u` never passes `√(a² + b²)`,
+    /// which boxes it on each axis without reading a place off it. The second
+    /// edge lies on the round and wants its extent *along* that axis, which is
+    /// the quotient with no value at the tip — so it is walked, and the box is
+    /// grown by what that walk strayed.
     ///
     /// **The rulings ask for nothing of their own.** Every one of them has both
     /// ends on those two edges, so the patch lies inside their convex hull and
     /// a box round the two is a box round the patch.
     ///
-    /// Over the fillet's whole turn rather than the arc the patch covers, which
-    /// is coarse and not wrong — the same trade a torus's own box makes, and
-    /// what a cull owes is to drop work and never an answer.
-    pub(crate) fn fills(&self, walked: &[DVec3], strayed: f64) -> Bounds<DVec3> {
-        let Framing { middle, swung, .. } = self.framing();
-        let [one, two] = swung;
-        // How far the ellipse reaches on each axis, which is the two it swings
-        // by read as a right angle: `a cos u + b sin u` never passes `√(a²+b²)`.
+    /// **Coarse deliberately.** The ellipse is read over the fillet's whole
+    /// turn rather than the arc the patch covers, and a finer walk of the
+    /// second edge would move the box by less than the stray it saved. What a
+    /// cull owes is to drop work and never an answer, which is the trade a
+    /// torus's own box makes as well.
+    pub(crate) fn fills(&self) -> Bounds<DVec3> {
+        let framing = self.framing();
+        let [one, two] = framing.swung;
         let swing = DVec3::new(one.x.hypot(two.x), one.y.hypot(two.y), one.z.hypot(two.z));
         let mut fills = Bounds {
-            low: middle - swing,
-            high: middle + swing,
+            low: framing.middle - swing,
+            high: framing.middle + swing,
         };
-        fills.extend(walked.iter().copied());
+        let strayed = self.along(BOXED, framing, |at| fills.hold(at));
         Bounds {
             low: fills.low - strayed,
             high: fills.high + strayed,
         }
     }
 
-    /// Lay the second edge down in `steps` chords from `from` to `to`, and say
-    /// how far the worst of them stands from the edge.
+    /// Walk the second edge in `steps` chords, handing each place to `held`,
+    /// and say how far the worst chord stands from the edge.
+    ///
+    /// **Handed over rather than laid down**, because the two callers want
+    /// different things of one walk: one files the places as a run and one only
+    /// takes their box, and a walk that answered with a list would make the
+    /// second ask for a buffer it has nowhere to keep.
     ///
     /// Three places along each chord, which is what a marched curve is measured
     /// by and for the same reason: a smooth curve leaves its chord furthest
     /// near the middle, so three catch what one would and a leaning chord
     /// besides.
-    fn laid(
-        &self,
-        from: f64,
-        to: f64,
-        steps: usize,
-        framing: Framing,
-        into: &mut Vec<DVec3>,
-    ) -> f64 {
+    ///
+    /// **The tip is written rather than read.** Where the ruling has closed to
+    /// nothing both edges are the touch point, and how far along the round's
+    /// axis the ruling lands is nought over nought there — see
+    /// `.notes/KERNEL.md` §9.6, which is where that limit is argued. The
+    /// probing stops three quarters of a chord short of it, so nothing reads
+    /// the quotient at the one angle it has no value at.
+    fn along(&self, steps: usize, framing: Framing, mut held: impl FnMut(DVec3)) -> f64 {
         let foot = |u: f64| self.ruled(u, framing).foot;
+        let [from, to] = framing.bounds;
         let step = (to - from) / steps as f64;
-        into.clear();
-        into.reserve_exact(steps + 1);
-        into.extend((0..steps).map(|at| foot(from + step * at as f64)));
-        // **The tip is written rather than read.** Where the ruling has closed
-        // to nothing both edges are the touch point, and how far along the
-        // round's axis the ruling lands is nought over nought there — see
-        // `.notes/KERNEL.md` §9.6, which is where that limit is argued. The
-        // probing below stops three quarters of a chord short of it, so
-        // nothing reads the quotient at the one angle it has no value at.
-        into.push(self.met());
         let mut most = 0.0_f64;
-        for (at, pair) in into.windows(2).enumerate() {
-            let began = from + step * at as f64;
+        let mut last = foot(from);
+        held(last);
+        for at in 1..=steps {
+            let began = from + step * (at as f64 - 1.0);
+            let here = match at == steps {
+                true => framing.met,
+                false => foot(began + step),
+            };
             for share in [0.25, 0.5, 0.75] {
-                let along = pair[0].lerp(pair[1], share);
+                let along = last.lerp(here, share);
                 most = most.max(along.distance(foot(began + step * share)));
             }
+            held(here);
+            last = here;
         }
         most
+    }
+
+    /// The same walk laid down in `into`, rather than handed over a place at a
+    /// time — see [`Gusset::along`].
+    fn laid(&self, steps: usize, framing: Framing, into: &mut Vec<DVec3>) -> f64 {
+        into.clear();
+        into.reserve_exact(steps + 1);
+        self.along(steps, framing, |at| into.push(at))
     }
 
     /// Where the two blends touch, which is the tip the patch closes to.
@@ -343,6 +362,10 @@ impl Gusset {
             side: match self.turning {
                 true => 1.0,
                 false => -1.0,
+            },
+            bounds: {
+                let start = axis.angle_of(self.from);
+                [start, branch::nearest(axis.angle_of(met), start)]
             },
         }
     }
