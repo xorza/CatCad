@@ -1,6 +1,8 @@
 //! A run of text drawn at a point in the world, at a size the zoom cannot
 //! change.
 
+pub(crate) mod turn;
+
 use crate::aim::{self, Aim};
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::Primitive;
@@ -439,8 +441,6 @@ pub(crate) mod measuring {
         }
     }
 }
-
-pub(crate) mod turn;
 
 #[cfg(test)]
 mod tests;

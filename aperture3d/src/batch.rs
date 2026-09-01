@@ -80,10 +80,17 @@ impl<T: Default> Batch<T> {
     /// before this returns, so no default is ever drawn; anything past the new
     /// end is dropped.
     ///
-    /// Overwriting a slot is only as cheap as the element makes it. One that
-    /// owns nothing is assigned whole; one that owns something offers a setter
-    /// that keeps the room it has — see
-    /// [`Curve::set_segment`](crate::Curve::set_segment).
+    /// Overwriting a slot is only as cheap as the element makes it, and what the
+    /// rule asks for is the *room* rather than any one shape. An element that
+    /// owns nothing is assigned whole; one that owns something is written into,
+    /// and how is that element's own to say: a [`Curve`](crate::Curve) offers
+    /// [`set_segment`](crate::Curve::set_segment), a [`Text`](crate::Text) a
+    /// public `String` to format straight into, and a [`Mesh`](crate::Mesh) a
+    /// closure — see [`rewrite`](crate::Mesh::rewrite), which has a derived box
+    /// to carry with it.
+    ///
+    /// What none of them does is assign a fresh value over the old, which frees
+    /// a block per element and asks straight back for one the same size.
     ///
     /// One walk of `items`, which is why no count is asked for up front: a
     /// caller walks an arena to produce them, and a length taken first would

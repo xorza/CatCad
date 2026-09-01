@@ -1,9 +1,9 @@
 //! One mesh batch flattened, and what decides which half of it is rewritten.
 
 use crate::batch::Batch;
-use crate::highlight::Highlights;
 use crate::object::Object;
 use crate::renderer::cpu::marked::Marked;
+use crate::renderer::highlights::Highlights;
 use crate::renderer::record::GpuVertex;
 use glam::{Mat3, Vec3};
 

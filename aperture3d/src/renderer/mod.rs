@@ -8,16 +8,12 @@
 //! ways the index already says. Text ships one of those per *glyph*, because
 //! that is what a run comes to once the shaper has placed it.
 
-use crate::highlight::Lit;
-use crate::renderer::pane::Pane;
-use glam::Vec3;
-use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
-
 pub(crate) mod atlas;
 pub(crate) mod band;
 pub(crate) mod cpu;
 pub(crate) mod gpu;
 pub(crate) mod held;
+pub(crate) mod highlights;
 pub(crate) mod mirror;
 pub(crate) mod pane;
 pub(crate) mod pass;
@@ -27,10 +23,14 @@ pub(crate) mod target;
 pub(crate) mod tile;
 pub(crate) mod uniforms;
 
+use crate::highlight::Lit;
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::gpu::Gpu;
 use crate::renderer::mirror::Mirror;
+use crate::renderer::pane::Pane;
 use crate::renderer::uniforms::{Frame, Uniforms};
+use glam::Vec3;
+use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 /// What a view is cleared to when its owner says nothing.
 ///

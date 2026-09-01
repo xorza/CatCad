@@ -6,10 +6,10 @@
 //! methods that stay private only while the two live together.
 
 use crate::batch::Batch;
-use crate::highlight::Highlights;
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::cpu::marked::Marked;
+use crate::renderer::highlights::Highlights;
 use crate::renderer::record::{GlyphInstance, Instance};
 use crate::text::Text;
 use crate::text::turn::Facing;
