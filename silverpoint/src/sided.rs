@@ -29,6 +29,26 @@ impl<Id: Copy> Sided<Id> {
             forward: !self.forward,
         }
     }
+
+    /// Walk the run `of` the other way round: reversed, and every step turned
+    /// over.
+    ///
+    /// **The two together and never one of them.** Reversed alone, the run
+    /// still walks each edge the way it did and the loop comes back inside out;
+    /// turned alone, it walks them the other way in the order they were
+    /// written, which is not a loop at all. What every caller wants is the walk
+    /// the face across it takes, and that is both.
+    ///
+    /// Nothing steps round by one here, which is the whole of the difference
+    /// from [`corner::turned`](crate::solid::boolean::splitting::corner::turned):
+    /// a coedge says which way its own edge is walked and nothing about the
+    /// stretch leaving it, so turning the run over is all there is to do.
+    pub(crate) fn turn(of: &mut [Self]) {
+        of.reverse();
+        for step in of.iter_mut() {
+            *step = step.turned();
+        }
+    }
 }
 
 impl Sided<usize> {

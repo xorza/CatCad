@@ -76,18 +76,6 @@ impl Side {
     }
 }
 
-/// Which side of `cut` a region wholly clear of it falls, read off any corner
-/// of its `outline`.
-///
-/// **Any corner does, which is what both callers have shown**: one by the cut
-/// meeting no boundary of the region, the other by the cut coming nowhere near
-/// the box the region fills. So there is no corner for [`PLACED`] to have an
-/// opinion about, and this reads the side without one where [`Side::of`] reads
-/// it with.
-fn beside(outline: &[Corner], cut: Cut<'_>) -> bool {
-    cut.side(outline[0].at) > 0.0
-}
-
 /// Whether a region the cut runs along the boundary of is on the side kept.
 ///
 /// **Which side it is on, where its boundary cannot say.** A corner on the cut
@@ -346,9 +334,9 @@ impl Splitting {
     /// What a closed cut lying clear of the boundary leaves.
     ///
     /// **Four answers off two questions**, which is why this is not the walk
-    /// with a special case bolted on. The cut met no boundary, so every corner
-    /// of the region is on one side of it — and each loop the cut makes either
-    /// lies within the region or does not:
+    /// with a special case bolted on. The cut crossed no boundary, so every
+    /// corner of the region that is off the cut at all is on one side of it —
+    /// and each loop the cut makes either lies within the region or does not:
     ///
     /// | | loop within the region | loop clear of it |
     /// | --- | --- | --- |
@@ -379,7 +367,12 @@ impl Splitting {
             return;
         };
         let holes = loops;
-        let kept = beside(outline, cut);
+        // **A closed cut can pass within [`PLACED`] of a corner and cross no
+        // edge at all**: a circle tangent to a reflex corner of the region,
+        // touching the boundary in one place and standing clear of it
+        // everywhere else. Read off any corner of the outline, the side there
+        // is a rounding — and it decides what becomes of the whole region.
+        let keeping = kept(held.clone(), cut);
         // Within the region, which is within its outline and within none of
         // its holes. Asked of one point of each loop because no loop meets the
         // boundary: every point of one stands where that one does.
@@ -389,7 +382,7 @@ impl Splitting {
             winding::holds(outline, somewhere)
                 && !holes.clone().any(|hole| winding::holds(hole, somewhere))
         };
-        if kept {
+        if keeping {
             // The region, with one more hole in it for each loop that fell
             // inside — and untouched where none did.
             //
@@ -770,6 +763,17 @@ impl Splitting {
 #[cfg(test)]
 mod internals {
     use super::*;
+
+    /// Which side of `cut` a region the cut comes nowhere near falls, read off
+    /// any corner of its `outline`.
+    ///
+    /// **Any corner does, which is what the caller has shown**: the cut misses
+    /// the box the region fills, so there is no corner for [`PLACED`] to have
+    /// an opinion about and this reads the side without one where [`Side::of`]
+    /// reads it with. A caller that cannot show as much asks [`kept`] instead.
+    fn beside(outline: &[Corner], cut: Cut<'_>) -> bool {
+        cut.side(outline[0].at) > 0.0
+    }
 
     /// What a cut that reaches no part of `region` leaves of it: the region.
     ///

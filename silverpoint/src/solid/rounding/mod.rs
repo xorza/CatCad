@@ -2144,10 +2144,7 @@ impl Rounding {
         }));
         bounding.extend_from_slice(closed(0));
         if blend.walks {
-            bounding.reverse();
-            for coedge in bounding.iter_mut() {
-                *coedge = coedge.turned();
-            }
+            Coedge::turn(bounding);
         }
     }
 

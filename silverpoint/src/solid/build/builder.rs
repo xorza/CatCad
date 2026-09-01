@@ -532,10 +532,7 @@ impl Builder {
                 // way round — which is what keeps the loop counterclockwise
                 // about a normal that has not moved. Only this loop's own four,
                 // which is what the buffer is indexed from.
-                walk[wrote..].reverse();
-                for coedge in &mut walk[wrote..] {
-                    *coedge = coedge.turned();
-                }
+                Coedge::turn(&mut walk[wrote..]);
             }
         });
         into.topology_mut().face_mut(self.walls[at]).loops = from..from + 1;

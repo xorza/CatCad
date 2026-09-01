@@ -58,10 +58,7 @@ fn an_edge_walked_twice_the_same_way_is_refused() {
     // edges now walk it the same way.
     let wall = wall_loop(&body);
     let outline = body.topology_mut().loop_mut(wall);
-    outline.reverse();
-    for coedge in outline.iter_mut() {
-        *coedge = coedge.turned();
-    }
+    Coedge::turn(outline);
     body.check();
 }
 

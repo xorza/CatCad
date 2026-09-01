@@ -948,10 +948,7 @@ impl Revolving {
                 // counterclockwise about a face whose parameters the frame
                 // reversed. Only this loop's own coedges, which is what the
                 // buffer is indexed from.
-                walk[wrote..].reverse();
-                for coedge in &mut walk[wrote..] {
-                    *coedge = coedge.turned();
-                }
+                Coedge::turn(&mut walk[wrote..]);
             }
         });
         into.topology_mut().face_mut(face).loops = from..from + 1;
@@ -1006,10 +1003,7 @@ impl Revolving {
                     });
                 }
                 if !spinning.forward {
-                    walk[wrote..].reverse();
-                    for coedge in &mut walk[wrote..] {
-                        *coedge = coedge.turned();
-                    }
+                    Coedge::turn(&mut walk[wrote..]);
                 }
             });
         }

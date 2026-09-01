@@ -346,6 +346,62 @@ fn a_circle_inside_a_region_takes_a_disc_out_of_its_middle() {
     assert!((total(&inside) + total(&outside) - 1.0).abs() < 1e-9);
 }
 
+/// **A corner standing on a closed cut does not decide the region.**
+///
+/// The one way a punch meets [`PLACED`] at all. A circle inside a region
+/// touches its boundary in one place and crosses no edge of it — which needs a
+/// *reflex* corner, the interior lying on three sides of it: at a convex corner
+/// a circle through it leaves the region across both edges meeting there.
+///
+/// The `L` of four by four with a two-by-two bite out of its far corner, walked
+/// from the reflex corner at `(2, 2)` so that corner is the first the walk puts
+/// down. The circle about `(2.5, 1.5)` of `√½` passes through it exactly. The
+/// notch's two sides reach no nearer than that corner itself, so the circle
+/// meets each of them there and nowhere else; the `L`'s own four sides stand a
+/// full one and a half off, where the circle reaches seven tenths.
+///
+/// **So the side read there is a rounding**, and read off that corner alone it
+/// decides which of two answers the whole region gets — the disc, or the `L`
+/// with the disc taken out of it. Both are asked, because the wrong reading
+/// swaps them: each side comes back with the *other* one's area, which is a
+/// failure no count of loops would show.
+#[test]
+fn a_corner_on_a_closed_cut_does_not_decide_the_region() {
+    let mut splitting = Splitting::default();
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+    let region = boxed(&[
+        (2.0, 2.0),
+        (0.0, 2.0),
+        (0.0, 0.0),
+        (4.0, 0.0),
+        (4.0, 4.0),
+        (2.0, 4.0),
+    ]);
+    let radius = 0.5_f64.sqrt();
+    let cut = disc((2.5, 1.5), radius, 0);
+    assert!(splitting.halve(&region, cut, flat(), &mut inside));
+    assert!(splitting.halve(&region, cut.turned(), flat(), &mut outside));
+
+    // `4·4 − 2·2` against `π/2`, which is the disc of `√½`.
+    let (whole, area) = (12.0, std::f64::consts::PI * radius * radius);
+    let slack = chorded(radius);
+    assert_eq!(inside.len(), 1, "the disc came back in pieces");
+    assert!(
+        (covered(&inside, 0) - area).abs() < slack,
+        "the disc covers {} rather than {area}",
+        covered(&inside, 0),
+    );
+    assert_eq!(outside.len(), 1);
+    assert!(
+        (covered(&outside, 0) - (whole - area)).abs() < slack,
+        "what is left covers {} rather than {}",
+        covered(&outside, 0),
+        whole - area,
+    );
+    assert_eq!(outside.cell(0).count(), 2, "the disc was not punched out");
+    assert!((total(&inside) + total(&outside) - whole).abs() < 1e-9);
+}
+
 /// **A circle clear of a region leaves it whole on one side and absent on the
 /// other**, exactly as a straight cut that misses does.
 ///
