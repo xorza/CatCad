@@ -13,9 +13,11 @@ use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::Boolean;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
+use crate::solid::build::revolving::{MOST, Revolution};
+use crate::solid::build::sector::Sector;
 use crate::solid::mesh::Mesher;
 use glam::{DVec2, DVec3};
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 /// The step the block below is grown by, and the one the blends are.
 ///
@@ -780,6 +782,173 @@ fn a_rim_a_cut_broke_is_closed_by_a_marched_arc() {
         into.strays() > 0.0,
         "a marched arc went in and the body claims to stray nothing",
     );
+    assert!(!into.exact(), "a torus is of the fitted tier");
+}
+
+/// A truncated cone standing on the ground, `wide` across the bottom and
+/// `narrow` across the top.
+///
+/// Spun rather than cut, so the rim below is one the build made and not one a
+/// boolean left.
+fn taper(wide: f64, narrow: f64, deep: f64) -> Body {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(0.0, 0.0), (wide, 0.0), (narrow, deep), (0.0, deep)]);
+    Revolution::new(
+        &Arrangement::of(&sketch),
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        SOLID,
+    )
+    .body()
+}
+
+/// **A chamfer down the rim of a taper is a cone**, which is the flat half of
+/// what an offset cone buys: the rulings stand the setback along each face, and
+/// what goes between them is the line through the two turned about the axis.
+///
+/// **The setback runs down a ruling of the wall**, which is the one walk a cone
+/// answers — a cone is a line turned about a line, so a step down one is the
+/// step through space. See `Natural::walked`.
+///
+/// What comes off is the triangle between the corner and the two rulings,
+/// turned about the axis. Pappus over its own centroid:
+///
+/// ```text
+/// removed = 2π · ½·r²·sin φ · ⅓·(W + (W − r) + (W − r·sin lean))
+/// ```
+#[test]
+fn a_chamfer_down_the_rim_of_a_taper_is_a_cone() {
+    let (wide, narrow, deep, reach) = (2.0, 1.0, 2.0, 0.25);
+    let taper = taper(wide, narrow, deep);
+    let along = [ringed(&taper, wide, Plane::FRONT.point(DVec2::ZERO))];
+
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Flat, ROUND),
+            &taper,
+            &mut into
+        ),
+        "a chamfer down the rim of a taper was refused",
+    );
+
+    let lean = ((wide - narrow) / deep).atan();
+    let opening = FRAC_PI_2 - lean;
+    let up = wide - reach * lean.sin();
+    let corner = 0.5 * reach * reach * opening.sin();
+    let want = volume(&taper) - TAU * corner * (wide + (wide - reach) + up) / 3.0;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the chamfered taper shuts in {} where {want} is the taper less the rim \
+         it cut off",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(raised.len(), MOST, "a run that closes is a face per piece");
+    for (_, face) in &raised {
+        let Surface::Natural(Natural::Cone(cone)) = face.surface else {
+            panic!("a chamfer down a rim lies on a cone, not {face:?}");
+        };
+        // The two rulings stand a reach along each face, so the line through
+        // them rises by `reach·cos lean` over a run of `reach·(1 − sin lean)`.
+        let want = ((reach - reach * lean.sin()) / (reach * lean.cos())).atan();
+        assert!(
+            (cone.half_angle - want).abs() < ALIGNED,
+            "the chamfer's cone opens at {} rather than the {want} its two \
+             setbacks make",
+            cone.half_angle,
+        );
+    }
+    assert!(
+        into.exact(),
+        "a cone is a quadric, and the body is still exact"
+    );
+}
+
+/// **A blend down the rim of a taper is a torus like any other**, which is what
+/// an offset cone being a cone buys: the two faces' offsets meet in a circle,
+/// and everything after that is the one statement every pair here answers to.
+///
+/// A truncated cone standing on the ground, `wide` across the bottom and
+/// `narrow` across the top. Its wall leans *in* by `lean`, so the material at
+/// the base rim opens at `φ = π/2 − lean` rather than at a right angle — and a
+/// ball of the reach touching both faces stands `reach / tan(½φ)` back along
+/// each, which is further than the reach wherever the corner is the sharper.
+///
+/// **What comes off is a kite less a sector**, turned about the axis. The kite
+/// is the two right triangles between the corner, the two rulings and the
+/// centre — legs `setback` and `reach` apiece — and the sector is the piece of
+/// the tube inside it, opening `π − φ` at the centre. Pappus reads the volume
+/// off the two moments, each an area times how far out its own centroid
+/// stands.
+#[test]
+fn a_blend_down_the_rim_of_a_taper_is_the_torus_the_offsets_say() {
+    let (wide, narrow, deep, reach) = (2.0, 1.0, 2.0, 0.25);
+    let taper = taper(wide, narrow, deep);
+    let along = [ringed(&taper, wide, Plane::FRONT.point(DVec2::ZERO))];
+
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Round, ROUND),
+            &taper,
+            &mut into
+        ),
+        "a fillet down the rim of a taper was refused",
+    );
+
+    let lean = ((wide - narrow) / deep).atan();
+    let opening = FRAC_PI_2 - lean;
+    let setback = reach / (opening / 2.0).tan();
+    // Where the tube's centres run, and where the ruling on the leaning wall
+    // stands: a setback along each face from the rim.
+    let middle = wide - setback;
+    let up = wide - setback * lean.sin();
+    // The kite, as two right triangles about the corner.
+    let kite = 0.5 * setback * reach * ((wide + 2.0 * middle) + (wide + middle + up)) / 3.0;
+    // The tube's own piece of it, opening `π − φ` about the centre and leaning
+    // toward the corner.
+    let turn = PI - opening;
+    let apart = 2.0 * reach * (turn / 2.0).sin() / (3.0 * turn / 2.0);
+    let across = setback / setback.hypot(reach);
+    let sector = 0.5 * reach * reach * turn * (middle + apart * across);
+    let want = volume(&taper) - TAU * (kite - sector);
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the filleted taper shuts in {} where {want} is the taper less the rim \
+         it broke",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(raised.len(), MOST, "a run that closes is a face per piece");
+    for (_, face) in &raised {
+        let Surface::Fitted(Fitted::Torus(torus)) = face.surface else {
+            panic!("a blend down a rim lies on a torus, not {face:?}");
+        };
+        assert!(
+            (torus.minor - reach).abs() < PLACED,
+            "the tube is {} across rather than the reach",
+            torus.minor,
+        );
+        assert!(
+            (torus.major - middle).abs() < PLACED,
+            "the tube's circle stands {} out where a setback inside the wall is \
+             {middle}",
+            torus.major,
+        );
+        // A reach up from the ground, which is the one face the lean does not
+        // move the answer for.
+        assert!(
+            (torus.axis.origin - Plane::FRONT.point(DVec2::new(0.0, reach))).length() < PLACED,
+            "the tube's circle stands at {}",
+            torus.axis.origin,
+        );
+    }
     assert!(!into.exact(), "a torus is of the fitted tier");
 }
 

@@ -837,6 +837,21 @@ nearest the spine, and both are straight where the spine is. Two planes give
 back the same line the closed form `(n₀ + n₁)·r / (1 + n₀·n₁)` gave, and every
 rounding in the tree is unmoved by the change.
 
+**And onto a cone, which offsets to a cone.** A cone's own offset is the same
+cone with its apex slid `r / sin θ` down the axis, the half angle not moving at
+all — so a taper's rim blends by the one statement every other pair answers to,
+and the tube's circle stands where the two offsets cross rather than at any
+radius the drawing states. What the lean costs is only that a setback is no
+longer the reach: a corner opening at `φ` stands its rulings `r / tan(½φ)` back
+along each face, which the right angle of a rod's rim hides by making the two
+equal.
+
+**A cone's nearest place is not its parameters read back.** Every other surface
+here has `at(uv(p))` land on the foot of the perpendicular from `p`; a cone's
+`v` is the axial coordinate, so it lands at the same *height* instead. A blend
+puts its ruling where the face stands nearest the spine, so that projection is
+written down for the cone alone — `Cone::nearest`.
+
 **And why a blend down a *rim* is a torus.** A plane square to a cylinder's axis
 offsets to a plane square to it still, so the two offsets meet in a *circle*
 rather than a line — and the spine of centres being a circle is the whole of
@@ -1516,7 +1531,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, the rim whole or broken, and their consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, every rim they run down, and their consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
@@ -1532,6 +1547,11 @@ has already cut, too**, and **onto a cylinder the edge runs along**: a pick
 finds every piece the cut left of its edge, and where a blend's spine runs is
 where the two faces' offsets meet rather than a formula for a pair of planes.
 §7.5 is how it works and what it refuses.
+
+**And onto a cone.** An offset cone is a cone, so a taper's rim takes a fillet
+and a chamfer by the same route a rod's does — a torus and a cone between the
+rulings. What the lean costs is the setback: `r / tan(½φ)` for a corner opening
+at `φ`, which a right angle hides.
 
 **And down a rim a cut has broken**, whose two ends close on an arc the
 rounding *walks* rather than writes down. A body it leaves is no longer exact
@@ -1595,9 +1615,8 @@ arcs is §7.5.
 - **A corner the picks do not agree about**, one edge cut into and another
   filled in. A rolling ball is on one side of the material throughout, so what
   goes there is a surface with a radius that moves — which is the NURBS the
-  fitted tier is still waiting for.
-- **A blend onto a cone.** An offset cone is a cone, so the same route reaches
-  it, and nothing has asked yet.
+  fitted tier is still waiting for, and the one thing left here that is blocked
+  on a surface class rather than on a routine.
 - **STEP**, which is what the naming and the exactness were always for.
 
 ---

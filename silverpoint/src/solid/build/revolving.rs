@@ -1061,7 +1061,7 @@ struct Laid {
 /// most a third of a turn** — see [`Spinning::parts`], which is where a sector
 /// is cut by it. A quarter turn is one face, and this is the most any sweep
 /// asks for.
-pub(super) const MOST: usize = 3;
+pub(crate) const MOST: usize = 3;
 
 /// One entry per part of the turn, the slots past them repeating the last.
 ///

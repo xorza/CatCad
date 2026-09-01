@@ -485,10 +485,10 @@ impl Rounding {
     /// `false`, with `into` emptied, where it will not — and a refusal is an
     /// answer rather than a failure. What is refused is a pick nothing can be
     /// made of: one that finds no edge at all; an edge that is neither straight
-    /// nor a rim, or whose two faces leave no wedge; a rim whose fillet is as
-    /// wide as the circle its centres run round, where the tube closes on the
-    /// axis and the torus pinches; a corner where other than three edges meet;
-    /// a corner the
+    /// nor a rim, or whose two faces leave no wedge or offset to nothing; a rim
+    /// whose fillet is as wide as the circle its centres run round, where the
+    /// tube closes on the axis and the torus pinches; a corner where other than
+    /// three edges meet; a corner the
     /// picks meeting there do not agree about, one being cut into a convex edge
     /// and another filled into a concave one; three *flat* picks whose planes
     /// do not cross at one point, two of them running parallel; and a reach too
@@ -970,7 +970,7 @@ impl Rounding {
         let touch = [0, 1].map(|side| {
             let surface = faces[side].surface;
             match of.bevel {
-                Bevel::Round => Some(surface.at(surface.uv(centre))),
+                Bevel::Round => Some(surface.nearest(centre)),
                 Bevel::Flat => {
                     let inward = normals[1 - side] - normals[side] * leaning;
                     surface.walked(middle, inward.normalize() * toward, of.reach)

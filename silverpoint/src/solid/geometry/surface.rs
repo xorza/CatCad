@@ -111,8 +111,13 @@ impl Surface {
         }
     }
 
-    /// Which parameters `at` stands at, and the nearest place on the surface
-    /// for anything off it.
+    /// Which parameters `at` stands at.
+    ///
+    /// **A parameterization and not a projection**, and the two part company on
+    /// a cone: its `v` is the axial coordinate, so reading a place off the
+    /// surface through here and back lands at the same height rather than at
+    /// the foot of the perpendicular. A caller wanting the nearest place asks
+    /// for it by name — see `nearest`.
     ///
     /// Closed form for every one of them, which is the whole reason there are
     /// no parameter-space curves anywhere in this kernel: a curve that already
@@ -122,6 +127,17 @@ impl Surface {
         match self {
             Self::Natural(of) => of.uv(at),
             Self::Fitted(of) => of.uv(at),
+        }
+    }
+
+    /// The place on this nearest `at`.
+    ///
+    /// **[`Surface::at`] of [`Surface::uv`] for every surface but the cone** —
+    /// see [`Natural::nearest`], where the one that parts company is argued.
+    pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
+        match self {
+            Self::Natural(of) => of.nearest(at),
+            Self::Fitted(of) => of.at(of.uv(at)),
         }
     }
 

@@ -88,6 +88,60 @@ impl Cone {
         )
     }
 
+    /// The place on this nearest `at`.
+    ///
+    /// **Not [`Cone::at`] of [`Cone::uv`]**, which those two are not: `uv` reads
+    /// the axial coordinate rather than the ruling, so `at` of it lands at the
+    /// same *height* as a place off the surface and not at the foot of the
+    /// perpendicular from it. Every other surface here has the two agree, which
+    /// is why the projection is written down only for this one.
+    ///
+    /// **The foot of the perpendicular onto the nearest ruling**, which is what
+    /// a cone's nearest place is: the surface is a line turned about the axis,
+    /// so dropping onto it is dropping onto that line in the half plane `at`
+    /// stands in. Both nappes, like everything else here reads this surface — a
+    /// place behind the apex drops onto the far one, at the angle across from
+    /// its own.
+    pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
+        let (sin, cos) = self.half_angle.sin_cos();
+        let reach = self.axis.off(at) * sin + self.axis.along(at) * cos;
+        self.axis.origin
+            + self.axis.direction * (reach * cos)
+            + self.axis.radial(self.axis.angle_of(at)) * (reach * sin)
+    }
+
+    /// The cone everywhere `by` off this one, along its own normal.
+    ///
+    /// **A cone offsets to a cone**, which is what lets a blend down a rim of
+    /// one be laid by the same statement every other pair is — see
+    /// `.notes/KERNEL.md` §7.5. The half angle does not move and neither does
+    /// the axis: what moves is the apex, back along the line by `by / sin θ`,
+    /// which is where a line offset in its own plane crosses the axis.
+    ///
+    /// No refusal, unlike a cylinder's: a cone offset any distance either way
+    /// is a cone, the apex merely sliding.
+    pub(crate) fn offset(&self, by: f64) -> Self {
+        Self {
+            axis: Axis::new(
+                self.axis.origin - self.axis.direction * (by / self.half_angle.sin()),
+                self.axis.direction,
+                self.axis.reference,
+            ),
+            half_angle: self.half_angle,
+        }
+    }
+
+    /// The place `by` along a ruling from `at`.
+    ///
+    /// **A ruling is straight and lies on the surface**, a cone being what a
+    /// line turned about a line makes — so a walk down one is the walk through
+    /// space. `None` for any other way, which is a spiral and what nothing
+    /// wants: a setback off a rim runs down a ruling and nowhere else.
+    pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
+        let down = (at - self.axis.origin).try_normalize()?;
+        predicate::parallel(way, down).then(|| at + way * by)
+    }
+
     /// Which parameters `at` stands at, its angle read in `(-π, π]`.
     ///
     /// Read off the axis rather than off the surface: a point on the cone has
@@ -128,6 +182,10 @@ impl Cone {
     /// — where the nearest place on the surface is the apex, and this reads
     /// further. What asks is a check on geometry meant to be *on* the surface,
     /// so that wedge is not a case it meets.
+    ///
+    /// **Not [`Cone::nearest`] measured**, and the wedge is the whole of the
+    /// difference: that one drops onto the far nappe where this reads past the
+    /// apex. Both are the same drop everywhere a caller of either goes.
     ///
     /// The radius is taken off the magnitude of `v`, so both nappes read zero.
     pub(crate) fn off(&self, at: DVec3) -> f64 {

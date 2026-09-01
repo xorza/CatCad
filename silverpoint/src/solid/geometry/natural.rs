@@ -91,8 +91,13 @@ impl Natural {
         }
     }
 
-    /// Which parameters `at` stands at, and the nearest place on the surface
-    /// for anything off it.
+    /// Which parameters `at` stands at.
+    ///
+    /// **A parameterization and not a projection**, and the two part company on
+    /// a cone: its `v` is the axial coordinate, so reading a place off the
+    /// surface through here and back lands at the same height rather than at
+    /// the foot of the perpendicular. A caller wanting the nearest place asks
+    /// for it by name — see `nearest`.
     ///
     /// Closed form for all four, which is the whole reason there are no
     /// parameter-space curves anywhere in this kernel: a curve that already has
@@ -217,12 +222,11 @@ impl Natural {
     /// statement for every pair rather than a formula per pair. See
     /// `.notes/KERNEL.md` §7.5.
     ///
-    /// **A plane and a cylinder alone.** Both are what this kernel blends
-    /// between today, and both keep their kind under an offset — which is what
-    /// makes a blend onto a cylinder a cylinder rather than a surface with a
-    /// radius that moves. A cone and a sphere keep their kind as well, the apex
-    /// sliding along the axis and the radius growing, and neither is written
-    /// because nothing asks yet.
+    /// **A plane, a cylinder and a cone.** All three are what this kernel
+    /// blends between, and all three keep their kind under an offset — which is
+    /// what makes a blend onto one of them another of them rather than a
+    /// surface with a radius that moves. A sphere keeps its kind as well, the
+    /// radius merely growing, and it is not written because nothing asks yet.
     pub(crate) fn offset(&self, by: f64) -> Option<Self> {
         match self {
             Self::Plane(plane) => Some(Self::Plane(Plane {
@@ -238,7 +242,26 @@ impl Natural {
                     ..*cylinder
                 }))
             }
-            Self::Cone(_) | Self::Sphere(_) => None,
+            Self::Cone(cone) => Some(Self::Cone(cone.offset(by))),
+            Self::Sphere(_) => None,
+        }
+    }
+
+    /// The place on this nearest `at`.
+    ///
+    /// **[`Natural::at`] of [`Natural::uv`] for every surface but the cone**,
+    /// whose parameters read the axial coordinate rather than the ruling — see
+    /// [`Cone::nearest`], which is where that parts company with a projection.
+    /// What asks is a blend, which puts its ruling where the face stands
+    /// nearest the spine its centres run along.
+    pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
+        match self {
+            Self::Cone(cone) => cone.nearest(at),
+            // Written out rather than falling through, so a fifth surface has
+            // to say which of the two it is: one whose parameters read the
+            // place back is the arm to join, and one whose do not is the arm a
+            // silent fall-through would get wrong.
+            Self::Plane(_) | Self::Cylinder(_) | Self::Sphere(_) => self.at(self.uv(at)),
         }
     }
 
@@ -254,6 +277,8 @@ impl Natural {
     /// it, which are the two a setback from an edge asks for: the first steps
     /// off an edge running down a ruling, the second off a rim standing square
     /// to the axis. Anything between the two is a helix, and nothing wants one.
+    /// A cone answers a `way` down a ruling, which is the one a setback off a
+    /// rim of one asks for — see [`Cone::walked`].
     pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
         match self {
             Self::Plane(plane) => {
@@ -278,7 +303,8 @@ impl Natural {
                     cylinder.at(DVec2::new(uv.x + turn, uv.y))
                 })
             }
-            Self::Cone(_) | Self::Sphere(_) => None,
+            Self::Cone(cone) => cone.walked(at, way, by),
+            Self::Sphere(_) => None,
         }
     }
 

@@ -123,16 +123,17 @@ impl Marching {
     ///
     /// How far a place stands off a surface is how far it stands from its own
     /// nearest place on it, read along the normal there — which is signed, and
-    /// which every surface here answers in closed form. `None` where the two
+    /// which every surface here answers in closed form. Asked by name rather
+    /// than read back through the parameters, the two parting company on a cone
+    /// — see [`Surface::nearest`]. `None` where the two
     /// stand tangent, having no plane between them to correct in.
     fn onto(one: &Surface, two: &Surface, at: DVec3) -> Option<DVec3> {
         let mut at = at;
         for _ in 0..ROUNDS {
-            let (here, there) = (one.uv(at), two.uv(at));
-            let (first, second) = (one.normal(here), two.normal(there));
+            let (first, second) = (one.normal(one.uv(at)), two.normal(two.uv(at)));
             let (near, far) = (
-                (at - one.at(here)).dot(first),
-                (at - two.at(there)).dot(second),
+                (at - one.nearest(at)).dot(first),
+                (at - two.nearest(at)).dot(second),
             );
             let leaning = first.dot(second);
             let apart = 1.0 - leaning * leaning;
