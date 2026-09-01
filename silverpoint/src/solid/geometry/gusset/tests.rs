@@ -508,3 +508,43 @@ fn the_second_edge_is_walked_onto_the_round_and_reaches_the_tip() {
         );
     }
 }
+
+/// **Every place of the patch falls inside the box it says it fills**, and the
+/// box is no wider than the corner it stands in.
+///
+/// Asked over a grid of the patch's own parameters rather than at its corners
+/// alone: the rulings are what the convex hull argument turns on, so a box
+/// holding both edges and missing the middle is the way it could be wrong.
+///
+/// **And it is coarse rather than wrong.** Read over the fillet's whole turn,
+/// so it reaches a reach past the arc the patch covers — which is why what is
+/// held is that it stays inside two reaches of the tip on the square corner,
+/// where the patch itself covers a quarter turn of a unit fillet.
+#[test]
+fn the_box_holds_every_place_of_the_patch() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let mut walked = Vec::new();
+        let strayed = gusset.walked(1e-4, &mut walked);
+        let fills = gusset.fills(&walked, strayed);
+        let bounds = gusset.bounds();
+        for round in 0..=8 {
+            let u = bounds[0] + (bounds[1] - bounds[0]) * f64::from(round) / 8.0;
+            for along in 0..=8 {
+                let uv = DVec2::new(u, f64::from(along) / 8.0);
+                let at = gusset.at(uv);
+                assert!(fills.holds(at), "{named}: {fills:?} misses {at}");
+            }
+        }
+        assert!(fills.holds(gusset.met()), "{named}: the tip is outside");
+        assert!(
+            fills.holds(gusset.from),
+            "{named}: the first edge is outside"
+        );
+        // The whole turn of a unit fillet reaches two across, and the walk adds
+        // the round's own reach to it.
+        assert!(
+            fills.half().max_element() < 3.0,
+            "{named}: {fills:?} is wider than the corner",
+        );
+    }
+}

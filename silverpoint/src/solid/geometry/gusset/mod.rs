@@ -14,6 +14,7 @@
 // geometry below is settled and tested, and the route in `Rounding` that raises
 // it lands with that arm.
 
+use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::harmonic;
 use crate::number::predicate;
@@ -90,6 +91,16 @@ struct Framing {
     /// The normal of the plane the first edge is a section by — see
     /// [`Gusset::cutting`].
     cutting: DVec3,
+    /// Where the first edge's own ellipse is centred, and how far it swings
+    /// along each of the two directions the fillet's angle is read against.
+    ///
+    /// **The first edge written as an ellipse rather than a place at a time.**
+    /// The fillet's section by the cutting plane is
+    /// `middle + cos u · swung[0] + sin u · swung[1]`, which is one statement
+    /// where two would be two — [`Gusset::headed`] reads a place off it and
+    /// [`Gusset::fills`] boxes the whole of it without reading one at all.
+    middle: DVec3,
+    swung: [DVec3; 2],
     /// Which of the two tangents through a head the ruling is, as a sign.
     side: f64,
 }
@@ -222,6 +233,42 @@ impl Gusset {
         most
     }
 
+    /// The box the whole patch fills, given `walked` — its second edge laid
+    /// down by [`Gusset::walked`] — and how far that walk `strayed` from the
+    /// edge itself.
+    ///
+    /// **Half of it is written down and half of it is walked.** The first edge
+    /// is a plane section of the fillet, so it is an ellipse in the world: a
+    /// fixed place plus `cos u` and `sin u` times two fixed vectors, whose box
+    /// is that place give or take the hypotenuse of the two on each axis. The
+    /// second edge lies on the round and wants its extent *along* that axis,
+    /// which is the quotient with no value at the tip — so it comes off the
+    /// walk, grown by what the walk strayed.
+    ///
+    /// **The rulings ask for nothing of their own.** Every one of them has both
+    /// ends on those two edges, so the patch lies inside their convex hull and
+    /// a box round the two is a box round the patch.
+    ///
+    /// Over the fillet's whole turn rather than the arc the patch covers, which
+    /// is coarse and not wrong — the same trade a torus's own box makes, and
+    /// what a cull owes is to drop work and never an answer.
+    pub(crate) fn fills(&self, walked: &[DVec3], strayed: f64) -> Bounds<DVec3> {
+        let Framing { middle, swung, .. } = self.framing();
+        let [one, two] = swung;
+        // How far the ellipse reaches on each axis, which is the two it swings
+        // by read as a right angle: `a cos u + b sin u` never passes `√(a²+b²)`.
+        let swing = DVec3::new(one.x.hypot(two.x), one.y.hypot(two.y), one.z.hypot(two.z));
+        let mut fills = Bounds {
+            low: middle - swing,
+            high: middle + swing,
+        };
+        fills.extend(walked.iter().copied());
+        Bounds {
+            low: fills.low - strayed,
+            high: fills.high + strayed,
+        }
+    }
+
     /// Lay the second edge down in `steps` chords from `from` to `to`, and say
     /// how far the worst of them stands from the edge.
     ///
@@ -279,10 +326,20 @@ impl Gusset {
     /// What every ruling of this patch shares, worked out once — see
     /// [`Framing`].
     fn framing(&self) -> Framing {
+        let axis = self.filled.axis;
+        let reach = self.filled.radius;
         let met = self.met();
+        let cutting = self.cutting(met);
+        // The plane fixes how far along the axis a head stands and the angle
+        // fixes the rest of it, so one division serves every ruling.
+        let leaning = cutting.dot(axis.direction);
+        let along = reach / leaning;
         Framing {
             met,
-            cutting: self.cutting(met),
+            cutting,
+            middle: axis.origin + axis.direction * (cutting.dot(self.from - axis.origin) / leaning),
+            swung: [axis.reference, axis.quarter()]
+                .map(|way| way * reach - axis.direction * (along * cutting.dot(way))),
             side: match self.turning {
                 true => 1.0,
                 false => -1.0,
@@ -414,7 +471,7 @@ impl Gusset {
         let (facing, turning) = (axis.radial(angle), axis.radial(angle + FRAC_PI_2));
         let leaning = cutting.dot(axis.direction);
         let running = -reach * cutting.dot(turning) / leaning;
-        let head = self.headed(angle, cutting);
+        let head = self.headed(angle, framing);
         let heading = axis.direction * running + turning * reach;
 
         let to = other.origin - head;
@@ -450,16 +507,11 @@ impl Gusset {
 
     /// Where the patch's first edge stands at the fillet's angle `angle`.
     ///
-    /// **The fillet's own section by the plane that edge is cut by**, which is
-    /// one division: the plane fixes how far along the axis the place stands,
-    /// and the angle fixes the rest of it.
-    fn headed(&self, angle: f64, cutting: DVec3) -> DVec3 {
-        let axis = self.filled.axis;
-        let reach = self.filled.radius;
-        let facing = axis.radial(angle);
-        let run = (cutting.dot(self.from - axis.origin) - reach * cutting.dot(facing))
-            / cutting.dot(axis.direction);
-        axis.origin + axis.direction * run + facing * reach
+    /// Read off the ellipse the framing carries — see [`Framing::swung`], which
+    /// is where the fillet's section by the cutting plane is derived.
+    fn headed(&self, angle: f64, framing: Framing) -> DVec3 {
+        let (sin, cos) = angle.sin_cos();
+        framing.middle + framing.swung[0] * cos + framing.swung[1] * sin
     }
 
     /// How far the ray from `from` running `way` stands from meeting either of
@@ -474,7 +526,7 @@ impl Gusset {
     fn aimed(&self, angle: f64, from: DVec3, way: DVec3, framing: Framing) -> f64 {
         let (axis, other) = (self.filled.axis, self.cut.axis);
         let turning = axis.radial(angle + FRAC_PI_2);
-        let head = self.headed(angle, framing.cutting);
+        let head = self.headed(angle, framing);
         let leaving = head - from;
         let (axial, across) = (
             leaving.cross(axis.direction).dot(way),

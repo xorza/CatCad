@@ -1832,17 +1832,27 @@ so.
   every ruling has both ends on the boundary, so the patch lies inside its
   convex hull. `straying` and `strides` come off the ruling's bounds, and
   `singular` is the tip, which is written.
-- **The box's first half is written down and its second is not.** The first
-  edge is an exact ellipse in the world — `head(u)` comes to a fixed place plus
-  `cos u` and `sin u` times two fixed vectors, so its box is that place plus
-  the hypotenuse of the two per axis, over the whole turn and coarser still
-  over the arc. The second edge lies on the round at exactly the reach from its
-  axis, so it is bounded across that axis and wants only its extent *along* it
-  — which is `step(u)`, whose denominator `d·m` vanishes at the tip. So the
-  extent is the walk's, and `Gusset::walked` is what supplies it.
-  **The tangent length is not a shortcut**: a ruling is tangent to the round
-  but not square to its axis, so `√(d² − r²)` bounds the across component of a
-  ruling and nothing else.
+- **The box — done.** `Gusset::fills` answers it, given the walk and its
+  stray. Half
+  is written down: the first edge is an exact ellipse in the world, `head(u)`
+  coming to a fixed place plus `cos u` and `sin u` times two fixed vectors, so
+  its box is that place give or take the hypotenuse of the two per axis. Half
+  is walked: the second edge lies on the round at exactly the reach from its
+  axis, so it wants only its extent *along* that axis — which is `step(u)`,
+  whose denominator vanishes at the tip. The rulings ask for nothing, both ends
+  of every one being on those two edges. **The tangent length is not a
+  shortcut**: a ruling is tangent to the round but not square to its axis, so
+  `√(d² − r²)` bounds the across component of a ruling and nothing else.
+- **How a bounded surface carries its own extent is the arm's open question.**
+  `Fitted::spans` is asked of a surface with no face and no walk in hand, and
+  every other surface in either tier is unbounded, so none of them has had to
+  answer. A gusset is the first that is bounded, and its extent is measured
+  rather than written. The tree's own precedent is `Marched`, which carries the
+  `run` its walk was filed under together with the readings a caller needs
+  without reaching the store — its key and its reach. The same shape here is a
+  `Gusset` carrying its run, its box and its stray beside the four things it is
+  made of, which is a change to what the type *is* rather than a method added
+  to it: it would stop being constructible from geometry alone.
 - **`off` wants an answer of its own, and the inversion is not it.** Tried:
   `at(uv(at))` for a place off the patch lands on a *different* ruling, because
   `uv` answers the ruling whose line the place stands nearest and a place moved
@@ -1852,7 +1862,8 @@ so.
   every edge against both its faces, and `Surface::nearest` and `Fitted::uv`'s
   own promise — the nearest place for anything off the surface — want the same
   thing.
-- ~~The second edge, walked~~ — `Gusset::walked` lays it down from the first
+- **The second edge, walked — done.** `Gusset::walked` lays it down from the
+  first
   edge round to the tip and answers the stray it measured, doubling the chord
   count until three places along the worst chord all stand within the sagitta.
   Probed rather than bounded, on `Marching::sagging`'s own terms. **The tip is
