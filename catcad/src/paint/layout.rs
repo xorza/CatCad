@@ -136,12 +136,12 @@ impl Layout {
         cut.region(models, sheets, sketch, at)
     }
 
-    /// What each tag stands for.
     /// The circle a turn handle sweeps, and empty where no form has one.
     pub(crate) fn sweep(&self) -> &[Vec3] {
         &self.sweep
     }
 
+    /// What each tag stands for.
     pub(crate) fn names(&self) -> &Names {
         &self.names
     }

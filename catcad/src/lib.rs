@@ -71,23 +71,6 @@ const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 /// open.
 const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
-/// Put the document away, and fetch one back.
-///
-/// The three every modeller binds, in the places every modeller binds them.
-/// Save As is Save with Shift, which is why the two are matched exactly rather
-/// than by modifier subset — see [`UNDO`].
-/// Move the picked step one place earlier or later in the recipe.
-///
-/// **The chord and not a drag on the row**, deliberately. A drag is the gesture
-/// a tree wants, and it wants live feedback with it — a row that follows the
-/// pointer, or a gap opening where it would land — because a drag without one is
-/// a gesture you make blind. That is worth building when the order *does*
-/// something: today every step resolves what it stands on by reference, so a
-/// reorder changes what the tree shows and what the file writes and nothing
-/// else. A press moves the row by one and shows it, which is the whole gesture
-/// and needs nothing held between frames.
-///
-/// Ctrl rather than bare arrows, which the view will want for nudging geometry.
 /// Build the recipe only as far as the picked step, and build the whole of it
 /// again.
 ///
@@ -100,8 +83,27 @@ const DELETE: Shortcut = Shortcut::key(Key::Delete);
 /// [`REORDER_UP`].
 const ROLL_TO: Shortcut = Shortcut::ctrl('R');
 const ROLL_FORWARD: Shortcut = Shortcut::ctrl_shift('R');
+
+/// Move the picked step one place earlier or later in the recipe.
+///
+/// **The chord and not a drag on the row**, deliberately. A drag is the gesture
+/// a tree wants, and it wants live feedback with it — a row that follows the
+/// pointer, or a gap opening where it would land — because a drag without one is
+/// a gesture you make blind. That is worth building when the order *does*
+/// something: today every step resolves what it stands on by reference, so a
+/// reorder changes what the tree shows and what the file writes and nothing
+/// else. A press moves the row by one and shows it, which is the whole gesture
+/// and needs nothing held between frames.
+///
+/// Ctrl rather than bare arrows, which the view will want for nudging geometry.
 const REORDER_UP: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowUp);
 const REORDER_DOWN: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowDown);
+
+/// Put the document away, and fetch one back.
+///
+/// The three every modeller binds, in the places every modeller binds them.
+/// Save As is Save with Shift, which is why the two are matched exactly rather
+/// than by modifier subset — see [`UNDO`].
 const NEW: Shortcut = Shortcut::ctrl('N');
 const SAVE: Shortcut = Shortcut::ctrl('S');
 const SAVE_AS: Shortcut = Shortcut::ctrl_shift('S');

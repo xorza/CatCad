@@ -105,6 +105,28 @@ pub(crate) enum Asking {
 }
 
 impl Asking {
+    /// Where the operation this form is deciding is held, and `None` for a form
+    /// that decides none.
+    ///
+    /// **Two of the four forms carry one and two do not**, and both the
+    /// reading and the setting have to agree about which. Beside its own `mut`
+    /// twin rather than at the two places that ask, so that a fifth form added
+    /// to the enum meets them together — see [`Asking::doing_mut`].
+    fn doing(&self) -> Option<&Operation> {
+        match self {
+            Self::Extrude { operation, .. } | Self::Revolve { operation, .. } => Some(operation),
+            Self::Dimension { .. } | Self::Circle { .. } => None,
+        }
+    }
+
+    /// The same, to be set by the control that shows it — see [`Asking::doing`].
+    fn doing_mut(&mut self) -> Option<&mut Operation> {
+        match self {
+            Self::Extrude { operation, .. } | Self::Revolve { operation, .. } => Some(operation),
+            Self::Dimension { .. } | Self::Circle { .. } => None,
+        }
+    }
+
     /// The region a solid is being grown from, where growing one is what this
     /// form is about.
     ///
@@ -637,7 +659,7 @@ impl Prompt {
             form: self.form,
             profile,
             sweep,
-            operation: self.doing()?,
+            operation: self.about.doing().copied()?,
         })
     }
 
@@ -658,16 +680,6 @@ impl Prompt {
             from: read(self, 0)?.to_radians(),
             sweep: read(self, 1)?.to_radians(),
         })
-    }
-
-    /// What the solid this form is deciding would do to what stands.
-    fn doing(&self) -> Option<Operation> {
-        match self.about {
-            Asking::Extrude { operation, .. } | Asking::Revolve { operation, .. } => {
-                Some(operation)
-            }
-            Asking::Dimension { .. } | Asking::Circle { .. } => None,
-        }
     }
 
     /// What the `nth` field says as a number, or `None` where it says something
@@ -1093,12 +1105,7 @@ impl Prompt {
         // fields, and the row below writes one while reading the other.
         let Self { about, fields, .. } = self;
         let named = about.named();
-        let doing = match about {
-            Asking::Extrude { operation, .. } | Asking::Revolve { operation, .. } => {
-                Some(operation)
-            }
-            Asking::Dimension { .. } | Asking::Circle { .. } => None,
-        };
+        let doing = about.doing_mut();
         let label = TextStyle {
             color: chrome.ink,
             font_size_px: chrome.readout_text,

@@ -3,22 +3,6 @@
 When you address an item, delete it from this file. This document describes
 findings only. It proposes no fixes.
 
-## Doc comments attached to the wrong item
-
-Contiguous `///` blocks fused across deleted blank lines, so one item
-carries several subjects and its neighbours carry none.
-
-- [ ] `lib.rs:74–101` — one doc block holds three subjects: "Put the
-  document away, and fetch one back" (NEW/SAVE/SAVE_AS/OPEN), "Move the
-  picked step one place earlier or later" (REORDER_UP/DOWN), and "Build the
-  recipe only as far as the picked step" (ROLL_TO/ROLL_FORWARD). All of it
-  is attached to `const ROLL_TO` alone; the other seven constants
-  (lib.rs:102–108) are undocumented, and the paragraphs sit in an order
-  that matches none of them.
-- [ ] `paint/layout.rs:139–145` — "What each tag stands for." sits as the
-  first line of `Layout::sweep`'s doc; it describes `Layout::names`
-  directly below, which has no doc at all.
-
 ## One rule spelled in several places
 
 The crate's own comments state that two spellings of one relation drift.
@@ -38,12 +22,6 @@ step by hand.
   `hud/cube/mod.rs:239` (cube drag). Two of the three carry the identical
   "Dragging right turns the model right…" comment and the identical
   `-step.x * ORBIT_RATE, step.y * ORBIT_RATE` inversion.
-- [ ] The wrap-to-the-near-half-turn `(x + PI).rem_euclid(TAU) - PI` is
-  spelled twice: `hud/cube/mod.rs:57` (`Bearing::near`) and
-  `scene_view/gesture.rs:537` (a turn handle's travel).
-- [ ] `prompt/mod.rs:664` (`Asking → Option<Operation>` in `doing`) and
-  `prompt/mod.rs:1096` (the same match written inline in `beside`, by
-  `&mut`) — "which forms carry an operation" is decided twice in one file.
 
 ## Invariants nothing states, silent when broken
 

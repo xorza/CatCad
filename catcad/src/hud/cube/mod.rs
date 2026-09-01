@@ -7,7 +7,7 @@
 //! is. What is here is the half a scene cannot do: sensing the box, resolving
 //! which piece a press landed on, and easing the camera round to it.
 
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 use aperture::{Camera, Highlight, Lit, Viewport};
 use glam::{Mat4, UVec2, Vec2, Vec3};
@@ -50,11 +50,10 @@ impl Bearing {
     /// camera at 350° asked for 10° eases through 340° of model rather than
     /// through 20° — and that reads as a bug rather than as a turn.
     fn near(self, near: f32) -> Self {
-        const TURN: f32 = 2.0 * PI;
         // Wound in one step rather than by subtracting turns until it lands: a
         // yaw that arrived as a NaN would never land, and a loop is the one
         // shape of that mistake that hangs rather than draws wrong.
-        let round = (self.yaw - near + PI).rem_euclid(TURN) - PI;
+        let round = (self.yaw - near + PI).rem_euclid(TAU) - PI;
         Self {
             yaw: near + round,
             ..self
