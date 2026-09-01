@@ -138,13 +138,13 @@ struct Paired {
 /// What a marched pair is filed under, and what its curves are keyed over.
 ///
 /// **The same key from either side**, which is what [`Imprints`] needs of a
-/// crossing: the pair is unordered here, taken smaller key first, so a face on
-/// one surface and a face on the other reach the identical number.
+/// crossing: a face on one surface and a face on the other have to reach the
+/// identical number.
 ///
 /// Named apart from [`Marching`], which walks one pair rather than files it.
 fn pairing(one: &Surface, two: &Surface) -> Key {
     let (here, there) = (one.key(), two.key());
-    Key::default().word(here.min(there)).word(here.max(there))
+    Key::default().pair(here, there)
 }
 
 /// Every list a combine works in, kept so that the next one need not ask for

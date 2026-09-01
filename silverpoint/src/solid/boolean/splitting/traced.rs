@@ -16,6 +16,7 @@ use crate::math::intersect::{self, Span};
 use crate::math::winding;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::corner::{Came, Corner};
+use crate::solid::boolean::splitting::dipped::Dipped;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::{Curve, Sampled};
 use crate::solid::geometry::surface::Surface;
@@ -474,7 +475,8 @@ impl<'a> Traced<'a> {
     /// found against them is a dip in the loops that come out.
     ///
     /// Two, or the run went across rather than dipping, for the reason
-    /// [`Cut::grazes`](super::cut::Cut::grazes) gives.
+    /// [`Cut::grazes`](super::cut::Cut::grazes) gives — see [`Dipped`], which
+    /// is that rule and is shared with the flare's own walk.
     pub(super) fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
         let along = to - from;
         let reach = along.length_squared();
@@ -482,12 +484,10 @@ impl<'a> Traced<'a> {
             return None;
         }
         let span = Span { from, to };
-        let mut met: [f64; 2] = [0.0; 2];
-        let mut count = 0;
         let mut run = Bounds::default();
         run.hold(from);
         run.hold(to);
-        let mut last: Option<DVec2> = None;
+        let mut dipped = Dipped::default();
         for piece in self.pieces {
             if !piece.fills.meets(run, 0.0) {
                 continue;
@@ -502,26 +502,17 @@ impl<'a> Traced<'a> {
                     to: next,
                 };
                 for crossing in intersect::spans(span, chord) {
-                    // A run through a corner of the chords is met by both of
-                    // them, ends counting for a crossing — see
-                    // [`intersect::spans`].
-                    if last.is_some_and(|last| crossing.at.distance(last) <= PLACED) {
-                        continue;
-                    }
                     let share = (crossing.at - from).dot(along) / reach;
-                    if !(PLACED..=1.0 - PLACED).contains(&share) {
-                        continue;
+                    if (PLACED..=1.0 - PLACED).contains(&share) {
+                        dipped.hold(crossing.at);
                     }
-                    if count == met.len() {
-                        return None;
-                    }
-                    (met[count], last, count) = (share, Some(crossing.at), count + 1);
                 }
                 here = next;
             }
         }
-        (count == met.len()).then(|| {
-            let (first, second) = (met[0].min(met[1]), met[0].max(met[1]));
+        dipped.both().map(|met| {
+            let shares = met.map(|at| (at - from).dot(along) / reach);
+            let (first, second) = (shares[0].min(shares[1]), shares[0].max(shares[1]));
             // **Found against the chords and then read off the surface.** The
             // chords are what says there *is* a dip — a bisection has no
             // bracket until one is found — but a chord stands a sagitta off the

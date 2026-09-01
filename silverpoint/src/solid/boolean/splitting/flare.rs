@@ -4,8 +4,8 @@ use crate::math::arc;
 use crate::math::bisect;
 use crate::math::bounds::Bounds;
 use crate::math::intersect::{self, Span};
-use crate::number::tolerance::PLACED;
 use crate::solid::boolean::splitting::cut::ROUNDED;
+use crate::solid::boolean::splitting::dipped::Dipped;
 use glam::DVec2;
 
 /// A cut along `v·(level + swing·cos(θ − phase)) = apart`, the side kept being
@@ -175,14 +175,12 @@ impl Flare {
     /// the cut puts into a region's boundary — see `Cut::between` — so a dip
     /// found against them is a dip in the loops that come out. The same bargain
     /// [`Traced::grazes`](super::traced::Traced) strikes, and for the same
-    /// reason.
-    ///
+    /// reason — see [`Dipped`], which is what the two of them share.
     pub(crate) fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
         let (low, high) = (from.x.min(to.x), from.x.max(to.x));
         let count = self.steps(high - low);
         let span = Span { from, to };
-        let mut dipped = [DVec2::ZERO; 2];
-        let mut held = 0;
+        let mut dipped = Dipped::default();
         let mut last = self.rise(low);
         for step in 1..=count {
             let here = self.rise(low + (high - low) * step as f64 / count as f64);
@@ -199,18 +197,10 @@ impl Flare {
                 continue;
             }
             for crossing in intersect::spans(span, chord) {
-                // A run through a corner of the chords is met by both of them,
-                // ends counting for a crossing — see [`intersect::spans`].
-                if held > 0 && crossing.at.distance(dipped[held - 1]) <= PLACED {
-                    continue;
-                }
-                if held == dipped.len() {
-                    return None;
-                }
-                (dipped[held], held) = (crossing.at, held + 1);
+                dipped.hold(crossing.at);
             }
         }
-        (held == dipped.len()).then_some(dipped)
+        dipped.both()
     }
 }
 

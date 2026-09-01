@@ -192,7 +192,7 @@ fn filed(cell: [i64; 3]) -> u64 {
 /// directions, and both have to reach the same chain.
 fn tied(ends: [VertexId; 2]) -> u64 {
     let [one, two] = ends.map(|end| end.slot() as u64);
-    Key::default().word(one.min(two)).word(one.max(two)).done()
+    Key::default().pair(one, two).done()
 }
 
 /// Sews regions into a body, keeping the room it works in.

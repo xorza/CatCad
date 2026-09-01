@@ -46,6 +46,7 @@ pub(super) mod bow;
 pub(super) mod cells;
 pub(super) mod corner;
 pub(super) mod cut;
+pub(super) mod dipped;
 pub(super) mod flare;
 pub(super) mod oval;
 pub(super) mod reading;

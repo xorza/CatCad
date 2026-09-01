@@ -14,9 +14,6 @@ These lookups on the same rebuild path are still linear scans.
   body walks every name per frame. The total is `names × faces` per rebuild.
   `Body::holds` indexes names through `known: Buckets`, and `patches` has no
   such index.
-- [ ] `solid/rounding/mod.rs:752` — `plan` matches picks by walking every edge
-  of the body once per pick, with two `Named` comparisons per edge. The total
-  is `picks × edges` per rebuild.
 
 ## One rule spelled in several places
 
@@ -30,7 +27,3 @@ These rules are spelled more than once.
   only in the trim lookup. `Merging::gather` (`merging/mod.rs:457`) and
   `Rounding::gather` (`rounding/mod.rs:2241`) share the shell-and-lump copy
   skeleton. All four keep the same `made`/`corners`/`kept` slot tables.
-- [ ] `solid/boolean/splitting/traced.rs:472` (`Traced::grazes`) and
-  `solid/boolean/splitting/flare.rs:180` (`Flare::grazes`) are two spellings
-  of one walk: lay chords, intersect a span against each, deduplicate within
-  `PLACED`, cap at two, refuse more. Each one's comment points at the other.

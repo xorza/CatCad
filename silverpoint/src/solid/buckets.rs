@@ -44,6 +44,20 @@ impl Key {
         self
     }
 
+    /// Take in two whole numbers whose order says nothing.
+    ///
+    /// **Sorted on the way in**, because a pair that arrives either way round
+    /// has to key alike both times — an edge and the two faces across it, a
+    /// meeting and the two surfaces that made it, a corner and the two edges
+    /// tied at it. Folded in as they come, one pair files under two keys and a
+    /// lookup from the far side finds nothing.
+    ///
+    /// The caller still confirms its own pair. Sorting settles the order and
+    /// says nothing about the two keys being the two values.
+    pub(crate) fn pair(self, one: u64, two: u64) -> Self {
+        self.word(one.min(two)).word(one.max(two))
+    }
+
     /// Take in one number.
     ///
     /// **Normalized only where a comparison cannot tell the two apart.**

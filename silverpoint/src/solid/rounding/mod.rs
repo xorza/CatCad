@@ -4,6 +4,7 @@ use crate::inline::Inline;
 use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, PLACED};
+use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
@@ -611,6 +612,15 @@ struct Picked {
 /// of a drag.
 #[derive(Debug, Default)]
 pub struct Rounding {
+    /// Every edge of the body filed by the pair of faces it divides, and which
+    /// edge each entry is.
+    ///
+    /// **What a pick is matched through.** A pick names a pair of faces and
+    /// nothing else, so matching it by a walk of the body costs every edge per
+    /// pick — the cost of the two together, which is the argument
+    /// [`Body::named`](crate::Body) makes one shelf up for a face's own name.
+    filed: Buckets,
+    edged: Vec<EdgeId>,
     /// The edges the picks found, and the blend worked out for each.
     picked: Vec<Picked>,
     blends: Vec<Blend>,
@@ -743,21 +753,35 @@ impl Rounding {
         }
         self.meeting.clear();
         self.meeting.resize(topology.vertex_slots(), 0);
-        for (_, edge) in topology.edges() {
+        self.filed.clear();
+        self.edged.clear();
+        for (id, edge) in topology.edges() {
             for end in edge.ends(true) {
                 self.meeting[end.slot()] += 1;
             }
+            let here = edge.between.map(|face| topology.face(face).name);
+            let at = self.filed.file(paired(here));
+            debug_assert_eq!(at as usize, self.edged.len(), "the index lost step");
+            self.edged.push(id);
         }
         self.picked.clear();
         for (pick, names) in of.along.iter().enumerate() {
             let found = self.picked.len();
-            for (id, edge) in topology.edges() {
-                let here = edge.between.map(|face| topology.face(face).name);
+            for at in self.filed.under(paired(*names)) {
+                let edge = self.edged[at as usize];
+                // Confirmed either way round. The key is over the pair sorted,
+                // so the chain holds every edge naming these two faces however
+                // its own walk ordered them — and a chain a bucket happens to
+                // share is turned away here.
+                let here = topology
+                    .edge(edge)
+                    .between
+                    .map(|face| topology.face(face).name);
                 if here != *names && here != [names[1], names[0]] {
                     continue;
                 }
                 self.picked.push(Picked {
-                    edge: id,
+                    edge,
                     pick: pick as u32,
                 });
             }
@@ -2436,6 +2460,16 @@ fn shared(topology: &Topology, along: [EdgeId; 2], between: [FaceId; 2]) -> Opti
         .between
         .into_iter()
         .find(|face| !between.contains(face) && topology.edge(along[1]).between.contains(face))
+}
+
+/// The key a pair of face names is filed under — see [`Rounding::filed`].
+///
+/// **The pair has no order.** An edge names the two faces it divides the way
+/// its own walk goes, and a pick names them the way the caller typed them, so
+/// the same pair arrives either way round.
+fn paired(names: [Named; 2]) -> u64 {
+    let [one, two] = names.map(Named::key);
+    Key::default().pair(one, two).done()
 }
 
 /// Where two lines of one plane cross, in the first one's own parameter.
