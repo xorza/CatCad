@@ -1889,16 +1889,33 @@ so.
   eighth of the arc: `0.294`, `0.157`, `0.080`.
 - **`strides` is the last reading, and the grid is load-bearing.** `Refining`
   measures a triangle only where the cells say it might be too far — a triangle
-  every side of which stands inside one cell is taken as within the sagitta and
-  never asked — so a stride has to be a *bound* where `straying` may be a
-  probe. Along `v` the patch is exactly linear and wants no subdivision for
-  straightness at all, so the whole grid is `u`'s. The head's half of that
-  bound is written: the first edge is the ellipse
-  `middle + cos u·one + sin u·two`, the image of a unit circle under
-  `[one two]`, so its arc leaves its chord by at most
-  `(|one| + |two|)·arc::bulge(span)`. The foot's half wants the same rate the
-  stray does. **And the twist above is a third term neither edge carries**,
-  which a stride over a cell has to hold as well.
+  whose three corners stand pairwise within one cell is taken as within the
+  sagitta and never asked — so a stride has to be a *bound* where `straying`
+  may be a probe. Along `v` the patch is exactly linear and wants no
+  subdivision for straightness at all, so the whole grid is `u`'s.
+
+  **The deviation splits cleanly, and the split is what says which term wants
+  what.** Over a cell `[u₀, u₀+s] × [0, 1]` write `P(t, v)` for the patch and
+  `Q` for the *bilinear* interpolant of the cell's four corners. Then
+
+      P − Q = (1 − v)·(head − chord_head) + v·(foot − chord_foot)
+
+  so the patch never leaves the bilinear one by more than the greater of the
+  two edges' own sagittas — **no twist at all**. The twist is the second step,
+  `Q` against the *triangle*: an affine interpolant of three corners leaves the
+  fourth off its plane by `|d(u₁) − d(u₀)|/4` at the cell's centre, with
+  `d(u) = foot(u) − head(u)`.
+
+  So a stride holds three terms, and they want different derivatives. **The
+  head's sagitta** wants a second one and has it: the first edge is
+  `middle + cos u·one + sin u·two`, so `|head″| ≤ |one| + |two|` and the
+  sagitta over `s` is at most `(|one| + |two|)·s²/8`. **The twist** wants only
+  a first, and `Ruling` carries the rate of both ends — so
+  `d′ = footing − heading` is written down pointwise, and only its greatest
+  over the arc is not, a greatest over a sampled arc being a probe rather than
+  a bound. **The foot's sagitta** wants a second derivative that nothing writes
+  down, which is the one term with no route at all and what the whole reading
+  waits on.
 - The *filing* of the second edge: handing the walk to `Marchings::add` and
   carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`
