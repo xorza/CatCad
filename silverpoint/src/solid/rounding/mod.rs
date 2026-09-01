@@ -5,7 +5,7 @@ mod corner;
 use crate::inline::Inline;
 use crate::math::plane::Plane;
 use crate::number::predicate;
-use crate::number::tolerance::{ALIGNED, EXACT, PLACED};
+use crate::number::tolerance::{ALIGNED, CHORDED, EXACT, PLACED};
 use crate::solid::buckets::{Buckets, Key};
 use crate::solid::copying;
 use crate::solid::geometry::axis::Axis;
@@ -16,12 +16,14 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
+use crate::solid::meeting::marching::Marching;
 use crate::solid::named::{Named, Step};
 use crate::solid::rounding::corner::{
     Cornered, Joined, Junction, Met, Pointed, Ringed, Starred, Trihedral,
@@ -35,7 +37,7 @@ use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::DVec3;
 use std::array;
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
 
 /// What a blend leaves between the two rulings it cuts a corner back to.
 ///
@@ -470,6 +472,9 @@ pub struct Rounding {
     walk: Vec<Coedge>,
     /// The runs the answer's own edges name, on their way into it.
     carried: Carried,
+    /// The room a walk of a marched curve takes — see [`Rounding::across`],
+    /// which is the one thing here that lays one down.
+    marching: Marching,
     /// What every check a body owes runs in.
     checking: Checking,
 }
@@ -480,11 +485,10 @@ impl Rounding {
     /// `false`, with `into` emptied, where it will not — and a refusal is an
     /// answer rather than a failure. What is refused is a pick nothing can be
     /// made of: one that finds no edge at all; an edge that is neither straight
-    /// nor a rim, or whose two faces leave no wedge; a rim a cut has broken
-    /// into a run with ends, whose blend would have to close on a curve that is
-    /// marched rather than written down; a rim whose fillet is as wide as the
-    /// circle its centres run round, where the tube closes on the axis and the
-    /// torus pinches; a corner where other than three edges meet; a corner the
+    /// nor a rim, or whose two faces leave no wedge; a rim whose fillet is as
+    /// wide as the circle its centres run round, where the tube closes on the
+    /// axis and the torus pinches; a corner where other than three edges meet;
+    /// a corner the
     /// picks meeting there do not agree about, one being cut into a convex edge
     /// and another filled into a concave one; three *flat* picks whose planes
     /// do not cross at one point, two of them running parallel; and a reach too
@@ -496,19 +500,26 @@ impl Rounding {
     /// a patch of a sphere between their cylinders.
     pub fn round(&mut self, of: &Round<'_>, from: &Body, into: &mut Body) -> bool {
         into.clear();
+        // **The runs come along before anything is laid down**, an edge on a
+        // marched or a quartic curve naming one rather than holding it — see
+        // [`Carried::take_from`]. A body with either in it is one a boolean
+        // built, and a rounding takes that as readily as it takes an extrusion.
+        //
+        // First rather than last, because the plan may *add* one: a blend on a
+        // torus closes at its ends against a curve that is marched, and a run
+        // filed after the copy would be the copy's to wipe.
+        self.carried.take_from(from.topology().carried());
         if !self.plan(of, from) {
             return false;
         }
         self.raise(of, from, into);
+        // Handed over before the edges are minted, so that a reader of one — an
+        // arc asking whether its two faces meet smoothly, and every walk after
+        // that — finds the run it names in the body it is being written into.
+        into.topology_mut().trade_curves(&mut self.carried);
         self.mint(from, into);
         self.write(from, into);
         self.gather(from, into);
-        // **The runs come along**, an edge on a marched or a quartic curve
-        // naming one rather than holding it — see [`Carried::take_from`]. A
-        // body with either in it is one a boolean built, and a rounding takes
-        // that as readily as it takes an extrusion.
-        self.carried.take_from(from.topology().carried());
-        into.topology_mut().trade_curves(&mut self.carried);
         if cfg!(debug_assertions) {
             self.checking.run(into);
         }
@@ -846,16 +857,16 @@ impl Rounding {
                 continue;
             };
             let mut ends = [None, None];
-            for (end, made) in ends.iter_mut().enumerate() {
+            for end in 0..2 {
                 let corner = corners[end];
-                *made = match self.filled[corner.slot()] {
+                ends[end] = match self.filled[corner.slot()] {
                     Some(Filled::Junction(junction)) => Some(Ending::Against {
                         junction,
                         shared: self.junctions[junction].shared(at),
                     }),
                     Some(Filled::Corner(patch)) => Some(Ending::Cornered { corner: patch }),
                     Some(Filled::Star(star)) => Some(Ending::Starred { star }),
-                    None => Self::across(topology, &self.runs, &blend, end, corner),
+                    None => self.across(topology, &blend, end, corner),
                 };
             }
             let [Some(one), Some(two)] = ends else {
@@ -1116,8 +1127,8 @@ impl Rounding {
 
     /// How a blend closes across the corner `at`, or `None` where it cannot.
     fn across(
+        &mut self,
         topology: &Topology,
-        runs: &[Spine],
         blend: &Blend,
         end: usize,
         at: VertexId,
@@ -1126,7 +1137,7 @@ impl Rounding {
             edge: spine,
             between,
             ..
-        } = blend.tip(runs, end);
+        } = blend.tip(&self.runs, end);
         let rails = blend.rails;
         let mut along = [spine; 2];
         let mut cut = [0.0; 2];
@@ -1141,28 +1152,28 @@ impl Rounding {
             made[side] = to;
         }
         let across = shared(topology, along, between)?;
-        let carried = topology.carried();
-        let Meeting::Along(curves) = Meeting::of(&topology.face(across).surface, &blend.laid)
-        else {
-            return None;
+        let over = topology.face(across).surface;
+        // **A pair with a fitted half in it is walked rather than written
+        // down** — §4.1 — which is what a rim's own blend closes against: a
+        // torus meets the plane beyond a corner in a curve no exact route
+        // parameterizes. Everything below reads the same [`Curve`] either way,
+        // and what tells the two apart afterwards is what the run says it
+        // strays.
+        let curve = match Meeting::of(&over, &blend.laid) {
+            Meeting::Along(curves) => through(curves.all(), made, &self.carried)?,
+            Meeting::Marched => self.marched(&over, blend, end, made[0])?,
+            _ => return None,
         };
-        let curve = through(curves.all(), made, carried)?;
+        let carried = &self.carried;
         let ends = made.map(|at| curve.along(at, carried));
         // **The way round that stays on the blend**, which is the turn it
         // covers: from the ruling on one face to the ruling on the other, less
-        // than a half turn wherever the two planes meet at an angle at all. A
+        // than a half turn wherever the two faces meet at an angle at all. A
         // flat blend meets the face across a corner in a line, which comes back
         // to nowhere and asks nothing.
+        let touch = rails.map(|rail| rail.at(0.0, carried));
         let bounds = arced(&curve, ends, carried, |middle| {
-            let (Surface::Natural(Natural::Cylinder(cylinder)), Curve::Line(rail)) =
-                (blend.laid, rails[1])
-            else {
-                return true;
-            };
-            let axis = cylinder.axis;
-            let span = axis.bearing(rail.origin - axis.origin);
-            let angle = axis.angle_of(middle);
-            angle * span >= 0.0 && angle.abs() <= span.abs()
+            turned(&blend.laid, touch, middle).unwrap_or(true)
         });
         Some(Ending::Across {
             across,
@@ -1172,6 +1183,27 @@ impl Rounding {
             curve,
             bounds,
         })
+    }
+
+    /// Walk the curve `over` and the blend meet in, and file it as a run of
+    /// this body's own.
+    ///
+    /// **Seeded at the corner the arc runs from**, which is a place on both
+    /// surfaces already: the ruling put it on the blend and the cut back put it
+    /// on the face beyond. So the walk needs no search of its own, where a
+    /// boolean's has to find one.
+    ///
+    /// Walked whole, at [`CHORDED`], and trimmed afterwards by the bounds the
+    /// edge takes — the same shape a boolean's marched edges have, and for the
+    /// same reason: nothing downstream can lay a run down again.
+    fn marched(&mut self, over: &Surface, blend: &Blend, end: usize, seed: DVec3) -> Option<Curve> {
+        let strayed = self.marching.walk(over, &blend.laid, seed, CHORDED)?;
+        let run = self.carried.marched.add(self.marching.walked(), strayed);
+        Some(Curve::Marched(Marched {
+            run,
+            key: keyed(over, &blend.laid, blend.pick, end),
+            reach: self.carried.marched.strayed(run).reach,
+        }))
     }
 
     /// What the two blends `ends` names leave where they meet, or `None` where
@@ -1689,7 +1721,7 @@ impl Rounding {
         into: &mut Body,
     ) -> VertexId {
         let swallowed = self.blends[blend].at.expect(ENDED)[end];
-        let (along, cut, made) = match ending {
+        let (along, cut, made, curve) = match ending {
             Ending::Cornered { corner } => {
                 // The face the patch seats this side against is the one the
                 // spine *at this end* divides — see [`Blend::run`], which is
@@ -1705,15 +1737,24 @@ impl Rounding {
                 return self.joined[junction].made[usize::from(side != shared)];
             }
             Ending::Across {
-                along, cut, made, ..
-            } => (along[side], cut[side], made[side]),
+                along,
+                cut,
+                made,
+                curve,
+                ..
+            } => (along[side], cut[side], made[side], curve),
         };
+        // **The ladder's top rung**, so the widest of what meets here. The
+        // ruling is exact; the edge cut back carries what it carried; and the
+        // arc across is exact where it was written down and the walk's own
+        // bound where it was marched.
+        let tolerance = topology
+            .edge(along)
+            .tolerance
+            .max(curve.strays(into.topology().carried()));
         let corner = into.topology_mut().add_vertex(Vertex {
             at: made,
-            // The ladder's top rung, and the edge cut back is the only one
-            // meeting here that carries anything: the ruling and the arc are
-            // both exact.
-            tolerance: topology.edge(along).tolerance,
+            tolerance,
         });
         self.trim(topology, along, swallowed, cut, corner);
         corner
@@ -1930,6 +1971,10 @@ impl Rounding {
     ) -> EdgeId {
         let [one, two] = between.map(|id| into.topology().face(id));
         let artificial = one.smooth(two, &curve, bounds, into.topology().carried());
+        // **What the curve says it strays**, which is nought for everything
+        // written down and the walk's own bound for a marched arc — §4.1's tier
+        // read off the curve rather than assumed about it.
+        let tolerance = curve.strays(into.topology().carried());
         into.topology_mut().add_edge(Edge {
             curve,
             bounds,
@@ -1937,7 +1982,7 @@ impl Rounding {
             to: ends[1],
             between,
             artificial,
-            tolerance: EXACT,
+            tolerance,
         })
     }
 
@@ -2242,7 +2287,7 @@ fn cut_back(
     let run = topology.edge(along);
     let surface = topology.face(on).surface;
     let corner = topology.vertex(at).at;
-    let cut = cut_at(run, &rail, surface.normal(surface.uv(corner)))?;
+    let cut = cut_at(run, &rail, surface.normal(surface.uv(corner)), corner)?;
     let [first, last] = run.bounds;
     let (near, far) = match run.from == at {
         true => (first, last),
@@ -2268,16 +2313,32 @@ fn cut_back(
 /// The fourth is two circles on one face, which no body here puts a blend
 /// against: a run out onto a plane crosses its rim square, and one out onto a
 /// cylinder crosses a ruling.
-fn cut_at(edge: &Edge, rail: &Curve, normal: DVec3) -> Option<f64> {
+///
+/// **Where two answers are possible, the one nearer `corner` is the cut.** A
+/// straight edge lying in a round ruling's own plane crosses it twice, and what
+/// a blend cuts back is the crossing on its own side of the corner it swallows.
+fn cut_at(edge: &Edge, rail: &Curve, normal: DVec3, corner: DVec3) -> Option<f64> {
     match (edge.curve, rail) {
         (Curve::Line(straight), Curve::Line(rail)) => crossed(straight, *rail, normal),
         (Curve::Line(straight), Curve::Circle(rail)) => {
             let axis = rail.axis;
             let under = straight.direction.dot(axis.direction);
-            // An edge running square to the axis lies in the ruling's own
-            // plane, where it crosses twice or not at all rather than once.
+            // **An edge square to the axis lies in the ruling's own plane**,
+            // where the two meet as a line meets a circle rather than as a line
+            // pierces a plane. Which is what the base of a milled rod leaves:
+            // the flat's own edge runs across the disc the rim bounds.
             if predicate::touching(under.abs(), ALIGNED) {
-                return None;
+                let off = straight.origin - axis.origin;
+                let (half, apart) = (off.dot(straight.direction), off.length_squared());
+                let under = half * half - apart + rail.radius * rail.radius;
+                if under < 0.0 {
+                    return None;
+                }
+                let root = under.sqrt();
+                return [-half - root, -half + root].into_iter().min_by(|one, two| {
+                    let off = |at: f64| straight.at(at).distance(corner);
+                    off(*one).total_cmp(&off(*two))
+                });
             }
             let cut = (axis.origin - straight.origin).dot(axis.direction) / under;
             let met = straight.at(cut);
@@ -2504,6 +2565,46 @@ fn tubed(laid: &Surface, made: [DVec3; 2]) -> Option<Curve> {
         })),
         _ => None,
     }
+}
+
+/// Whether `middle` stands within the turn a round blend covers, its two
+/// rulings standing where `touch` says.
+///
+/// **A blend's own turn is under a half**, both rulings lying where the surface
+/// is tangent to a face — so an arc whose middle stands further round than the
+/// second ruling does is the other way round. Both round surfaces answer in
+/// their own second parameter: a cylinder turns about its axis and a torus
+/// about its tube, and either is read from the first ruling rather than from
+/// wherever the surface's own frame begins.
+///
+/// `None` for a flat blend, which meets the face across a corner in a line and
+/// so has no way round to be wrong about.
+fn turned(laid: &Surface, touch: [DVec3; 2], middle: DVec3) -> Option<bool> {
+    let round = |at: DVec3| match laid {
+        Surface::Natural(Natural::Cylinder(cylinder)) => Some(cylinder.axis.angle_of(at)),
+        Surface::Fitted(Fitted::Torus(torus)) => Some(torus.uv(at).y),
+        _ => None,
+    };
+    let from = round(touch[0])?;
+    // Into `(-π, π]`, so a ruling either side of wherever the surface's own
+    // frame begins reads as the small turn it is rather than as nearly a whole
+    // one.
+    let turn = |at: DVec3| Some((round(at)? - from + PI).rem_euclid(TAU) - PI);
+    let (span, angle) = (turn(touch[1])?, turn(middle)?);
+    Some(angle * span >= 0.0 && angle.abs() <= span.abs())
+}
+
+/// What the arc closing one blend's end is filed under.
+///
+/// **Over the two surfaces and which end of which pick**, rather than over the
+/// places it was walked at — see [`Marched::key`]. Nothing here meets one of
+/// these from a second side, which is what a boolean's own key is for, so what
+/// this has to do is only tell two of them apart.
+fn keyed(over: &Surface, laid: &Surface, pick: u32, end: usize) -> u64 {
+    over.paired(laid)
+        .word(u64::from(pick))
+        .word(end as u64)
+        .done()
 }
 
 /// Which way `face` walks `edge`, or `None` where it does not.

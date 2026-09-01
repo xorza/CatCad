@@ -3,6 +3,7 @@
 use crate::inline::Inline;
 use crate::math::bounds::Bounds;
 use crate::math::branch;
+use crate::solid::buckets::Key;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::quadric::Quadric;
@@ -85,6 +86,21 @@ impl Surface {
             Self::Natural(of) => of.key(),
             Self::Fitted(of) => of.key(),
         }
+    }
+
+    /// What the two of these are filed under, together.
+    ///
+    /// **The same key from either side**, which is what everything filing a
+    /// *meeting* needs: a face on one surface and a face on the other have to
+    /// reach the identical number, whichever of them is asking. So the pair is
+    /// keyed here rather than at each caller, two spellings of it being two
+    /// answers free to drift.
+    ///
+    /// Handed back unfinished, so a caller may add which curve of the meeting
+    /// it means before it reads the number off — see
+    /// [`Marched::key`](super::marchings::Marched).
+    pub(crate) fn paired(&self, other: &Self) -> Key {
+        Key::default().pair(self.key(), other.key())
     }
 
     /// Where the parameters `uv` land in the world.

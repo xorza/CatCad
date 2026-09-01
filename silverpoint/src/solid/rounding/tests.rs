@@ -15,7 +15,7 @@ use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::mesh::Mesher;
 use glam::{DVec2, DVec3};
-use std::f64::consts::PI;
+use std::f64::consts::{PI, TAU};
 
 /// The step the block below is grown by, and the one the blends are.
 ///
@@ -591,35 +591,6 @@ fn what_a_rounding_cannot_make_is_refused() {
     );
     assert!(into.is_empty(), "a refusal left half a body behind");
 
-    // A rim a cut has left with two ends. A blend down one closes against the
-    // face beyond its corner, and a torus meets a plane in a curve that is
-    // marched rather than written down — which is a slice of its own. The whole
-    // rim below is answered, so what is refused here is the ends and not the
-    // shape.
-    let milled = milled(2.0, 3.0);
-    let base = milled
-        .cut
-        .topology()
-        .faces()
-        .find(|(_, face)| match face.surface {
-            Surface::Natural(Natural::Plane(plane)) => {
-                plane.origin.abs_diff_eq(DVec3::ZERO, PLACED)
-            }
-            _ => false,
-        })
-        .map(|(_, face)| face.name)
-        .expect("a milled rod has a base");
-    let broken = [[base, milled.round]];
-    assert!(
-        !rounding.round(
-            &Round::new(&broken, 0.25, Bevel::Round, ROUND),
-            &milled.cut,
-            &mut into
-        ),
-        "a rim a cut broke into a run with ends was answered",
-    );
-    assert!(into.is_empty(), "a refusal left half a body behind");
-
     // A fillet down a rim as wide as the rod's own half. The tube's centre
     // circle stands `radius - reach` out, so at half the radius it closes on
     // the axis and the torus pinches — which is no surface a body can be made
@@ -740,6 +711,76 @@ fn a_fillet_down_a_rim_is_a_torus_of_two_faces() {
         !into.exact(),
         "a torus is of the fitted tier, and a body holding one is not exact",
     );
+}
+
+/// **A rim a cut has broken is blended like any other run**, and what closes it
+/// at each end is a curve of the fitted tier: a torus meets the plane beyond the
+/// corner in something no exact route parameterizes, so the arc is *marched*.
+///
+/// The flat milled down the rod cuts the base rim in half, so what the pick
+/// finds is one arc with two ends rather than a run that closes. Everything the
+/// whole rim does it does over half a turn — Pappus again, through `π` rather
+/// than `2π`:
+///
+/// ```text
+/// removed = π·[ r²·(R − r/2) − ¼π·r²·(R − r) − ⅓·r³ ]
+/// ```
+///
+/// **And the body says what it strays.** A marched edge carries the bound its
+/// walk was measured to, and the corners it ends at carry at least that — which
+/// is §4.1's tier read off the body rather than argued about.
+#[test]
+fn a_rim_a_cut_broke_is_closed_by_a_marched_arc() {
+    let (radius, reach, deep, stand) = (2.0, 0.25, 3.0, 1.0);
+    let milled = flatted(radius, deep, stand);
+    let along = [[milled.base, milled.round]];
+    let mut into = Body::default();
+    assert!(
+        Rounding::default().round(
+            &Round::new(&along, reach, Bevel::Round, ROUND),
+            &milled.cut,
+            &mut into
+        ),
+        "a rim a cut broke into a run with ends was refused",
+    );
+
+    let corner = reach * reach * (radius - reach / 2.0)
+        - 0.25 * PI * reach * reach * (radius - reach)
+        - reach * reach * reach / 3.0;
+    // The wall survives everywhere the flat does not reach, which is the turn
+    // outside the chord it cuts — twice the angle to it, taken off the whole.
+    let sweep = TAU - 2.0 * (stand / radius).acos();
+    let want = volume(&milled.cut) - sweep * corner;
+    assert!(
+        (volume(&into) - want).abs() < CLOSES,
+        "the flatted rod shuts in {} where {want} is the rod less the stretch of \
+         rim it broke",
+        volume(&into),
+    );
+
+    let raised: Vec<_> = into.patches(ROUND.grew(Grown::Rounded(0))).collect();
+    assert_eq!(
+        raised.len(),
+        1,
+        "a run that ends is one face over the whole of it"
+    );
+    let Surface::Fitted(Fitted::Torus(torus)) = raised[0].1.surface else {
+        panic!("a blend down a rim lies on a torus, not {:?}", raised[0].1);
+    };
+    assert!(
+        (torus.major - (radius - reach)).abs() < PLACED && (torus.minor - reach).abs() < PLACED,
+        "the blend's tube is {torus:?} rather than a reach about the circle a \
+         reach inside both faces",
+    );
+
+    // The arcs closing the two ends are walked rather than written down, so the
+    // body carries a bound where the milled rod carried none.
+    assert_eq!(milled.cut.strays(), 0.0, "a milled rod is walked nowhere");
+    assert!(
+        into.strays() > 0.0,
+        "a marched arc went in and the body claims to stray nothing",
+    );
+    assert!(!into.exact(), "a torus is of the fitted tier");
 }
 
 /// **A fillet fills a rim as readily as it breaks one**, which is the same
@@ -1266,15 +1307,26 @@ fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
     assert!(into.exact(), "three planes crossing in a point stay exact");
 }
 
-/// The rod of `radius` with a flat milled down it through its own axis, and the
-/// two names the edge between them carries.
+/// The rod of `radius` with a flat milled down it through its own axis.
 ///
 /// **What §9.2 made buildable**, and the one body in this file whose blend runs
 /// out onto something that is not a plane: the flat meets the rod in a straight
 /// edge, and the two faces stand square to each other there.
 fn milled(radius: f64, deep: f64) -> Milled {
+    flatted(radius, deep, 0.0)
+}
+
+/// A rod of `radius` carried `deep`, with a flat milled down it `stand` off its
+/// own axis.
+///
+/// **Where it stands decides what a blend down the base rim closes on.** A
+/// plane *through* the axis cuts the blend's torus in two circles, which
+/// `Meeting::of` writes down exactly; one standing off it cuts a quartic no
+/// exact route parameterizes, and the arc is marched. Both are wanted, so the
+/// stand is the caller's.
+fn flatted(radius: f64, deep: f64, stand: f64) -> Milled {
     let mut sketch = Sketch::default();
-    let centre = sketch.add_point(DVec2::new(0.0, 0.0));
+    let centre = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(centre, radius);
     let rod = Extrusion::new(&Arrangement::of(&sketch), &[0], Plane::GROUND, deep, SOLID).body();
     let wide = 2.0 * radius;
@@ -1283,7 +1335,7 @@ fn milled(radius: f64, deep: f64) -> Milled {
             origin: DVec3::new(0.0, -1.0, 0.0),
             ..Plane::GROUND
         },
-        &[(0.0, -wide), (wide, -wide), (wide, wide), (0.0, wide)],
+        &[(stand, -wide), (wide, -wide), (wide, wide), (stand, wide)],
         deep + 2.0,
         TOOL,
     );
@@ -1292,17 +1344,18 @@ fn milled(radius: f64, deep: f64) -> Milled {
         Boolean::default().combine(&rod, &tool, Operation::Cut, &mut cut),
         "milling a flat down a rod was refused",
     );
-    // Found by their shape rather than counted off either step, which is what
-    // a caller does: a person picks the two faces in the viewport, and what
-    // reaches the kernel is the pair of names they carry.
     let named = |wanted: fn(&Surface) -> bool| {
         cut.topology()
             .faces()
             .find(|(_, face)| wanted(&face.surface))
             .map(|(_, face)| face.name)
-            .expect("the milled rod has a wall and a flat")
+            .expect("the flatted rod has the face asked for")
     };
     Milled {
+        base: named(|surface| {
+            matches!(surface, Surface::Natural(Natural::Plane(plane))
+                if plane.origin.abs_diff_eq(DVec3::ZERO, PLACED))
+        }),
         round: named(|surface| matches!(surface, Surface::Natural(Natural::Cylinder(_)))),
         flat: named(|surface| {
             matches!(surface, Surface::Natural(Natural::Plane(plane))
@@ -1312,10 +1365,12 @@ fn milled(radius: f64, deep: f64) -> Milled {
     }
 }
 
-/// A rod a flat was milled down, and the two names its new edge carries.
+/// A rod a flat was milled down, and the names a pick reaches its faces by.
 #[derive(Debug)]
 struct Milled {
     cut: Body,
+    /// The rod's base, which the rim below runs round.
+    base: Named,
     /// The rod's wall, one name over several patches: an extrusion splits a
     /// whole turn in half, and the flat then cuts each half again.
     round: Named,

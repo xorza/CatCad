@@ -25,7 +25,7 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::traced::{Piece, Traced};
-use crate::solid::buckets::{Buckets, Key};
+use crate::solid::buckets::Buckets;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::cone::Cone;
@@ -64,7 +64,7 @@ pub(super) struct Sewn<'a> {
 /// is what makes a crossing met from either side key alike — see
 /// [`Marched::key`], and [`pairing`], where the pair's own half is worked out.
 fn named(on: &Surface, other: &Surface, nth: u32) -> u64 {
-    pairing(on, other).word(u64::from(nth)).done()
+    on.paired(other).word(u64::from(nth)).done()
 }
 
 /// One region of one face that a boolean kept, and what it inherited.
@@ -134,18 +134,6 @@ struct Paired {
     /// filed in.
     from: u32,
     upto: u32,
-}
-
-/// What a marched pair is filed under, and what its curves are keyed over.
-///
-/// **The same key from either side**, which is what [`Imprints`] needs of a
-/// crossing: a face on one surface and a face on the other have to reach the
-/// identical number.
-///
-/// Named apart from [`Marching`], which walks one pair rather than files it.
-fn pairing(one: &Surface, two: &Surface) -> Key {
-    let (here, there) = (one.key(), two.key());
-    Key::default().pair(here, there)
 }
 
 /// Every list a combine works in, kept so that the next one need not ask for
@@ -543,7 +531,7 @@ impl Combining {
     /// curves in it were made. A pair is met once per face of each body, and
     /// working it out twice would be a walk or an algebraic route run twice.
     fn filed(&self, on: &Surface, other: &Surface) -> Option<Range<u32>> {
-        let key = pairing(on, other).done();
+        let key = on.paired(other).done();
         let at = self.paired.under(key).find(|&at| {
             let it = &self.pairs[at as usize];
             (it.on == *on && it.other == *other) || (it.on == *other && it.other == *on)
@@ -555,7 +543,7 @@ impl Combining {
     /// File the handles pushed since `from` as what `on` and `other` meet in.
     fn file(&mut self, on: &Surface, other: &Surface, from: u32) -> Range<u32> {
         let upto = self.curves.len() as u32;
-        let slot = self.paired.file(pairing(on, other).done());
+        let slot = self.paired.file(on.paired(other).done());
         debug_assert_eq!(slot as usize, self.pairs.len(), "the index lost step");
         self.pairs.push(Paired {
             on: *on,

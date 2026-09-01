@@ -900,10 +900,19 @@ circle of the reach about the spine for a fillet, a ruling of the cone for a
 chamfer. They share the pick's name, a name resolving to several patches being
 what §5 already allows.
 
-**A rim a cut has broken is refused**, and the ends are the reason rather than
-the shape. A blend closes at an end against the face beyond the corner, and a
-torus meets a plane in a curve that is marched rather than written down — which
-is a routine of its own and not this one.
+**A rim a cut has broken closes on a curve of the fitted tier.** Its two ends
+close against the face beyond each corner, and a torus meets a plane there in
+something no exact route parameterizes — so the arc is *walked*, seeded at the
+corner it runs from, filed as a run of the answer's own and trimmed by the
+bounds the edge takes. What tells that arc from every other is not the routine
+but what it says it strays: an edge carries `Curve::strays` and the corners it
+ends at carry at least that, which is §4.1's tier read off the curve rather than
+assumed about it.
+
+**Not every plane, and the difference is the axis.** One *through* the torus's
+axis cuts it in two circles, which `Meeting::of` writes down exactly, so a flat
+milled through the middle of a rod closes its rim blend without a walk. One
+standing off the axis cuts a quartic, and that is the marched case.
 
 **A run crosses corners of its own.** At each, four edges meet: the two pieces
 of the edge the cut split, and the edge it left on each of the two faces. The
@@ -992,7 +1001,7 @@ case of its own.
 
 **Refused rather than guessed at**, and each is a different thing being asked
 for: a pick that finds no edge; an edge that is neither straight nor a rim, or
-whose two faces leave no wedge; a rim a cut has broken into a run with ends; a
+whose two faces leave no wedge; a
 rim whose fillet is as wide as the circle its centres run round; a corner where
 other than three edges meet; a corner the picks meeting there do not agree
 about; three flat picks whose planes do not cross at one point; and a radius so
@@ -1507,7 +1516,7 @@ material either side of one is two lobes meeting at a point — which §9's own
 opening works out for this very pair. So this is the refusal Villarceau's
 circles already get, and both of them are right.
 
-### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, the rim and their consumer are done**
+### 9.5 M7 — fillet, chamfer, STEP — **both blends, their corners, the rim whole or broken, and their consumer are done**
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact, the vertex blend where three
@@ -1523,6 +1532,11 @@ has already cut, too**, and **onto a cylinder the edge runs along**: a pick
 finds every piece the cut left of its edge, and where a blend's spine runs is
 where the two faces' offsets meet rather than a formula for a pair of planes.
 §7.5 is how it works and what it refuses.
+
+**And down a rim a cut has broken**, whose two ends close on an arc the
+rounding *walks* rather than writes down. A body it leaves is no longer exact
+and says how far it strays, which is what the fitted tier promised: the arc's
+own bound rides on its edge and on the corners at either end. §7.5 is the walk.
 
 **And down a rim**, where a plane stands square to a cylinder's axis. The two
 offsets meet in a circle rather than a line, so the rulings are circles and the
@@ -1578,11 +1592,6 @@ arcs is §7.5.
 
 **What is not done, in the order §10's first rule puts it:**
 
-- **A rim a cut has broken into a run with ends.** The shape is answered — the
-  whole rim is in — and what is left is the two ends: a blend closes at one
-  against the face beyond the corner, and a torus meets a plane in a curve that
-  is *marched* rather than written down. So it wants the fitted tier's own
-  curves carried through the rounding, which nothing there does yet.
 - **A corner the picks do not agree about**, one edge cut into and another
   filled in. A rolling ball is on one side of the material throughout, so what
   goes there is a surface with a radius that moves — which is the NURBS the
