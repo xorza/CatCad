@@ -563,6 +563,14 @@ The comparison carries `ROUNDING`, which means something bare here because the
 coordinates are counts of cells — a run of *exactly* one cell comes out an ulp
 over as often as under, and cutting one that is over asks to be cut for ever.
 
+**One surface reads a term rather than deriving it.** A ruled patch's second
+edge has no bend written down — §9.6 — so `Gusset::straying` bounds two of its
+three terms and *probes* the third, three shares of a chord as a marched curve
+is probed. The counting, the grid and `Refining` are unchanged. What is weakened
+is that a face on that one surface can be coarser than its sagitta claims, by
+however much the probe understates a bend between its own samples. Every other
+surface here derives the whole of it.
+
 The face's own boundary is never cut, a corner on an edge being one the face
 across it does not have — except where a side has collapsed to a point, a cone's
 apex or a sphere's pole, there being no face across a point to disagree.
@@ -1820,9 +1828,9 @@ cast is abandoned outright.
 **`Gusset` is in the tree**, with the ruling, the touch point, the place, the
 normal, the inversion and the ray, and with the readings a tier member owes
 that want no box: its key, the stretch of the fillet's angle it spans, which
-of its parameters wraps, and the tip as its one singular place. Fourteen tests
-over a square corner and a leaning one. It is kept ahead of its caller and says
-so.
+of its parameters wraps, and the tip as its one singular place. Twenty-two
+tests over a square corner and a leaning one. It is kept ahead of its caller and
+says so.
 
 **What is done, and what is left:**
 
@@ -1852,83 +1860,91 @@ so.
   been measured differently, and `Gusset` would stop being constructible from
   geometry alone. Identity stays over the four things a patch is made of, which
   is what `Gusset::key` already keys.
-- **The `Fitted` arm — thirteen of fifteen.** `Fitted::Gusset` is in, and the
-  tier's readings answer for it: `key`, `at`, `uv`, `normal`, `met_by`, `off`,
-  `nearest`, `singular` — the tip — `spans`, `fills`, `round`, and `offset` and
-  `walked`, which answer nothing as a torus's do. `Profile::of` refuses it, a
-  patch being spun about no line; `Meeting::fitted` hands a pair with one in it
-  to the march, no row reducing it; and `Stepping::surface` is `unreachable!`
-  until the B-spline below is written.
-- **`straying` and `strides` refuse, and the bound is two thirds derived.**
-  §7.2 makes the sagitta *a promise rather than a hope*: `Refining` cuts a
-  triangle only where the cells say it might be too far, and the grid is also
-  where the cuts go — a triangle inside one cell has no crossing to be cut at.
-  So both readings owe a **bound**, and a probe in their place would make every
-  face on a patch quietly coarser than it claims. Both are `unreachable!`.
+- **The `Fitted` arm — all fifteen, done.** `Fitted::Gusset` is in and every
+  reading of the tier answers for it: `key`, `at`, `uv`, `normal`, `met_by`,
+  `off`, `nearest`, `singular` — the tip — `spans`, `fills`, `round`,
+  `straying`, `strides`, and `offset` and `walked`, which answer nothing as a
+  torus's do. `Profile::of` refuses it, a patch being spun about no line, and
+  `Meeting::fitted` hands a pair with one in it to the march, no row reducing
+  it.
 
-  **What the field does, and which half of it applies.** Two families. Most
-  production tessellators subdivide adaptively and stop on a *measured*
-  flatness test — the surface at sample places against the planar or bilinear
-  interpolant. That is a probe, and by §7.2's own standard a hope; that it is
-  common is not a reason. Where a real bound is wanted the field takes it from
-  the **representation** rather than from the surface: Bézier and B-spline
-  forms carry the convex-hull property, and deviation bounds follow from second
-  differences of the control net, tightening under subdivision. That is why
-  kernels push a procedural surface into NURBS before asking how flat it is.
+  **The tip is written wherever a place is read**, which `Gusset::placed` is:
+  how far along the round's axis a ruling lands is nought over nought at the
+  touch point, so the first edge — an ellipse, and exact everywhere — is what
+  says whether the ruling has closed. Nearer than `PLACED` the two ends are one
+  place; further off the quotient is worth a ten-millionth or better, its error
+  going as the machine's own rounding over the angle off the tip. `at`, `onto`
+  and the walk all read through it, so no caller can reach the bad quotient.
+- **`straying` and `strides` answer — a reduction that is exact, and one term
+  that is probed.** §7.2 makes the sagitta *a promise rather than a hope*:
+  `Refining` cuts a triangle only where the cells say it might be too far, and
+  the grid is also where the cuts go. A ruled patch keeps that whole mechanism
+  and weakens one reading inside it, which is the decision below and its cost.
 
-  **The triangle reduces to its three sides, exactly.** A ruled patch is affine
-  in `v` and a triangle's own plane is affine in both, so the difference is
-  affine in `v` — and over a run of the parameter triangle at one `u` its
-  greatest stands at an end, which is on the triangle's boundary. A side at one
-  `u` is nought at both its corners and affine between, so it is nought
-  throughout. **So a triangle strays by the worst of its three sides**, which is
-  the reading `Surface::straying` already names by letting a caller pass one
-  corner twice. No bilinear interpolant, no twist term added on top of one, and
-  nothing about how a triangle leans.
+  **The triangle reduces to its three sides, exactly.** The patch is affine in
+  `v` and a triangle's own plane is affine in both, so the difference is affine
+  in `v` — and over a run of the triangle at one angle its greatest stands at an
+  end, which is on the triangle's boundary. A side at one angle is nought at
+  both its corners and affine between, so it is nought throughout. **So a
+  triangle strays by the worst of its three sides**, which is the reading
+  `Surface::straying` already names by letting a caller pass one corner twice.
+  No bilinear interpolant, no twist term added on top of one, and nothing about
+  how a triangle leans.
 
-  **And a side reduces to the two edges and a term that is two evaluations.** A
-  side runs at `v` affine in `u`, so it is
-  `(1 − v(u))·head(u) + v(u)·foot(u)`. Against the quadratic blending the two
-  edges' own *chords* the same way, it leaves at most the worse of the two
-  edges' sagittas — and that quadratic leaves its own chord by exactly
-  `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. So
+  **And a side reduces to the two edges and a turn.** A side runs at `v` affine
+  in `u`, so it is `(1 − v(u))·head(u) + v(u)·foot(u)`. Against the quadratic
+  blending the two edges' own *chords* the same way, it stands no further than
+  the worse of the two edges' sagittas — and that quadratic leaves its own chord
+  by exactly `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. Both agree with the
+  side at either end, so the two chords are one chord and the readings add:
 
       side ≤ max(head sagitta, foot sagitta) + Δv·|d(u₁) − d(u₀)|/4
 
-  and every term but one is closed form.
-  - **The head's sagitta is bounded.** The first edge is
+  - **The head's sagitta is a bound.** The first edge is
     `middle + cos u·one + sin u·two`, the image of the unit circle under
     `[one two]`, so an arc leaves its chord by at most `arc::bulge(span)` times
     how far that map stretches a vector, which `√(|one|² + |two|²)` holds. The
     same bound rules the export's own step — see `Gusset::netted`.
-  - **The foot's sagitta is not.** *Tried and wrong:* carrying the walk's own
-    stray on the patch and using it here. A walk's stray bounds the foot
-    against **its own chords**, not against a cell's chord spanning several of
-    them. Measured on the square corner, a triangle over a quarter of the arc
-    reaching the tip strays `0.697` where that bound reads `0.168`. The code
-    and the carried field are out again.
+  - **The ruling's turn is exact**, and two evaluations.
+  - **The foot's sagitta is probed** — three shares of the span, as
+    `Marching::sagging` probes a marched chord. *Tried and wrong:* carrying the
+    walk's own stray and using it here. A walk's stray bounds the foot against
+    **its own chords**, not against a cell's chord spanning several of them.
+    Measured on the square corner, a triangle over a quarter of the arc reaching
+    the tip strays `0.697` where that bound reads `0.168`.
 
-  **What is in the way is one supremum.** The foot is analytic on the patch —
-  `√(D² − r²)` has a *double* zero at the tip, the head's ellipse lying outside
-  the round everywhere else, so the square root is smooth on the patch's own
-  side — and a sagitta over a stretch `h` is `h²/8` of its second derivative at
-  worst. But the foot is `c + m·z(u) + r·n(u)` with `z` a quotient whose
-  divisor vanishes at the tip and `n` carrying that square root, so bounding
-  `z″` and `φ″` wants a supremum of a function that is algebraic and not
-  polynomial. Every route tried — interpolation error, arc length against
-  chord, a cylindrical box round the foot — reduces to that same supremum.
+  **What stands in the way of the third being a bound is one supremum.** The
+  foot is analytic on the patch — `√(D² − r²)` has a *double* zero at the tip,
+  the head's ellipse lying outside the round everywhere else, so the square root
+  is smooth on the patch's own side — and a sagitta over a stretch `h` is at
+  worst `h²/8` of the second derivative. But the foot is `c + m·z(u) + r·n(u)`
+  with `z` a quotient whose divisor vanishes at the tip and `n` carrying that
+  square root, so bounding `z″` and `φ″` wants the supremum of a function that
+  is algebraic and not polynomial. Every route tried reduces to that same
+  supremum: interpolation error, arc length against chord, a cylindrical box
+  round the foot. The one exit is algebraic — under `t = tan(u/2)` the foot lies
+  in a quadratic extension of the rationals, so the extremes of `|foot″|` are
+  roots of a resultant `Polynomial` already isolates — and it is a derivation of
+  its own size.
 
-  **Two ways out, and both are named rather than taken.** The algebraic one:
-  under `t = tan(u/2)` the foot lies in a quadratic extension of the rationals,
-  so the extremes of `|foot″|` are roots of a resultant that `Polynomial`
-  already isolates — exact, and a derivation of its own size. The other is the
-  walk: the foot lies within the walk's stray of the walk's polyline, and the
-  polyline against a cell chord is exact arithmetic over the walked places. It
-  needs the *places*, which live in `Carried` as a marched curve's do, and
-  **`Surface::straying(corners)` is handed no `Carried`** — so either that
-  signature grows, or `strides` pins the grid to the walk's own chords so that
-  a cell is never wider than one. The second rests on a probe, which is what
-  the field's own adaptive tessellators do and what §7.2 refuses here.
+  **So it is probed, and here is what that costs.** A face on this one surface
+  can be coarser than its sagitta claims, by however much the probe understates
+  a bend between its own three shares. Nothing else in either tier reads a
+  term rather than deriving it. Against that: the kernel already trusts this
+  same probe for every marched edge in a drawing, so the reading is not a new
+  kind of claim; the field's own procedural tessellators measure the *whole*
+  surface where this measures one of three terms; and a kernel that pushed the
+  patch to NURBS first would bound the approximant rather than the patch. The
+  alternative is that a corner two picks disagree about goes on refusing.
+
+  **`strides` halves the sagitta between the two terms a side adds.** The angle
+  takes the first: it is stepped until the head's bound and the foot's probe
+  both fall under the half, which is the same step `Gusset::netted` lays the
+  export's net at — so a face and the file it goes out in are cut by one rule.
+  The run along the ruling takes the second: a `Δv` of four halves over the
+  ruling's own turn spends exactly the half it was given. The turn is read at
+  half a step, so a cell falling between the walk's anchors is still covered by
+  a pair the walk measured.
 - The *filing* of the second edge: handing the walk to `Marchings::add` and
   carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`

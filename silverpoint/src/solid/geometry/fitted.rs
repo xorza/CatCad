@@ -32,13 +32,12 @@ use glam::{BVec2, DVec2, DVec3};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),
-    /// Nothing raises one yet — the route in `Rounding` waits on the bound
-    /// `.notes/KERNEL.md` §9.6 leaves open, which is the one thing below that
-    /// still refuses. Every other reading the tier asks of this arm is
-    /// written and held to.
+    /// Nothing raises one yet — the route in `Rounding` that does is what
+    /// `.notes/KERNEL.md` §9.6 owes next. Every reading the tier asks of this
+    /// arm is written and held to below.
     #[allow(
         dead_code,
-        reason = "the route in `Rounding` that raises one waits on §9.6's bound"
+        reason = "the route in `Rounding` that raises one lands next"
     )]
     Gusset(Gusset),
 }
@@ -190,19 +189,20 @@ impl Fitted {
     /// the sum bounds it — loosely where the triangle leans, which costs a
     /// mesher corners and never costs it a face that strays.
     ///
-    /// **A patch refuses.** `.notes/KERNEL.md` §7.2 makes the sagitta a promise
-    /// rather than a hope, so this owes a *bound*, and the second edge's own
-    /// bend has none written down. §9.6 sets out how near one stands and what
-    /// it is still missing.
+    /// **A patch answers by its three sides**, which is exact where the sum
+    /// above is a bound: a ruled surface is affine along the ruling, so what a
+    /// triangle leaves out stands on its own boundary — see
+    /// [`Gusset::straying`]. Two of the three terms of a side are written down
+    /// and the third is probed, which is the one reading in the whole tier that
+    /// is measured rather than derived. `.notes/KERNEL.md` §9.6 is where that
+    /// is decided and where what it costs is named.
     pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
         match self {
             Self::Torus(torus) => {
                 (torus.major + torus.minor) * arc::bulge(arc::spread(corners.map(|uv| uv.x)))
                     + torus.minor * arc::bulge(arc::spread(corners.map(|uv| uv.y)))
             }
-            Self::Gusset(_) => {
-                unreachable!("a ruled patch owes a bound on its straying, which §9.6 sets out")
-            }
+            Self::Gusset(gusset) => gusset.straying(corners),
         }
     }
 
@@ -224,20 +224,16 @@ impl Fitted {
     /// A sphere next door divides by the square root of two instead, and can:
     /// its own straying is the true distance rather than a sum of bounds.
     ///
-    /// **A patch refuses**, on [`Fitted::straying`]'s own terms: a stride is
-    /// what makes §7.2's promise, and nothing bounds this patch's deviation
-    /// yet.
+    /// **A patch halves it the same way and for the same reason**, its own
+    /// reading being a sum of two terms as well — see [`Gusset::strides`],
+    /// where the angle takes one half and the run along the ruling the other.
     pub(crate) fn strides(&self, _reach: f64, sagitta: f64) -> DVec2 {
         match self {
             Self::Torus(torus) => DVec2::new(
                 arc::widest(torus.major + torus.minor, sagitta / 2.0),
                 arc::widest(torus.minor, sagitta / 2.0),
             ),
-            Self::Gusset(_) => {
-                unreachable!(
-                    "a ruled patch owes the bound a stride is chosen by, which §9.6 sets out"
-                )
-            }
+            Self::Gusset(gusset) => gusset.strides(sagitta),
         }
     }
 

@@ -709,3 +709,191 @@ fn the_net_holds_the_patch_to_what_it_says_it_strays() {
         );
     }
 }
+
+/// How far the flat triangle on `corners` stands from the patch, measured over
+/// the triangle itself at `steps` to a side.
+///
+/// **At matching parameters**, which is what the answer is about: a place of
+/// the patch against the place the triangle's own plane puts those same
+/// parameters at.
+fn measured(gusset: &Gusset, corners: [DVec2; 3], steps: u32) -> f64 {
+    let places = corners.map(|uv| gusset.at(uv));
+    let mut most = 0.0_f64;
+    for one in 0..=steps {
+        for two in 0..=(steps - one) {
+            let held = [
+                1.0 - f64::from(one + two) / f64::from(steps),
+                f64::from(one) / f64::from(steps),
+                f64::from(two) / f64::from(steps),
+            ];
+            let uv = (0..3).fold(DVec2::ZERO, |sum, at| sum + corners[at] * held[at]);
+            let flat = (0..3).fold(DVec3::ZERO, |sum, at| sum + places[at] * held[at]);
+            most = most.max(gusset.at(uv).distance(flat));
+        }
+    }
+    most
+}
+
+/// The two triangles the cell between the angles `u` and the runs `v` is cut
+/// into, which is what a mesher lays over one.
+fn halves(u: [f64; 2], v: [f64; 2]) -> [[DVec2; 3]; 2] {
+    let corner = |at: usize, along: usize| DVec2::new(u[at], v[along]);
+    [
+        [corner(0, 0), corner(1, 0), corner(1, 1)],
+        [corner(0, 0), corner(1, 1), corner(0, 1)],
+    ]
+}
+
+/// **A triangle never strays further than the answer says**, measured over the
+/// triangle rather than at its corners.
+///
+/// The corners are on the patch by construction, so a bound that was under the
+/// truth would be under it in the middle. Read over whole cells and over a
+/// triangle none of whose corners share an angle or a run, which is the general
+/// case the reduction has to hold for.
+///
+/// **And it falls as the cell narrows.** A triangle spanning the whole ruling
+/// carries the ruling's own turn, which goes as the width rather than as its
+/// square — so five cells is worth about five times one, not twenty-five.
+#[test]
+fn a_triangle_never_strays_further_than_it_says() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let [from, to] = gusset.bounds();
+        let mut widest = Vec::new();
+        for cells in [1u32, 2, 5] {
+            let step = (to - from) / f64::from(cells);
+            let mut most = 0.0_f64;
+            for cell in 0..cells {
+                let u = [
+                    from + step * f64::from(cell),
+                    from + step * f64::from(cell + 1),
+                ];
+                for held in halves(u, [0.0, 1.0]) {
+                    let says = gusset.straying(held);
+                    let truth = measured(&gusset, held, 12);
+                    assert!(
+                        truth <= says + 1e-12,
+                        "{named}: {held:?} strays {truth}, over the {says} promised",
+                    );
+                    most = most.max(says);
+                }
+            }
+            widest.push(most);
+        }
+        assert!(
+            widest[2] < widest[0] / 3.0,
+            "{named}: {widest:?} hardly fell as the cells narrowed",
+        );
+
+        // A triangle sharing neither an angle nor a run between any two of its
+        // corners, which no cell of a grid is and the reduction still holds for.
+        let slant = [
+            DVec2::new(from, 0.0),
+            DVec2::new(from + (to - from) * 0.4, 1.0),
+            DVec2::new(from + (to - from) * 0.7, 0.3),
+        ];
+        let says = gusset.straying(slant);
+        let truth = measured(&gusset, slant, 16);
+        assert!(
+            truth <= says + 1e-12,
+            "{named}: a slanting triangle strays {truth}, over the {says} promised",
+        );
+    }
+}
+
+/// **A triangle strays by the worst of its three sides**, which is the whole of
+/// the reduction: a ruled surface is straight along its ruling, so what a
+/// triangle leaves out stands on its own boundary.
+///
+/// A side is read by passing one corner twice, which is what
+/// [`Surface::straying`](crate::solid::geometry::surface::Surface) already
+/// names that shape for.
+///
+/// **And a side at one angle strays nothing at all.** Both its corners sit on
+/// one ruling, the patch is straight along that ruling, and the side is the
+/// ruling — so there is nothing between them to leave out.
+#[test]
+fn a_triangle_strays_by_the_worst_of_its_three_sides() {
+    let gusset = square();
+    let [from, to] = gusset.bounds();
+    let corners = [
+        DVec2::new(from, 0.0),
+        DVec2::new(from + (to - from) * 0.4, 1.0),
+        DVec2::new(from + (to - from) * 0.7, 0.3),
+    ];
+    let sides = [[0, 1], [1, 2], [2, 0]]
+        .map(|[a, b]| gusset.straying([corners[a], corners[b], corners[b]]));
+    let worst = sides.iter().fold(0.0_f64, |far, &at| far.max(at));
+    assert!(
+        (gusset.straying(corners) - worst).abs() < 1e-15,
+        "{} is not the worst of {sides:?}",
+        gusset.straying(corners),
+    );
+    assert!(worst > 1e-3, "{sides:?} left nothing to be the worst of");
+
+    let angle = from + (to - from) * 0.4;
+    let ruling = DVec2::new(angle, 1.0);
+    assert_eq!(
+        gusset.straying([DVec2::new(angle, 0.0), ruling, ruling]),
+        0.0,
+        "the patch left its own ruling",
+    );
+}
+
+/// **A grid at a sagitta holds every triangle inside one of its cells**, which
+/// is the whole of what a stride is for.
+///
+/// Asked of the two triangles of every cell of the grid, and measured outright
+/// over the triangle for the first cell, the middle one and the last — the last
+/// being where the ruling has closed to a point and the reading is at its
+/// hardest.
+///
+/// **And a finer sagitta rules a finer grid**, in both parameters: the angle
+/// takes half the sagitta and the run along the ruling the other half, so
+/// neither can stand still while the other moves.
+#[test]
+fn a_grid_at_a_sagitta_holds_every_triangle_inside_a_cell() {
+    for (named, gusset) in [("square", square()), ("leaning", leaning())] {
+        let [from, to] = gusset.bounds();
+        let span = to - from;
+        let mut cells = Vec::new();
+        for sagitta in [1e-2, 1e-3] {
+            let cell = gusset.strides(sagitta);
+            let across = cell.y.min(1.0);
+            let steps = (span.abs() / cell.x).round() as u32;
+            let runs = (1.0 / across).ceil() as u32;
+            assert!(steps > 1, "{named}: {steps} steps round is no grid");
+            for step in 0..steps {
+                let u = [
+                    from + span * f64::from(step) / f64::from(steps),
+                    from + span * f64::from(step + 1) / f64::from(steps),
+                ];
+                for run in 0..runs {
+                    let v = [
+                        f64::from(run) / f64::from(runs),
+                        f64::from(run + 1) / f64::from(runs),
+                    ];
+                    for held in halves(u, v) {
+                        let says = gusset.straying(held);
+                        assert!(
+                            says <= sagitta,
+                            "{named}: a cell of the grid promises {says}, over {sagitta}",
+                        );
+                        if step == 0 || step == steps / 2 || step + 1 == steps {
+                            let truth = measured(&gusset, held, 8);
+                            assert!(
+                                truth <= sagitta,
+                                "{named}: a cell of the grid strays {truth}, over {sagitta}",
+                            );
+                        }
+                    }
+                }
+            }
+            cells.push(cell);
+        }
+        assert!(
+            cells[1].x < cells[0].x && cells[1].y < cells[0].y,
+            "{cells:?} did not narrow for {named} as the sagitta fell",
+        );
+    }
+}

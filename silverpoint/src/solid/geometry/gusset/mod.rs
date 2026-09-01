@@ -8,10 +8,10 @@
 //! with no fit anywhere. `.notes/KERNEL.md` §9.6 is where no quadric is shown
 //! to do the same job, and where the whole corner is argued.
 #![allow(dead_code)]
-// Kept ahead of its caller deliberately: nothing can mesh a face it cannot hold
-// to a sagitta, so the route in `Rounding` that raises one waits on the bound
-// `.notes/KERNEL.md` §9.6 leaves open. The geometry below is settled and
-// tested, and the export already writes it out.
+// Kept ahead of its caller deliberately: the route in `Rounding` that raises one
+// is what `.notes/KERNEL.md` §9.6 owes next. Everything a face on this patch
+// needs is written and tested — the tier's own readings, the grid a mesher cuts
+// it by, and the net it goes out in.
 
 use crate::math::arc;
 use crate::math::bounds::Bounds;
@@ -145,6 +145,18 @@ struct Ruling {
     footing: DVec3,
 }
 
+/// The two ends of one ruling, and nothing about how fast either moves.
+///
+/// **Apart from [`Ruling`] because it answers at the tip and that one does
+/// not.** Everything that measures the patch wants the places alone, and the
+/// place the ruling has closed at is written rather than read — see
+/// [`Gusset::placed`].
+#[derive(Debug, Clone, Copy)]
+struct Ends {
+    head: DVec3,
+    foot: DVec3,
+}
+
 impl Gusset {
     /// The patch between the two blends, its first edge starting at `from`.
     pub(crate) fn new(filled: Cylinder, cut: Cylinder, from: DVec3, turning: bool) -> Self {
@@ -267,12 +279,9 @@ impl Gusset {
     /// it wants no dividing at all. What a step of the fillet's angle leaves
     /// out is the two edges' own bend, and nothing else.
     ///
-    /// **Both edges rule the step, and the head's share is written down.** The
-    /// first edge is the image of the unit circle under a pair of vectors — see
-    /// [`Framing::swung`] — so an arc of it never leaves its chord by more than
-    /// [`arc::bulge`] of the step times how far that pair stretches a vector,
-    /// which `√(|one|² + |two|²)` holds. The second edge is probed, on
-    /// [`Gusset::chorded`]'s own terms, and the answer is the worse of the two.
+    /// **Both edges rule the step** — see [`Gusset::stepping`], which is where
+    /// the count comes from — and the answer is the worse of what the two
+    /// leave out.
     ///
     /// **The last ruling has closed to a point**, so the net's last two places
     /// are one place — the degenerate row a cone's apex already asks every
@@ -280,18 +289,33 @@ impl Gusset {
     pub(crate) fn netted(&self, sagitta: f64, into: &mut Vec<DVec3>) -> f64 {
         debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         let framing = self.framing();
-        let [one, two] = framing.swung;
-        let swing = (one.length_squared() + two.length_squared()).sqrt();
-        let [from, to] = framing.bounds;
-        let span = (to - from).abs();
-        let bent = |steps: usize| swing * arc::bulge(span / steps as f64);
-        let mut steps = FIRST.max(arc::chords(swing, span, sagitta));
-        let mut most = self.woven(steps, framing, into).max(bent(steps));
-        while most > sagitta && steps < FIRST << DOUBLINGS {
+        let steps = self.stepping(sagitta, framing);
+        self.woven(steps, framing, into)
+            .max(framing.bent(framing.span() / steps as f64))
+    }
+
+    /// How many rulings the turn wants, so that neither of the patch's two
+    /// edges leaves its chord by more than `sagitta`.
+    ///
+    /// **Both edges rule it, and only one of them can be read off.** The first
+    /// edge's bend is written down — see [`Framing::bent`] — so a count comes
+    /// straight out of [`arc::chords`]. The second edge's is probed, so the
+    /// count doubles from there until the probe falls under what was asked.
+    ///
+    /// **A stray over the sagitta is an answer rather than a failure**, which
+    /// is [`DOUBLINGS`]'s own argument.
+    fn stepping(&self, sagitta: f64, framing: Framing) -> usize {
+        let span = framing.span();
+        let mut steps = FIRST.max(arc::chords(framing.swing(), span, sagitta));
+        while self
+            .along(steps, framing, |_, _| {})
+            .max(framing.bent(span / steps as f64))
+            > sagitta
+            && steps < FIRST << DOUBLINGS
+        {
             steps *= 2;
-            most = self.woven(steps, framing, into).max(bent(steps));
         }
-        most
+        steps
     }
 
     /// The box the whole patch fills.
@@ -388,13 +412,13 @@ impl Gusset {
     /// that end. At the tip the ruling has closed to nothing and the touch
     /// point is the whole of it.
     fn onto(&self, angle: f64, framing: Framing, at: DVec3) -> DVec3 {
-        let ruling = self.ruled(angle, framing);
-        let along = ruling.foot - ruling.head;
+        let ends = self.placed(angle, framing);
+        let along = ends.foot - ends.head;
         let reach = along.length_squared();
         if reach == 0.0 {
-            return ruling.head;
+            return ends.head;
         }
-        ruling.head + along * ((at - ruling.head).dot(along) / reach).clamp(0.0, 1.0)
+        ends.head + along * ((at - ends.head).dot(along) / reach).clamp(0.0, 1.0)
     }
 
     /// Whether any of the patch passes within `slack` of `fills`.
@@ -407,6 +431,147 @@ impl Gusset {
     /// walk, against eight halvings and a distance apiece.
     pub(crate) fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> bool {
         self.fills().meets(fills, slack)
+    }
+
+    /// How far the flat triangle on the parameters `corners` strays from the
+    /// patch, at its furthest.
+    ///
+    /// **A triangle strays by the worst of its three sides, exactly.** The
+    /// patch is affine in `v` and a triangle's own plane is affine in both, so
+    /// the difference is affine in `v` — and over a run of the triangle at one
+    /// angle its greatest stands at an end, which is on the triangle's
+    /// boundary. A side at one angle is nought at both its corners and affine
+    /// between, so it is nought throughout. What is left is the sides, and each
+    /// of them is a *chord* — the reading
+    /// [`Surface::straying`](super::surface::Surface) already names by letting
+    /// a caller pass one corner twice.
+    ///
+    /// So no bilinear interpolant stands between the patch and the answer, and
+    /// nothing here is asked about how a triangle leans.
+    pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
+        let framing = self.framing();
+        let mut most = 0.0_f64;
+        for at in 0..3 {
+            most = most.max(self.parted([corners[at], corners[(at + 1) % 3]], framing));
+        }
+        most
+    }
+
+    /// How far apart the lines of a face's grid must stand, so that a triangle
+    /// inside one cell cannot stray further than `sagitta`.
+    ///
+    /// **Half the sagitta to each of the two terms [`Gusset::parted`] adds.**
+    /// The angle takes the first: it is stepped as finely as both edges want,
+    /// the walk doubling until the first edge's bound and the second edge's
+    /// probe each fall under the half. That is the same step
+    /// [`Gusset::netted`] lays the export's own net at, so a face and the file
+    /// it goes out in are cut by one rule.
+    ///
+    /// The run along the ruling takes the second: the turn a side picks up is
+    /// `Δv·|d(u₁) − d(u₀)|/4`, so a `Δv` of four halves over that turn spends
+    /// exactly the half it was given.
+    ///
+    /// **The turn is read at half a step**, so a cell falling between the
+    /// walk's own anchors is still covered by a pair the walk measured. A patch
+    /// whose ruling never turns wants no line across it at all, and says so.
+    pub(crate) fn strides(&self, sagitta: f64) -> DVec2 {
+        debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} rules no grid");
+        let framing = self.framing();
+        let half = sagitta / 2.0;
+        let steps = self.stepping(half, framing);
+        let mut turning = 0.0_f64;
+        let mut held = [DVec3::ZERO; 2];
+        let mut seen = 0_usize;
+        self.along(2 * steps, framing, |head, foot| {
+            let along = foot - head;
+            if seen >= 2 {
+                turning = turning.max((along - held[seen % 2]).length());
+            }
+            held[seen % 2] = along;
+            seen += 1;
+        });
+        DVec2::new(
+            framing.span() / steps as f64,
+            match turning > 0.0 {
+                true => 4.0 * half / turning,
+                false => f64::INFINITY,
+            },
+        )
+    }
+
+    /// How far the straight side between the two parameters `side` stands from
+    /// the patch, at its furthest.
+    ///
+    /// **Three terms, and the chords they are measured against are one chord.**
+    /// A side runs at `v` affine in the angle, so it is
+    /// `(1 − v)·head + v·foot` with `v` running straight. Against the quadratic
+    /// blending the two edges' own *chords* the same way it stands no further
+    /// than the worse of the two edges' sagittas; and that quadratic leaves its
+    /// own chord by exactly `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. Both
+    /// agree with the side at either end, so the two readings add.
+    ///
+    /// The first edge's sagitta is a **bound** — see [`Framing::swing`]. The
+    /// ruling's turn is **exact**, and two evaluations. The second edge's
+    /// sagitta is **probed** — see [`Gusset::sagging`], and `.notes/KERNEL.md`
+    /// §9.6 for what that costs.
+    fn parted(&self, side: [DVec2; 2], framing: Framing) -> f64 {
+        let [a, b] = side;
+        let span = [a.x, b.x];
+        let ends = span.map(|angle| self.placed(angle, framing));
+        let turn = (ends[1].foot - ends[1].head) - (ends[0].foot - ends[0].head);
+        let bent = framing.bent(span[1] - span[0]);
+        bent.max(self.sagging(span, ends, framing)) + (b.y - a.y).abs() * turn.length() / 4.0
+    }
+
+    /// How far the chord of the second edge over `span` stands from the edge
+    /// itself, `ends` being the two rulings it runs between.
+    ///
+    /// **Probed rather than bounded**, exactly as
+    /// [`Marching::sagging`](crate::solid::meeting::marching::Marching) is and
+    /// for the same reason: nothing writes this edge's bend down, so no step
+    /// can be read off a radius the way [`arc::chords`] reads one.
+    ///
+    /// Three shares of the span, which is what a marched chord is measured by:
+    /// a smooth curve leaves its chord furthest near the middle, so three catch
+    /// what one would and a leaning chord besides.
+    fn sagging(&self, span: [f64; 2], ends: [Ends; 2], framing: Framing) -> f64 {
+        let [from, to] = span;
+        let mut most = 0.0_f64;
+        for share in [0.25, 0.5, 0.75] {
+            let chord = ends[0].foot.lerp(ends[1].foot, share);
+            let at = self.placed(from + (to - from) * share, framing);
+            most = most.max(chord.distance(at.foot));
+        }
+        most
+    }
+
+    /// The two ends of the ruling at `angle`, with the tip written rather than
+    /// read.
+    ///
+    /// **Nought over nought where the ruling has closed.** How far along the
+    /// round's axis a ruling lands divides by the round's axis against the
+    /// fillet's radial, and both come to nought at the touch point — see
+    /// `.notes/KERNEL.md` §9.6. Read there, the quotient hands back a wrong
+    /// finite place rather than a `NaN`, and its error grows as the machine's
+    /// own rounding over the angle off the tip.
+    ///
+    /// The first edge is an ellipse and reads exactly wherever it is asked, so
+    /// it is what says whether the ruling has closed at all. Nearer the tip
+    /// than [`PLACED`] the two ends are one place by the kernel's own
+    /// reckoning, and further off than that the quotient is worth a
+    /// ten-millionth or better.
+    fn placed(&self, angle: f64, framing: Framing) -> Ends {
+        let head = self.headed(angle, framing);
+        match head.approx_eq(framing.met, PLACED) {
+            true => Ends {
+                head: framing.met,
+                foot: framing.met,
+            },
+            false => Ends {
+                head,
+                foot: self.ruled(angle, framing).foot,
+            },
+        }
     }
 
     /// Walk the patch in `steps` rulings, handing the two ends of each to
@@ -439,20 +604,15 @@ impl Gusset {
         let [from, to] = framing.bounds;
         let step = (to - from) / steps as f64;
         let mut most = 0.0_f64;
-        let mut last = foot(from);
-        held(self.headed(from, framing), last);
+        let first = self.placed(from, framing);
+        let mut last = first.foot;
+        held(first.head, last);
         for at in 1..=steps {
             let began = from + step * (at as f64 - 1.0);
-            let (head, here) = match at == steps {
-                true => (framing.met, framing.met),
-                false => {
-                    let angle = began + step;
-                    (self.headed(angle, framing), foot(angle))
-                }
-            };
+            let Ends { head, foot: here } = self.placed(began + step, framing);
             for share in [0.25, 0.5, 0.75] {
-                let along = last.lerp(here, share);
-                most = most.max(along.distance(foot(began + step * share)));
+                let chord = last.lerp(here, share);
+                most = most.max(chord.distance(foot(began + step * share)));
             }
             held(head, here);
             last = here;
@@ -526,8 +686,8 @@ impl Gusset {
     /// Where the parameters `uv` land: `u` radians round the fillet, `v` along
     /// the ruling from it.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
-        let ruling = self.ruled(uv.x, self.framing());
-        ruling.head + (ruling.foot - ruling.head) * uv.y
+        let ends = self.placed(uv.x, self.framing());
+        ends.head + (ends.foot - ends.head) * uv.y
     }
 
     /// Which way the surface faces at `uv`, the way its own parameters wind
@@ -778,6 +938,33 @@ impl Gusset {
 }
 
 impl Framing {
+    /// How much of the fillet's angle the patch covers.
+    fn span(self) -> f64 {
+        let [from, to] = self.bounds;
+        (to - from).abs()
+    }
+
+    /// How far the first edge's own ellipse stretches a unit vector, at its
+    /// most.
+    ///
+    /// The edge is the image of the unit circle under the pair
+    /// [`Framing::swung`], and `√(|one|² + |two|²)` holds how far that pair
+    /// stretches a vector from above.
+    fn swing(self) -> f64 {
+        let [one, two] = self.swung;
+        (one.length_squared() + two.length_squared()).sqrt()
+    }
+
+    /// How far the first edge leaves its chord over a turn of `spread`.
+    ///
+    /// **A bound rather than a reading**, which is what makes it half of
+    /// §9.6's own promise: an arc of the unit circle leaves its chord by
+    /// [`arc::bulge`] of the turn, and the map that carries it to this edge
+    /// never stretches that by more than [`Framing::swing`].
+    fn bent(self, spread: f64) -> f64 {
+        self.swing() * arc::bulge(spread)
+    }
+
     /// The same, reading the other of the two tangents.
     fn turned(self) -> Self {
         Self {
