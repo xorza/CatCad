@@ -212,7 +212,13 @@ impl Meeting {
     /// Coaxial first, that being one row for four pairs, and the plane's own
     /// two after it.
     fn fitted(fitted: &Fitted, other: &Surface) -> Self {
-        let Fitted::Torus(torus) = fitted;
+        // **A ruled patch reduces with nothing.** It is spun about no line, so
+        // no row of the coaxial table reads it, and the two the plane brings
+        // are a torus's own — see `.notes/KERNEL.md` §9.6, where what a corner
+        // patch meets is left to the march.
+        let Fitted::Torus(torus) = fitted else {
+            return Self::Marched;
+        };
         Self::coaxial(&Surface::Fitted(*fitted), other, torus.axis)
             .or_else(|| match other {
                 Surface::Natural(Natural::Plane(plane)) => Self::plane_torus(plane, torus),

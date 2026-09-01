@@ -1852,70 +1852,62 @@ so.
   been measured differently, and `Gusset` would stop being constructible from
   geometry alone. Identity stays over the four things a patch is made of, which
   is what `Gusset::key` already keys.
-- **Eight of the `Fitted` arm's readings — done.** `key`, `at`, `uv`, `normal`,
-  `met_by`, `singular` — the tip — `round`, and `spans`, which settles the
-  culling off the patch's own box rather than by halving the caller's. `fills`
-  is the boundary's own box and needs nothing, every ruling having both ends on
-  the boundary. `offset` and `walked` answer nothing, as a torus's do.
-- **`off` and `nearest` — done, and sought rather than solved.** The nearest
-  place on the ruling at one angle is a projection onto a segment and closed
-  form; *which* angle carries the nearest of all is a minimum over the arc that
-  nothing writes down. So the arc is read at sixteen angles, the bracket either
-  side of the best is kept, and that is narrowed six times — a millionth of the
-  arc, finer than the walk that lays the patch's own edge down. A reading and
-  not a proof, which is what §4.1's tier says of everything here.
-  **The inversion was not it.** Tried first: `at(uv(at))` for a place off the
-  patch lands on a *different* ruling, `uv` answering the ruling whose line the
-  place stands nearest and a place moved off the surface being nearest
-  another's. Measured on the square corner, a place a fifth of a reach along
-  the normal read `0.454` rather than `0.2`.
-  **A sharper route exists and is not taken.** The reading has a derivative in
-  closed form — [`Ruling`] carries the rate of both ends — so the minimum is a
-  root of something written down. What it has no fence for is bracketing that
-  root: `math/polynomial.rs` fences a polynomial at the roots of its own
-  derivative, and this is neither a polynomial nor a harmonic. A search that
-  isolated it would answer exactly and cost a handful of rulings rather than a
-  hundred, which is worth taking when a march over a corner patch turns out to
-  want it.
-- **`straying` — done, and probed for the third time.** Four places: the
-  triangle's three edge middles and its centroid, each held against the flat
-  triangle. Across `v` the patch is exactly linear, so a triangle standing on
-  one ruling strays nowhere at all — which is the one reading here that has to
-  come back nought and does. Across `u` it bends by both edges at once, and the
-  second edge's rate about the round's axis is what no bound is written for.
-  **A triangle spanning a whole ruling strays linearly in the angle**, not as
-  its square: what it reads is the *twist* between two skew rulings rather than
-  either edge's bend. Measured on the square corner at half, a quarter and an
-  eighth of the arc: `0.294`, `0.157`, `0.080`.
-- **`strides` is the last reading, and the grid is load-bearing.** `Refining`
-  measures a triangle only where the cells say it might be too far — a triangle
-  whose three corners stand pairwise within one cell is taken as within the
-  sagitta and never asked — so a stride has to be a *bound* where `straying`
-  may be a probe. Along `v` the patch is exactly linear and wants no
-  subdivision for straightness at all, so the whole grid is `u`'s.
+- **The `Fitted` arm — thirteen of fifteen.** `Fitted::Gusset` is in, and the
+  tier's readings answer for it: `key`, `at`, `uv`, `normal`, `met_by`, `off`,
+  `nearest`, `singular` — the tip — `spans`, `fills`, `round`, and `offset` and
+  `walked`, which answer nothing as a torus's do. `Profile::of` refuses it, a
+  patch being spun about no line; `Meeting::fitted` hands a pair with one in it
+  to the march, no row reducing it; and `Stepping::surface` is `unreachable!`
+  until the B-spline below is written.
+- **`straying` and `strides` refuse, and the bound is two thirds derived.**
+  §7.2 makes the sagitta *a promise rather than a hope*: `Refining` cuts a
+  triangle only where the cells say it might be too far, and the grid is also
+  where the cuts go — a triangle inside one cell has no crossing to be cut at.
+  So both readings owe a **bound**, and a probe in their place would make every
+  face on a patch quietly coarser than it claims. Both are `unreachable!`.
 
-  **The deviation splits cleanly, and the split is what says which term wants
-  what.** Over a cell `[u₀, u₀+s] × [0, 1]` write `P(t, v)` for the patch and
-  `Q` for the *bilinear* interpolant of the cell's four corners. Then
+  **What the field does, and which half of it applies.** Two families. Most
+  production tessellators subdivide adaptively and stop on a *measured*
+  flatness test — the surface at sample places against the planar or bilinear
+  interpolant. That is a probe, and by §7.2's own standard a hope; that it is
+  common is not a reason. Where a real bound is wanted the field takes it from
+  the **representation** rather than from the surface: Bézier and B-spline
+  forms carry the convex-hull property, and deviation bounds follow from second
+  differences of the control net, tightening under subdivision. That is why
+  kernels push a procedural surface into NURBS before asking how flat it is.
+
+  **The deviation splits into three, and two of them are written down.** Over a
+  stretch of the angle, with `Q` the bilinear interpolant of the four corners,
 
       P − Q = (1 − v)·(head − chord_head) + v·(foot − chord_foot)
 
-  so the patch never leaves the bilinear one by more than the greater of the
-  two edges' own sagittas — **no twist at all**. The twist is the second step,
-  `Q` against the *triangle*: an affine interpolant of three corners leaves the
-  fourth off its plane by `|d(u₁) − d(u₀)|/4` at the cell's centre, with
-  `d(u) = foot(u) − head(u)`.
+  so the patch never leaves `Q` by more than the greater of the two edges' own
+  sagittas, and a triangle leaves `Q` by the twist besides.
+  - **The head's sagitta is bounded.** The first edge is
+    `middle + cos u·one + sin u·two`, the image of the unit circle under
+    `[one two]`, so an arc leaves its chord by at most `arc::bulge(span)` times
+    how far that map stretches a vector, which `√(|one|² + |two|²)` holds.
+  - **The twist is bounded and wants no derivative.** It is
+    `T = d(u₁) − d(u₀)` with `d = foot − head`, and over a triangle on three
+    corners of the stretch `Q − plane = v(t − 1)·T`, whose greatest is `|T|/4`.
+    Two evaluations give it.
+  - **The foot's sagitta is not.** *Tried and wrong:* carrying the walk's own
+    stray on the patch and using it here. A walk's stray bounds the foot
+    against **its own chords**, not against a cell's chord spanning several of
+    them. Measured on the square corner, a triangle over a quarter of the arc
+    reaching the tip strays `0.697` where that bound reads `0.168`. The code
+    and the carried field are out again.
 
-  So a stride holds three terms, and they want different derivatives. **The
-  head's sagitta** wants a second one and has it: the first edge is
-  `middle + cos u·one + sin u·two`, so `|head″| ≤ |one| + |two|` and the
-  sagitta over `s` is at most `(|one| + |two|)·s²/8`. **The twist** wants only
-  a first, and `Ruling` carries the rate of both ends — so
-  `d′ = footing − heading` is written down pointwise, and only its greatest
-  over the arc is not, a greatest over a sampled arc being a probe rather than
-  a bound. **The foot's sagitta** wants a second derivative that nothing writes
-  down, which is the one term with no route at all and what the whole reading
-  waits on.
+  **What a real bound wants is the walk itself, not its worst.** The foot lies
+  within the walk's stray of the walk's polyline, and the polyline's own
+  deviation from a cell chord is exact arithmetic over the walked places inside
+  that cell. So the bound is `polyline vs cell chord` plus `strayed` — and it
+  needs the *places*, which live in `Carried` under a run as a marched curve's
+  do. **`Surface::straying(corners)` is handed no `Carried`**, so the tier
+  cannot express it as it stands. Either that signature grows, or `strides`
+  pins the grid to the walk's own chords so that a cell is never wider than
+  one — which makes the walk's stray the bound again, and is the narrower
+  change of the two.
 - The *filing* of the second edge: handing the walk to `Marchings::add` and
   carrying its stray onto the edge and the corners at either end.
 - The route in `Rounding` that raises it, which is the one test `joining`

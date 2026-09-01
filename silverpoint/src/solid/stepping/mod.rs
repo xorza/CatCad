@@ -405,6 +405,14 @@ impl Stepping {
     /// One surface, as the analytic entity it is.
     fn surface(&mut self, of: &Surface, into: &mut String) -> u32 {
         match of {
+            // **A ruled patch has no analytic entity**, and goes out as a
+            // B-spline surface of degree one across the ruling at the caller's
+            // sagitta — which `.notes/KERNEL.md` §9.6 owes and nothing writes
+            // yet. Nothing raises one either, so no body reaching here holds
+            // one.
+            Surface::Fitted(Fitted::Gusset(_)) => {
+                unreachable!("a ruled patch is written as a B-spline, which §9.6 owes")
+            }
             Surface::Natural(Natural::Plane(plane)) => {
                 let placed = self.placement(Axis::new(plane.origin, plane.normal(), plane.x), into);
                 let made = self.opened(into);

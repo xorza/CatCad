@@ -25,7 +25,6 @@ use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::surface::Crossings;
 use glam::{BVec2, DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
-use std::iter::zip;
 
 /// How many chords the second edge is first walked in.
 ///
@@ -471,51 +470,8 @@ impl Gusset {
     /// Where the parameters `uv` land: `u` radians round the fillet, `v` along
     /// the ruling from it.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
-        self.placed(uv, self.framing())
-    }
-
-    /// The same, against a framing the caller already has.
-    fn placed(&self, uv: DVec2, framing: Framing) -> DVec3 {
-        let ruling = self.ruled(uv.x, framing);
+        let ruling = self.ruled(uv.x, self.framing());
         ruling.head + (ruling.foot - ruling.head) * uv.y
-    }
-
-    /// How far the flat triangle on the parameters `corners` strays from the
-    /// patch at its furthest.
-    ///
-    /// **Probed rather than bounded**, which is the third time this patch has
-    /// had to be — see [`Gusset::along`] and [`Gusset::nearest`], and §4.1,
-    /// which is what the tier means. Across `v` the patch is exactly linear, so
-    /// a triangle standing on one ruling strays nowhere at all; across `u` it
-    /// bends by both of its edges at once, and the second edge's rate about the
-    /// round's axis is the one thing here nothing writes down.
-    ///
-    /// **Four places, and the three middles are what a leaning triangle
-    /// wants.** A smooth patch leaves its plane furthest near the centre, so
-    /// the centroid catches what one probe would; a triangle long in `u` and
-    /// thin in `v` leaves it near an edge instead, which the edge middles
-    /// catch. The same argument [`Marching`](crate::solid::meeting::marching)
-    /// makes for three shares along a chord.
-    ///
-    /// Seven rulings a triangle, where a quadric answers this off a radius —
-    /// which is what a face on this surface costs a mesher.
-    pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
-        /// The barycentric shares each probe stands at.
-        const PROBES: [[f64; 3]; 4] = [
-            [0.5, 0.5, 0.0],
-            [0.0, 0.5, 0.5],
-            [0.5, 0.0, 0.5],
-            [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
-        ];
-        let framing = self.framing();
-        let places = corners.map(|uv| self.placed(uv, framing));
-        let mut most = 0.0_f64;
-        for share in PROBES {
-            let uv: DVec2 = zip(corners, share).map(|(at, by)| at * by).sum();
-            let flat: DVec3 = zip(places, share).map(|(at, by)| at * by).sum();
-            most = most.max(self.placed(uv, framing).distance(flat));
-        }
-        most
     }
 
     /// Which way the surface faces at `uv`, the way its own parameters wind

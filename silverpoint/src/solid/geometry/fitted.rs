@@ -4,6 +4,7 @@
 use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::solid::buckets::Key;
+use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::surface::Crossings;
 use crate::solid::geometry::torus::Torus;
 use glam::{BVec2, DVec2, DVec3};
@@ -17,14 +18,28 @@ use glam::{BVec2, DVec2, DVec3};
 /// surfaces asking which arm each is, and an algorithm that would quietly widen
 /// a tolerance has to name the arm that did it.
 ///
-/// **One member so far.** A ruled patch arrives with the corner a pair of picks
-/// do not agree about — `.notes/KERNEL.md` §9.6, where its two joins are exact
-/// and its second edge is walked. The torus is what a revolve makes of an arc
-/// swept about a line it does not touch, and what a fillet down a rim is — see
-/// §7.5.
+/// **Two members.** The torus is what a revolve makes of an arc swept about a
+/// line it does not touch, and what a fillet down a rim is — see §7.5. The
+/// ruled patch fills the corner a pair of picks do not agree about, its two
+/// joins exact and its second edge walked — see `.notes/KERNEL.md` §9.6.
+///
+/// **The two are fitted for different reasons, and the arm is what says so.** A
+/// torus is written down exactly and meets its neighbours in curves no closed
+/// form parameterizes; a patch is written down exactly *and* meets them
+/// exactly, and what it cannot do is answer about itself without measuring —
+/// its second edge, its own box, the nearest place on it, how far a triangle
+/// strays and how fine a grid wants to be are every one of them a reading.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),
+    /// Nothing raises one yet — the route in `Rounding` is the next thing
+    /// `.notes/KERNEL.md` §9.6 owes, and every reading the tier asks of this
+    /// arm is written and held to below.
+    #[expect(
+        dead_code,
+        reason = "the route in `Rounding` that raises one lands next"
+    )]
+    Gusset(Gusset),
 }
 
 impl Fitted {
@@ -42,6 +57,7 @@ impl Fitted {
                 .float(torus.major)
                 .float(torus.minor)
                 .done(),
+            Self::Gusset(gusset) => gusset.key(),
         }
     }
 
@@ -49,6 +65,7 @@ impl Fitted {
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
         match self {
             Self::Torus(torus) => torus.at(uv),
+            Self::Gusset(gusset) => gusset.at(uv),
         }
     }
 
@@ -57,6 +74,7 @@ impl Fitted {
     pub(crate) fn uv(&self, at: DVec3) -> DVec2 {
         match self {
             Self::Torus(torus) => torus.uv(at),
+            Self::Gusset(gusset) => gusset.uv(at),
         }
     }
 
@@ -65,6 +83,7 @@ impl Fitted {
     pub(crate) fn normal(&self, uv: DVec2) -> DVec3 {
         match self {
             Self::Torus(torus) => torus.normal(uv),
+            Self::Gusset(gusset) => gusset.normal(uv),
         }
     }
 
@@ -76,6 +95,7 @@ impl Fitted {
     pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
         match self {
             Self::Torus(torus) => torus.met_by(from, way).widened(),
+            Self::Gusset(gusset) => gusset.met_by(from, way),
         }
     }
 
@@ -83,12 +103,17 @@ impl Fitted {
     /// closed form — see [`Natural::spans`](super::natural::Natural), which is
     /// where the two that do are.
     ///
-    /// Never, here, so neither argument is read: the nearest place of a box to
-    /// a torus wants the nearest place of it to a *circle*, which is the
-    /// cylinder's own question one level up and no more closed than that one.
-    pub(crate) fn spans(&self, _fills: Bounds<DVec3>, _slack: f64) -> Option<bool> {
+    /// Never for a torus, so neither argument is read there: the nearest place
+    /// of a box to one wants the nearest place of it to a *circle*, which is
+    /// the cylinder's own question one level up and no more closed than that.
+    ///
+    /// **A patch has to answer**, having no distance for the halving to fall
+    /// back on — see [`Gusset::spans`], which settles it off the patch's own
+    /// box.
+    pub(crate) fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> Option<bool> {
         match self {
             Self::Torus(_) => None,
+            Self::Gusset(gusset) => Some(gusset.spans(fills, slack)),
         }
     }
 
@@ -96,6 +121,7 @@ impl Fitted {
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {
             Self::Torus(torus) => torus.off(at),
+            Self::Gusset(gusset) => gusset.off(at),
         }
     }
 
@@ -103,45 +129,53 @@ impl Fitted {
     /// [`Natural::nearest`](super::natural::Natural), where the one that parts
     /// company is argued.
     ///
-    /// Through the inversion, which is what this tier has where the exact one
-    /// has closed forms: [`Fitted::uv`] already answers with the nearest place
-    /// for anything off the surface, so evaluating what it says *is* that
-    /// place.
+    /// Through the inversion for a torus, which is what this tier has where the
+    /// exact one has closed forms: [`Fitted::uv`] answers with the nearest
+    /// place for anything off the surface, so evaluating what it says *is* that
+    /// place. A patch's inversion answers the ruling a place stands nearest the
+    /// *line* of, which for a place off the patch is another's — so it seeks
+    /// instead, see [`Gusset::nearest`].
     pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
-        self.at(self.uv(at))
+        match self {
+            Self::Torus(_) => self.at(self.uv(at)),
+            Self::Gusset(gusset) => gusset.nearest(at),
+        }
     }
 
     /// The surface everywhere `by` off this one, along its own normal — see
     /// [`Natural::offset`](super::natural::Natural).
     ///
-    /// Nothing here answers: a torus offsets to a torus, and no caller asks
-    /// yet.
+    /// Nothing here answers. A torus offsets to a torus and no caller asks yet;
+    /// a patch offsets to nothing written down, its two joins being what fix it
+    /// and neither surviving the move.
     pub(crate) fn offset(&self, _by: f64) -> Option<Self> {
         match self {
-            Self::Torus(_) => None,
+            Self::Torus(_) | Self::Gusset(_) => None,
         }
     }
 
     /// The place `by` along this surface from `at`, setting out along the unit
     /// tangent `way` — see [`Natural::walked`](super::natural::Natural).
     ///
-    /// Nothing here answers: a geodesic of a torus is an elliptic integral and
-    /// no closed form walks one.
+    /// Nothing here answers: a geodesic of a torus is an elliptic integral, and
+    /// one of a ruled patch is no better written down.
     pub(crate) fn walked(&self, _at: DVec3, _way: DVec3, _by: f64) -> Option<DVec3> {
         match self {
-            Self::Torus(_) => None,
+            Self::Torus(_) | Self::Gusset(_) => None,
         }
     }
 
     /// Whether the parameterization says nothing at `at`.
     ///
-    /// Never, for a torus: both of its parameters are angles about a circle
-    /// that never closes on itself, so no place has two names and none has
-    /// every name. A cone's apex and a sphere's poles are the cases this
-    /// question exists for, and neither has a counterpart here.
-    pub(crate) fn singular(&self, _at: DVec3) -> bool {
+    /// Never for a torus: both of its parameters are angles about a circle that
+    /// never closes on itself, so no place has two names and none has every
+    /// name. A patch has one — the tip, where every ruling has closed to
+    /// nothing and `v` names no direction, which is a cone's apex read one tier
+    /// up.
+    pub(crate) fn singular(&self, at: DVec3) -> bool {
         match self {
             Self::Torus(_) => false,
+            Self::Gusset(gusset) => gusset.singular(at),
         }
     }
 
@@ -154,11 +188,19 @@ impl Fitted {
     /// out is no more than what each of those turns leaves out on its own, so
     /// the sum bounds it — loosely where the triangle leans, which costs a
     /// mesher corners and never costs it a face that strays.
+    ///
+    /// **A patch refuses.** `.notes/KERNEL.md` §7.2 makes the sagitta a promise
+    /// rather than a hope, so this owes a *bound*, and the second edge's own
+    /// bend has none written down. §9.6 sets out how near one stands and what
+    /// it is still missing.
     pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
         match self {
             Self::Torus(torus) => {
                 (torus.major + torus.minor) * arc::bulge(arc::spread(corners.map(|uv| uv.x)))
                     + torus.minor * arc::bulge(arc::spread(corners.map(|uv| uv.y)))
+            }
+            Self::Gusset(_) => {
+                unreachable!("a ruled patch owes a bound on its straying, which §9.6 sets out")
             }
         }
     }
@@ -180,25 +222,36 @@ impl Fitted {
     ///
     /// A sphere next door divides by the square root of two instead, and can:
     /// its own straying is the true distance rather than a sum of bounds.
+    ///
+    /// **A patch refuses**, on [`Fitted::straying`]'s own terms: a stride is
+    /// what makes §7.2's promise, and nothing bounds this patch's deviation
+    /// yet.
     pub(crate) fn strides(&self, _reach: f64, sagitta: f64) -> DVec2 {
         match self {
             Self::Torus(torus) => DVec2::new(
                 arc::widest(torus.major + torus.minor, sagitta / 2.0),
                 arc::widest(torus.minor, sagitta / 2.0),
             ),
+            Self::Gusset(_) => {
+                unreachable!(
+                    "a ruled patch owes the bound a stride is chosen by, which §9.6 sets out"
+                )
+            }
         }
     }
 
     /// The box a face on this surface fills, given the box its boundary fills.
     ///
-    /// The whole surface, so the boundary is not read, for the reason a sphere
-    /// is given the whole of itself:
-    /// a torus has no parameter every world coordinate runs monotonically
-    /// along, so the top of a bulge is interior and the box of the rim below
-    /// misses it. Coarse, and not wrong.
-    pub(crate) fn fills(&self, _boundary: Bounds<DVec3>) -> Bounds<DVec3> {
+    /// The whole surface for a torus, the boundary going unread, for the reason
+    /// a sphere is given the whole of itself: it has no parameter every world
+    /// coordinate runs monotonically along, so the top of a bulge is interior
+    /// and the box of the rim below misses it. Coarse, and not wrong.
+    pub(crate) fn fills(&self, boundary: Bounds<DVec3>) -> Bounds<DVec3> {
         match self {
             Self::Torus(torus) => Bounds::about(torus.axis.origin, torus.major + torus.minor),
+            // Every ruling has both ends on the boundary, so a face lies inside
+            // its convex hull and the boundary's own box holds it.
+            Self::Gusset(_) => boundary,
         }
     }
 
@@ -211,6 +264,7 @@ impl Fitted {
     pub(crate) fn round(&self) -> BVec2 {
         match self {
             Self::Torus(_) => BVec2::TRUE,
+            Self::Gusset(gusset) => gusset.round(),
         }
     }
 }

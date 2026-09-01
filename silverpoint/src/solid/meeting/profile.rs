@@ -52,6 +52,11 @@ impl Profile {
                 && predicate::touching(axis.off(other.origin), PLACED)
         };
         match surface {
+            // **A ruled patch is spun about nothing.** Every other surface here
+            // is a curve turned about a line, which is what lets one row answer
+            // four pairs; a corner patch is two edges and the lines between
+            // them, and no line carries it round.
+            Surface::Fitted(Fitted::Gusset(_)) => None,
             Surface::Natural(Natural::Plane(plane)) => {
                 predicate::parallel(plane.normal(), axis.direction).then_some(())?;
                 let up = axis.direction.dot(plane.origin - axis.origin);
