@@ -21,6 +21,9 @@ use crate::number::tolerance::CHORDED;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::combining::{Kept, Sewn};
 use crate::solid::boolean::imprints::Imprints;
+use crate::solid::boolean::sewing::join::{Join, Step};
+use crate::solid::boolean::sewing::pinned::{Pinned, placed_on};
+use crate::solid::boolean::sewing::stepped::{Runs, Stepped};
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::buckets::Key;
 use crate::solid::geometry::carried::Carried;
@@ -40,10 +43,6 @@ use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::{DVec2, DVec3};
 use std::f64::consts::{PI, TAU};
-
-use crate::solid::boolean::sewing::join::{Join, Step};
-use crate::solid::boolean::sewing::pinned::{Pinned, placed_on};
-use crate::solid::boolean::sewing::stepped::{Runs, Stepped};
 use std::ops::Range;
 
 mod join;

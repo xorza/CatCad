@@ -62,16 +62,18 @@ impl Curves {
         } = self;
         sweep.clear();
         sweep.reserve_exact(straight.len() + round.len());
-        sweep.extend(straight.iter().enumerate().map(|(at, (span, _))| Reach {
-            low: span.from.min(span.to) - PLACED,
-            high: span.from.max(span.to) + PLACED,
-            curve: Curve::Straight(at),
-        }));
-        sweep.extend(round.iter().enumerate().map(|(at, (ring, _))| Reach {
-            low: ring.center - (ring.radius + PLACED),
-            high: ring.center + (ring.radius + PLACED),
-            curve: Curve::Round(at),
-        }));
+        sweep.extend(
+            straight
+                .iter()
+                .enumerate()
+                .map(|(at, (span, _))| Reach::span(at, *span)),
+        );
+        sweep.extend(
+            round
+                .iter()
+                .enumerate()
+                .map(|(at, (ring, _))| Reach::ring(at, *ring)),
+        );
         sweep.sort_by(|a, b| {
             a.low
                 .x
@@ -174,19 +176,14 @@ impl Curves {
             corners.is_sorted_by(|a, b| a.x <= b.x),
             "the corners reached the cutting out of order"
         );
-        for (span, of) in &self.straight {
+        for (which, (span, of)) in self.straight.iter().enumerate() {
             let along = span.to - span.from;
             let reach = along.length_squared();
-            // The box the span occupies, grown by as far as a corner may sit
-            // off it and still count as on it.
-            let (low, high) = (
-                span.from.min(span.to) - PLACED,
-                span.from.max(span.to) + PLACED,
-            );
+            let fills = Reach::span(which, *span);
             on.clear();
             on.extend(
-                near(corners, ordered, low.x, high.x).filter_map(|(at, corner)| {
-                    if !within(corner, low, high) {
+                near(corners, ordered, fills.low.x, fills.high.x).filter_map(|(at, corner)| {
+                    if !fills.holds(corner) {
                         return None;
                     }
                     let t = (corner - span.from).dot(along) / reach;
@@ -206,24 +203,20 @@ impl Curves {
                 }
             }
         }
-        for (ring, of) in &self.round {
-            // The rim's own box, grown as the spans' are above, and the band a
-            // corner's distance from the centre has to fall in — squared, so
-            // the test costs no square root. A radius is over [`PLACED`] by
-            // the time it reaches here, so the near edge of the band is
-            // positive and squaring keeps the order.
-            let (low, high) = (
-                ring.center - (ring.radius + PLACED),
-                ring.center + (ring.radius + PLACED),
-            );
+        for (which, (ring, of)) in self.round.iter().enumerate() {
+            // The band a corner's distance from the centre has to fall in —
+            // squared, so the test costs no square root. A radius is over
+            // [`PLACED`] by the time it reaches here, so the near edge of the
+            // band is positive and squaring keeps the order.
             let (inner, outer) = (
                 (ring.radius - PLACED).powi(2),
                 (ring.radius + PLACED).powi(2),
             );
+            let fills = Reach::ring(which, *ring);
             on.clear();
             on.extend(
-                near(corners, ordered, low.x, high.x).filter_map(|(at, corner)| {
-                    if !within(corner, low, high) {
+                near(corners, ordered, fills.low.x, fills.high.x).filter_map(|(at, corner)| {
+                    if !fills.holds(corner) {
                         return None;
                     }
                     let out = corner - ring.center;
@@ -333,16 +326,6 @@ fn fold(corners: &mut Vec<Crossing>) {
     corners.truncate(kept);
 }
 
-/// Whether `corner` falls in the box between `low` and `high`.
-///
-/// What a curve turns corners away by before measuring them properly. Every
-/// corner in the drawing is offered to every curve and most are nowhere near
-/// it, so four comparisons stand in for a projection and a distance, or for a
-/// square root.
-fn within(corner: DVec2, low: DVec2, high: DVec2) -> bool {
-    !corner.cmplt(low).any() && !corner.cmpgt(high).any()
-}
-
 /// The corners that could fall between `low` and `high` across, each with where
 /// it sits in the list.
 ///
@@ -375,6 +358,42 @@ struct Reach {
     low: DVec2,
     high: DVec2,
     curve: Curve,
+}
+
+impl Reach {
+    /// The box the straight curve at `at` fills.
+    ///
+    /// **Grown by as far as a corner may sit off the curve and still count as
+    /// on it**, which the sweep that finds crossings and the cut that puts
+    /// corners on a curve both ask for. Two spellings of that growth would let
+    /// the sweep find a crossing the cut then refused to record.
+    fn span(at: usize, span: Span) -> Self {
+        Self {
+            low: span.from.min(span.to) - PLACED,
+            high: span.from.max(span.to) + PLACED,
+            curve: Curve::Straight(at),
+        }
+    }
+
+    /// The same for the round curve at `at`, whose box is its rim's grown the
+    /// same way.
+    fn ring(at: usize, ring: Ring) -> Self {
+        Self {
+            low: ring.center - (ring.radius + PLACED),
+            high: ring.center + (ring.radius + PLACED),
+            curve: Curve::Round(at),
+        }
+    }
+
+    /// Whether `corner` falls inside it.
+    ///
+    /// What a curve turns corners away by before measuring them properly. Every
+    /// corner in the drawing is offered to every curve and most are nowhere
+    /// near it, so four comparisons stand in for a projection and a distance,
+    /// or for a square root.
+    fn holds(self, corner: DVec2) -> bool {
+        !corner.cmplt(self.low).any() && !corner.cmpgt(self.high).any()
+    }
 }
 
 /// Which of the drawing's curves a [`Reach`] belongs to.

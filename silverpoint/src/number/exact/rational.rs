@@ -1,6 +1,6 @@
 //! A number with no rounding in it.
 
-use super::decides::Decides;
+use crate::number::exact::decides::Decides;
 use crate::number::exact::field::Field;
 use dashu_base::SquareRoot;
 use dashu_ratio::RBig;

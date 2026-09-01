@@ -1,6 +1,6 @@
 //! A machine float that knows how wrong it might be.
 
-use super::decides::Decides;
+use crate::number::exact::decides::Decides;
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 

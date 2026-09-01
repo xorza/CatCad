@@ -90,6 +90,14 @@ pub struct Merging {
     /// A loop of the body traced and flattened, on its way to a signed area.
     traced: Vec<DVec3>,
     flat: Vec<DVec2>,
+    /// How much each merged loop shuts in, by loop.
+    ///
+    /// **Read off the flattening [`Merging::whole`] takes anyway**, which is
+    /// what keeps a loop from being laid out twice: that pass asks whether a
+    /// loop goes right round its surface, and the area falls out of the same
+    /// corners. Only the loops of a group still whole are filled — the rest are
+    /// never sorted, so nothing reads them.
+    wound: Vec<f64>,
 }
 
 impl Merging {
@@ -237,6 +245,9 @@ impl Merging {
     /// of a surface with a parameter to wrap — which leaves a plane, where most
     /// of the pieces are, paying nothing.
     ///
+    /// **How much each loop shuts in falls out of the same pass**, the question
+    /// above wanting the loop laid out either way — see [`Merging::wound`].
+    ///
     /// **And a group left with no loop at all wraps twice over.** The parts a
     /// build lays a torus's wall in share every seam, so every coedge of the
     /// group cancels and what is left bounds nothing — a face covering the
@@ -258,10 +269,18 @@ impl Merging {
             let group = self.bounds[at] as usize;
             self.whole[group] = self.counted[group] > 1;
         }
+        self.wound.clear();
+        self.wound.resize(self.laid.len(), 0.0);
         for at in 0..self.laid.len() {
             let group = self.bounds[at] as usize;
+            if !self.whole[group] {
+                continue;
+            }
             let held = self.first[group].expect("a group with a loop has a face");
-            if self.whole[group] && self.wraps(of, of.face(held), at) {
+            let face = of.face(held);
+            self.flattened(of, face, at);
+            self.wound[at] = winding::doubled(&self.flat).abs() / 2.0;
+            if self.wraps(face) {
                 self.whole[group] = false;
             }
         }
@@ -315,7 +334,7 @@ impl Merging {
                 if self.first[group] != Some(id) {
                     continue;
                 }
-                self.sorted(of, face, group);
+                self.sorted(group);
                 for at in 0..self.round.len() {
                     held.clear();
                     held.extend_from_slice(self.laid.get(self.round[at] as usize));
@@ -375,7 +394,10 @@ impl Merging {
     /// **The widest is the outline**, which is the whole of the sort: a group
     /// is joined through shared edges, so what it covers is connected and has
     /// one outer boundary with every other loop inside it.
-    fn sorted(&mut self, of: &Topology, face: &Face, group: usize) {
+    ///
+    /// Off [`Merging::wound`], which [`Merging::whole`] measured — so nothing
+    /// is flattened a second time to be sorted.
+    fn sorted(&mut self, group: usize) {
         self.round.clear();
         for at in 0..self.laid.len() {
             if self.bounds[at] as usize == group {
@@ -385,19 +407,12 @@ impl Merging {
         let mut widest = 0.0;
         let mut outline = 0;
         for at in 0..self.round.len() {
-            let area = self.shut(of, face, self.round[at] as usize).abs();
+            let area = self.wound[self.round[at] as usize];
             if area > widest {
                 (widest, outline) = (area, at);
             }
         }
         self.round.swap(0, outline);
-    }
-
-    /// How much the merged loop at `at` shuts in, in the face's own
-    /// parameters and signed.
-    fn shut(&mut self, of: &Topology, face: &Face, at: usize) -> f64 {
-        self.flattened(of, face, at);
-        winding::doubled(&self.flat) / 2.0
     }
 
     /// Trace the merged loop at `at` and flatten it into the face's own
@@ -435,8 +450,12 @@ impl Merging {
         });
     }
 
-    /// Whether the merged loop at `at` carries a parameter that runs round
-    /// the whole way.
+    /// Whether the merged loop in [`Merging::flat`] carries a parameter that
+    /// runs round the whole way.
+    ///
+    /// Off the flattening the caller took rather than one of its own — see
+    /// [`Merging::whole`], which is the caller, and which reads the loop's area
+    /// off the same corners.
     ///
     /// **Read off the two ends and not off the width.** A loop is flattened
     /// unwrapped — see [`Face::flatten`] — so one that goes right round comes
@@ -446,12 +465,11 @@ impl Merging {
     ///
     /// A walk stops one chord short of its own end, which is why the width of
     /// what it covers is a turn less a chord and cannot be held against a turn.
-    fn wraps(&mut self, of: &Topology, face: &Face, at: usize) -> bool {
+    fn wraps(&self, face: &Face) -> bool {
         let round = face.surface.round();
         if !(round.x || round.y) {
             return false;
         }
-        self.flattened(of, face, at);
         let (Some(first), Some(last)) = (self.flat.first(), self.flat.last()) else {
             return false;
         };

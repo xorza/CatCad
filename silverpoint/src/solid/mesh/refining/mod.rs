@@ -197,9 +197,12 @@ impl Refining {
         // the cutter with every side inside one, so sorting every side of every
         // triangle to find that out would be the largest thing the mesher does
         // on every face of every frame, spent on nothing.
-        if !(0..self.triangles.len()).any(|at| self.wide(lattice, axis, at)) {
+        //
+        // The first one wide is where the pass below starts, so every triangle
+        // before it is asked once rather than twice over.
+        let Some(first) = (0..self.triangles.len()).find(|&at| self.wide(lattice, axis, at)) else {
             return;
-        }
+        };
         self.gather();
 
         // **Asked of the triangles the counting has picked out, and of no
@@ -207,7 +210,7 @@ impl Refining {
         // within the sagitta by construction and has nothing to gain; the rest
         // are asked outright, and one already within it is left alone whatever
         // the cells say — see the note on [`Refining`].
-        for at in 0..self.triangles.len() {
+        for at in first..self.triangles.len() {
             if !self.wide(lattice, axis, at) || !self.strays(surface, sagitta, at) {
                 continue;
             }

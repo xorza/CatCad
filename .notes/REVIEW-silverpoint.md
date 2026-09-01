@@ -11,30 +11,14 @@ Line numbers are as of the working tree at the time of the review.
 
 ## 1. Smaller things
 
-- [ ] `use super::decides::Decides` at `number/exact/filtered.rs:3` and
-  `number/exact/rational.rs:3` are the only production `super::` imports in the
-  crate.
-- [ ] Import order differs in two files: `solid/stepping/mod.rs:26-44` and
-  `solid/boolean/sewing/mod.rs:41-47` put `std` and `glam` before `crate::` and
-  a second `use` block after the first.
-- [ ] `Merging::whole` flattens every merged loop to ask whether it wraps
-  (`solid/merging/mod.rs:245` through `wraps` at `:449`) and `Merging::sorted`
-  flattens each again for its area (`:378` through `shut`). One flattening
-  answers both.
-- [ ] `Refining::rule` evaluates `wide` twice per triangle
-  (`solid/mesh/refining/mod.rs:194`).
-- [ ] `Curves::gather` computes each curve's `PLACED`-grown box
-  (`sketch/arrangement/curves.rs:65-74`) and `Curves::cut` computes the same
-  boxes again per span and per ring (`:182-185`, `:215-222`). Keep them on
-  `Reach` and read them.
 - [ ] `Inline<f64, N>` is sorted with `all_mut().sort_by(f64::total_cmp)` at
   four production sites, and `solid/boolean/splitting/bow.rs:372` has its own
   `sorted`. Add a `sorted()` on `Inline<f64, N>`.
 - [ ] `partial_cmp(..).expect("finite")` appears at twelve sites where
   `f64::total_cmp` gives the same order with no panic path (`loops.rs:108`,
   `sketch/arrangement/mod.rs:288`, `sketch/arrangement/departures.rs:58`,
-  `sketch/arrangement/curves.rs:78`, `:197`, `:235`, `:302`,
-  `solid/boolean/sewing/mod.rs:427`, `:499`,
+  `sketch/arrangement/curves.rs:80`, `:194`, `:228`, `:295`,
+  `solid/boolean/sewing/mod.rs:426`, `:498`,
   `solid/boolean/splitting/mod.rs:595`, `math/triangulate/mod.rs:166`, `:334`).
   The two in `number/exact/` are NaN guards and must stay.
 - [ ] `Arena::retain` takes `impl Fn` where `FnMut` is the general bound
@@ -51,7 +35,7 @@ Line numbers are as of the working tree at the time of the review.
 - [ ] `Checking` is held by `Builder`, `Merging`, `Sewing` and `Rounding`, and
   `Checking` holds a `Mesher` and `Patch` (`solid/topology/validity.rs:43`)
   while `Sewing::Scratch` holds another pair beside it
-  (`solid/boolean/sewing/mod.rs:273`). Three meshers on one path. Let the
+  (`solid/boolean/sewing/mod.rs:272`). Three meshers on one path. Let the
   checker borrow the operation's mesher, or let the caller own one `Checking`.
 - [ ] `if cfg!(debug_assertions) { checking.run(into) }` is written four times
   (`solid/build/builder.rs`, `solid/merging/mod.rs`,

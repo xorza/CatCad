@@ -23,11 +23,6 @@
 //! caller's own body: this crate knows nothing about files, and a document
 //! deciding where one goes is the application's business.
 
-use std::f64::consts::TAU;
-use std::fmt::Write;
-
-use glam::DVec3;
-
 use crate::number::tolerance::PLACED;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
@@ -42,6 +37,9 @@ use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::shell::ShellId;
 use crate::solid::topology::vertex::VertexId;
+use glam::DVec3;
+use std::f64::consts::TAU;
+use std::fmt::Write;
 
 /// How closely a reader may take two places to be one, in the file's own units.
 ///
