@@ -12,6 +12,7 @@ use crate::solid::boolean::splitting::flare::Flare;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
+use crate::solid::boolean::splitting::straight::Straight;
 use crate::solid::boolean::splitting::traced::Traced;
 use crate::solid::geometry::curve::Curve;
 use glam::DVec2;
@@ -45,22 +46,8 @@ pub(super) const ROUNDED: f64 = 1e-3;
 /// keeps one. See [`Traced`], which is the arm that carries the borrow.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Cut<'a> {
-    /// A straight cut, the left of `along` kept.
-    Straight {
-        /// Somewhere on it.
-        at: DVec2,
-        /// Unit, the way it runs.
-        along: DVec2,
-        /// Which of the caller's runs this is, where the curve it came from is
-        /// worth remembering.
-        ///
-        /// **A straight cut is not always a straight edge**, which is the whole
-        /// reason this is here: a circle square to a cylinder's axis is the line
-        /// `v = that` in the cylinder's parameters, and an edge along it that
-        /// came back straight would be a chord across the bore rather than its
-        /// rim. `None` only for a genuine line — a plane meeting a plane.
-        run: Option<u32>,
-    },
+    /// A straight cut, the left of its own `along` kept — see [`Straight`].
+    Straight(Straight),
     /// A closed cut round an ellipse, the inside kept where its own `inward`
     /// says — see [`Oval`], which is the whole of what one is.
     Round(Oval),
@@ -88,11 +75,7 @@ impl<'a> Cut<'a> {
     /// The same cut with the other side kept.
     pub(super) fn turned(self) -> Self {
         match self {
-            Self::Straight { at, along, run } => Self::Straight {
-                at,
-                along: -along,
-                run,
-            },
+            Self::Straight(straight) => Self::Straight(straight.turned()),
             Self::Round(oval) => Self::Round(Oval {
                 inward: !oval.inward,
                 ..oval
@@ -134,14 +117,14 @@ impl<'a> Cut<'a> {
     /// happens to lie nearest.
     pub(super) fn came(self, at: DVec2) -> Came {
         match self {
-            Self::Straight { run: Some(run), .. }
+            Self::Straight(Straight { run: Some(run), .. })
             | Self::Round(Oval { run, .. })
             | Self::Wave(Ripple { run, .. })
             | Self::Bow(Bow { run, .. })
             | Self::Bough(Bough { run, .. })
             | Self::Flare(Flare { run, .. }) => Came::Arc(run),
             Self::Traced(traced) => traced.came(at),
-            Self::Straight { run: None, .. } => Came::Edge,
+            Self::Straight(Straight { run: None, .. }) => Came::Edge,
         }
     }
 
@@ -165,14 +148,33 @@ impl<'a> Cut<'a> {
             Self::Round(_) => true,
             Self::Bow(bow) => bow.closed(),
             Self::Traced(traced) => traced.closed(),
-            Self::Straight { .. } | Self::Wave(_) | Self::Bough(_) | Self::Flare(_) => false,
+            Self::Straight(_) | Self::Wave(_) | Self::Bough(_) | Self::Flare(_) => false,
+        }
+    }
+
+    /// Whether a region every corner of which lies on this cut is kept.
+    ///
+    /// **Only a closed cut shuts anything in.** A region every corner of which
+    /// lies on a line has no width and bounds nothing on either side of it, so
+    /// the open shapes answer `false` without reading anything.
+    ///
+    /// A shape reads its own middle. A marched cut has places rather than a
+    /// middle, so it reads which way the piece the region lies on winds —
+    /// `anywhere` is any corner of the region, one being as good as another
+    /// where every one of them is on the cut.
+    pub(super) fn keeps_its_inside(self, anywhere: Option<DVec2>) -> bool {
+        match self {
+            Self::Round(oval) => self.side(oval.middle) > 0.0,
+            Self::Bow(bow) => bow.closed() && self.side(bow.middle()) > 0.0,
+            Self::Traced(traced) => traced.closed() && anywhere.is_some_and(|at| traced.holds(at)),
+            Self::Straight(_) | Self::Wave(_) | Self::Bough(_) | Self::Flare(_) => false,
         }
     }
 
     /// How far off the cut `point` stands, positive on the side being kept.
     pub(super) fn side(self, point: DVec2) -> f64 {
         match self {
-            Self::Straight { at, along, .. } => along.perp_dot(point - at),
+            Self::Straight(straight) => straight.side(point),
             // **How far off along the ray from the middle**, which is what a
             // radius is to a circle and the nearest thing an ellipse has to
             // one. A true distance to an ellipse is a quartic; this agrees
@@ -220,7 +222,7 @@ impl<'a> Cut<'a> {
     /// along it without either spelling out which way round a circle runs.
     pub(super) fn down(self, point: DVec2) -> f64 {
         match self {
-            Self::Straight { at, along, .. } => along.dot(point - at),
+            Self::Straight(straight) => straight.down(point),
             Self::Round(oval) => {
                 let off = oval.frame(point - oval.middle) / oval.half;
                 let turned = off.y.atan2(off.x).rem_euclid(TAU);
@@ -277,15 +279,7 @@ impl<'a> Cut<'a> {
     /// work and never an answer.
     pub(super) fn reaches(self, fills: Bounds<DVec2>) -> bool {
         match self {
-            // A line meets the box where the box's own corners straddle it, and
-            // how far they reach either way is the box's half-widths against
-            // the line's normal — one comparison rather than four corners.
-            Self::Straight { at, along, .. } => {
-                let normal = along.perp();
-                let half = fills.half();
-                let reach = normal.x.abs() * half.x + normal.y.abs() * half.y;
-                normal.dot(fills.middle() - at).abs() <= reach
-            }
+            Self::Straight(straight) => straight.reaches(fills),
             // The box an ellipse fills, which is its middle plus how far each
             // of its two halves reaches along each axis.
             Self::Round(oval) => {
@@ -407,27 +401,23 @@ impl<'a> Cut<'a> {
     /// The same, across the straight run from `from` to `to`.
     ///
     /// The two have to be on opposite sides, which every caller has just
-    /// established — so for a line the denominator is away from nought by at
-    /// least twice [`PLACED`], and for a circle exactly one root of the two
-    /// lies on the run.
+    /// established — so exactly one root of the two a closed shape answers lies
+    /// on the run.
     fn met_across(self, from: DVec2, to: DVec2) -> DVec2 {
         let [from, to] = ordered(from, to);
-        if let Self::Straight { .. } = self {
-            let (here, there) = (self.side(from), self.side(to));
-            return from.lerp(to, here / (here - there));
+        match self {
+            Self::Straight(straight) => straight.crossing(from, to),
+            Self::Traced(traced) => traced.crossing(from, to),
+            Self::Flare(flare) => flare.crossing(from, to),
+            Self::Round(_) | Self::Wave(_) | Self::Bow(_) | Self::Bough(_) => {
+                let along = self
+                    .met(from, to)
+                    .into_iter()
+                    .find(|&along| (0.0..=1.0).contains(&along))
+                    .expect("the run crosses the cut");
+                from.lerp(to, along)
+            }
         }
-        if let Self::Traced(traced) = self {
-            return traced.crossing(from, to);
-        }
-        if let Self::Flare(flare) = self {
-            return flare.crossing(from, to);
-        }
-        let along = self
-            .met(from, to)
-            .into_iter()
-            .find(|&along| (0.0..=1.0).contains(&along))
-            .expect("the run crosses the cut");
-        from.lerp(to, along)
     }
 
     /// Where the straight run from `from` to `to` crosses it *twice*, both ends
@@ -440,23 +430,24 @@ impl<'a> Cut<'a> {
     /// walk would otherwise step straight over. A line has no such case, and
     /// [`Cut::met`] answers with nothing for one.
     pub(super) fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
-        if let Self::Traced(traced) = self {
-            return traced.grazes(from, to);
+        match self {
+            Self::Traced(traced) => traced.grazes(from, to),
+            // Against the chords it lays down rather than against the reading,
+            // which is what a traced cut does and for the same reason — see
+            // [`Flare::grazes`].
+            Self::Flare(flare) => flare.grazes(from, to),
+            // **Two, or the run went across rather than dipping.** One crossing
+            // is a boundary that ends on the far side and the walk has it
+            // already; none at all, or the one a straight cut always answers, is
+            // nothing to find here. A graze is a miss for the reason
+            // [`roots`](crate::math::quadratic::roots) argues one dimension up.
+            Self::Straight(_) | Self::Round(_) | Self::Wave(_) | Self::Bow(_) | Self::Bough(_) => {
+                let [first, second]: [f64; 2] = self.met(from, to).all().try_into().ok()?;
+                let inside = |along: f64| (PLACED..=1.0 - PLACED).contains(&along);
+                (inside(first) && inside(second))
+                    .then(|| [from.lerp(to, first), from.lerp(to, second)])
+            }
         }
-        // Against the chords it lays down rather than against the reading,
-        // which is what a traced cut does and for the same reason — see
-        // [`Flare::grazes`].
-        if let Self::Flare(flare) = self {
-            return flare.grazes(from, to);
-        }
-        // **Two, or the run went across rather than dipping.** One crossing is
-        // a boundary that ends on the far side and the walk has it already;
-        // none at all, or the one a straight cut always answers, is nothing to
-        // find here. A graze is a miss for the reason
-        // [`roots`](crate::math::quadratic::roots) argues one dimension up.
-        let [first, second]: [f64; 2] = self.met(from, to).all().try_into().ok()?;
-        let inside = |along: f64| (PLACED..=1.0 - PLACED).contains(&along);
-        (inside(first) && inside(second)).then(|| [from.lerp(to, first), from.lerp(to, second)])
     }
 
     /// The place the parameter `along` stands at, which is [`Cut::down`] read
@@ -468,7 +459,7 @@ impl<'a> Cut<'a> {
     /// its way rather than a state to report.
     fn at(self, along: f64) -> DVec2 {
         match self {
-            Self::Straight { at, along: way, .. } => at + way * along,
+            Self::Straight(straight) => straight.at(along),
             Self::Round(oval) => oval.at(along),
             Self::Wave(ripple) => ripple.at(along),
             Self::Bough(bough) => bough.at(along),
@@ -495,7 +486,7 @@ impl<'a> Cut<'a> {
             Self::Bough(bough) => bough.steps(sweep),
             Self::Flare(flare) => flare.steps(sweep),
             Self::Bow(bow) => bow.steps(sweep),
-            Self::Straight { .. } => 1,
+            Self::Straight(_) => 1,
             Self::Traced(_) => unreachable!("a marched cut is chorded as it was walked"),
         }
     }
@@ -577,7 +568,7 @@ impl<'a> Cut<'a> {
     fn met(self, from: DVec2, to: DVec2) -> Bowed {
         let mut met = Bowed::none();
         match self {
-            Self::Straight { .. } | Self::Traced(_) | Self::Flare(_) => {}
+            Self::Straight(_) | Self::Traced(_) | Self::Flare(_) => {}
             Self::Round(oval) => {
                 // In the frame the ellipse is the unit circle in, where the run
                 // is still a straight run and the meeting is still a quadratic.
@@ -662,11 +653,11 @@ mod tests {
     /// would pass with the ordering taken out again.
     #[test]
     fn a_crossing_reads_the_same_from_either_end_of_its_stretch() {
-        let cut = Cut::Straight {
-            at: DVec2::new(0.3, 0.7),
+        let cut = Cut::Straight(Straight {
+            origin: DVec2::new(0.3, 0.7),
             along: DVec2::new(1.0, 3.0).normalize(),
             run: None,
-        };
+        });
         let naive = |from: DVec2, to: DVec2| {
             let (here, there) = (cut.side(from), cut.side(to));
             from.lerp(to, here / (here - there))

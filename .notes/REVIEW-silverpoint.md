@@ -9,29 +9,8 @@ rewritten to fit a better production shape.
 
 Line numbers are as of the working tree at the time of the review.
 
-## 1. Shapes a type states unevenly, so callers make up the difference
+## 1. A limit the container states and the geometry does not
 
-- [ ] `Constraint::Tangent` multiplies its residual by the edge length and
-  `standoff` divides by it (`sketch/constraint/mod.rs:474-510` against
-  `:550-588`). The comment at `:489-494` says the two "want unifying once
-  dimensions have settled". They have. One spelling of "a place stands `d` off a
-  line", with the radius being the one `d` that is itself a parameter.
-- [ ] `Cut::Straight` is the only `Cut` variant with inline fields
-  (`solid/boolean/splitting/cut.rs:49-63`). Every other shape is a named struct,
-  and the docs on `Oval` and `Ripple` argue for exactly that. `Cut::met_across`
-  and `Cut::grazes` then chain `if let`s (`:413-431`, `:442-460`) instead of one
-  `match`. Give the straight cut a struct and match once.
-- [ ] `Fitted` is a one-member enum with twelve one-arm `match`es
-  (`solid/geometry/fitted.rs`), and its methods drop the arguments `Natural`'s
-  keep: `spans()` against `Natural::spans(fills, slack)`, `strides(sagitta)`
-  against `strides(reach, sagitta)`, `fills()` against `fills(boundary)`. So
-  `Surface` dispatches with a different shape per tier
-  (`solid/geometry/surface.rs:173-178`, `:299-312`). Give both tiers one
-  signature. Either land the second member (see group 3) or collapse `Fitted` to
-  `Torus` until one exists.
-- [ ] `kept` (`solid/boolean/splitting/mod.rs:93`) ends in a `match` that names
-  `Cut::Bow` and `Cut::Traced` twice, once guarded and once in the catch-all. A
-  `Cut::inside_is_kept(at)` answered per shape removes the double listing.
 - [ ] `Curves` is `Inline<Curve, 2>`, so `Meeting::coaxial` counts its circles
   into `(first, second, third)` and refuses four (`solid/meeting/mod.rs:260-277`).
   A coaxial cone and torus meet in four circles and are refused by that cap, not
@@ -80,12 +59,12 @@ Each is justified in a comment. Each is still production code nothing runs.
   `note`, `settle`, `close`), minting (`mint`, `tube`, `rail`, `ended`, `join`,
   `ring`, `point`), writing (`write`, `line`, `wound`, `bounded`), each with its
   own scratch struct.
-- [ ] `Combining::against` (`solid/boolean/combining.rs:271`) is 180 lines with
+- [ ] `Combining::against` (`solid/boolean/combining.rs:272`) is 180 lines with
   four `return false` paths inside a triple loop. Lift the per-surface body into
   a method that answers `bool`.
 - [ ] `Sewing::raise` (`solid/boolean/sewing/mod.rs:578`) is 150 lines with a
   sixty-line match arm inside two loops. The arc case is a method.
-- [ ] `imprinted` (`solid/boolean/combining.rs:849`) is a 300-line match that
+- [ ] `imprinted` (`solid/boolean/combining.rs:848`) is a 300-line match that
   builds every `Cut` shape. It is a table and should stay one, but it belongs in
   `splitting/` beside the shapes it builds, with `flared` and `boughed`.
 - [ ] `solid/build/builder.rs` and `solid/build/revolving.rs` are parallel
@@ -119,7 +98,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   `sketch/arrangement/mod.rs:288`, `sketch/arrangement/departures.rs:58`,
   `sketch/arrangement/curves.rs:78`, `:197`, `:235`, `:302`,
   `solid/boolean/sewing/mod.rs:407`, `:479`,
-  `solid/boolean/splitting/mod.rs:617`, `math/triangulate/mod.rs:166`, `:334`).
+  `solid/boolean/splitting/mod.rs:600`, `math/triangulate/mod.rs:166`, `:334`).
   The two in `number/exact/` are NaN guards and must stay.
 - [ ] `Arena::retain` takes `impl Fn` where `FnMut` is the general bound
   (`arena.rs:196`).

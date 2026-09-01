@@ -7,6 +7,7 @@ use crate::solid::boolean::splitting::cut::ROUNDED;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
+use crate::solid::boolean::splitting::straight::Straight;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::circle::Circle;
@@ -67,11 +68,11 @@ fn corners(of: &[(f64, f64)]) -> Vec<Corner> {
 /// Running *up*, because the side kept is the left of the way the cut runs and
 /// the left of up is the side with the smaller `x`.
 fn leftward(x: f64) -> Cut<'static> {
-    Cut::Straight {
-        at: DVec2::new(x, 0.0),
+    Cut::Straight(Straight {
+        origin: DVec2::new(x, 0.0),
         along: DVec2::Y,
         run: None,
-    }
+    })
 }
 
 /// How much the region at `at` covers, holes taken out.
@@ -782,10 +783,12 @@ fn a_cut_crossing_a_flattened_arc_is_met_on_the_arc() {
 /// box reaches `√2 ≈ 1.41`, so it misses.
 #[test]
 fn a_straight_cut_reaches_the_box_it_crosses_and_no_other() {
-    let cut = |along: DVec2| Cut::Straight {
-        at: DVec2::ZERO,
-        along,
-        run: None,
+    let cut = |along: DVec2| {
+        Cut::Straight(Straight {
+            origin: DVec2::ZERO,
+            along,
+            run: None,
+        })
     };
     let boxed = |low: (f64, f64), high: (f64, f64)| Bounds {
         low: DVec2::new(low.0, low.1),

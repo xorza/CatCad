@@ -24,6 +24,7 @@ use crate::solid::boolean::splitting::flare::Flare;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::reading::Reading;
 use crate::solid::boolean::splitting::ripple::Ripple;
+use crate::solid::boolean::splitting::straight::Straight;
 use crate::solid::boolean::splitting::traced::{Piece, Traced};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::carried::Carried;
@@ -855,11 +856,11 @@ fn imprinted(
         // A line on a plane is a line in its parameters.
         (Surface::Natural(Natural::Plane(plane)), Curve::Line(line)) => {
             let at = plane.flatten(line.origin);
-            Some(Cut::Straight {
-                at,
+            Some(Cut::Straight(Straight {
+                origin: at,
                 along: (plane.flatten(line.origin + line.direction) - at).normalize(),
                 run: None,
-            })
+            }))
         }
         // A circle lying *in* a plane keeps its frame whole: the centre
         // flattens and the radius is a length, which a plane's parameters keep.
@@ -900,11 +901,13 @@ fn imprinted(
                 Natural::Cylinder(Cylinder { axis, .. }) | Natural::Cone(Cone { axis, .. }),
             ),
             Curve::Circle(circle),
-        ) if predicate::parallel(circle.axis.direction, axis.direction) => Some(Cut::Straight {
-            at: DVec2::new(0.0, axis.along(circle.axis.origin)),
-            along: DVec2::X,
-            run,
-        }),
+        ) if predicate::parallel(circle.axis.direction, axis.direction) => {
+            Some(Cut::Straight(Straight {
+                origin: DVec2::new(0.0, axis.along(circle.axis.origin)),
+                along: DVec2::X,
+                run,
+            }))
+        }
         // **A circle on a sphere square to its axis is a straight cut too**, and
         // in the same parameter — but that one is an *angle* up from the
         // equator where a cylinder's is a height along the axis, so the two
@@ -920,11 +923,11 @@ fn imprinted(
         (Surface::Natural(Natural::Sphere(sphere)), Curve::Circle(circle))
             if predicate::parallel(circle.axis.direction, sphere.axis.direction) =>
         {
-            Some(Cut::Straight {
-                at: DVec2::new(0.0, sphere.uv(circle.at(0.0)).y),
+            Some(Cut::Straight(Straight {
+                origin: DVec2::new(0.0, sphere.uv(circle.at(0.0)).y),
                 along: DVec2::X,
                 run,
-            })
+            }))
         }
         // **Every section of a cone is one shape in its own parameters** — see
         // [`flared`], where that is derived. Which conic it is decides nothing
@@ -980,11 +983,11 @@ fn imprinted(
             if predicate::parallel(line.direction, tube.axis.direction) =>
         {
             let angle = tube.axis.angle_of(line.origin);
-            Some(Cut::Straight {
-                at: DVec2::new(branch::nearest(angle, about.x), 0.0),
+            Some(Cut::Straight(Straight {
+                origin: DVec2::new(branch::nearest(angle, about.x), 0.0),
                 along: DVec2::Y,
                 run: None,
-            })
+            }))
         }
         // **A ruling on a cone is one straight cut across both nappes**, which
         // its parameters make of a line through the apex: `u = that`, the same
@@ -1006,11 +1009,11 @@ fn imprinted(
                 "{line:?} is no ruling of {cone:?}",
             );
             let angle = cone.uv(on).x;
-            Some(Cut::Straight {
-                at: DVec2::new(branch::nearest(angle, about.x), 0.0),
+            Some(Cut::Straight(Straight {
+                origin: DVec2::new(branch::nearest(angle, about.x), 0.0),
                 along: DVec2::Y,
                 run: None,
-            })
+            }))
         }
         // An ellipse lying *in* a plane keeps its frame whole, as a circle
         // does: the centre and both halves flatten, and what a plane's
@@ -1127,17 +1130,17 @@ fn imprinted(
             let axis = torus.axis;
             let uv = torus.uv(circle.at(0.0));
             if predicate::parallel(circle.axis.direction, axis.direction) {
-                Some(Cut::Straight {
-                    at: DVec2::new(0.0, branch::nearest(uv.y, about.y)),
+                Some(Cut::Straight(Straight {
+                    origin: DVec2::new(0.0, branch::nearest(uv.y, about.y)),
                     along: DVec2::X,
                     run,
-                })
+                }))
             } else if predicate::square(circle.axis.direction, axis.direction) {
-                Some(Cut::Straight {
-                    at: DVec2::new(branch::nearest(uv.x, about.x), 0.0),
+                Some(Cut::Straight(Straight {
+                    origin: DVec2::new(branch::nearest(uv.x, about.x), 0.0),
                     along: DVec2::Y,
                     run,
-                })
+                }))
             } else {
                 None
             }
@@ -1285,10 +1288,11 @@ mod tests {
             axis: Axis::new(DVec3::Y, DVec3::Y, DVec3::X),
             radius: 3.0f64.sqrt(),
         });
-        let Some(Cut::Straight { at, along, .. }) = imprinted(on, square, Some(0), laid) else {
+        let Some(Cut::Straight(straight)) = imprinted(on, square, Some(0), laid) else {
             panic!("a circle square to the axis is no straight cut");
         };
-        assert!((at.y - FRAC_PI_6).abs() < 1e-12, "{at:?}");
+        let Straight { origin, along, .. } = straight;
+        assert!((origin.y - FRAC_PI_6).abs() < 1e-12, "{origin:?}");
         assert_eq!(along, DVec2::X, "the cut runs the wrong way");
 
         let leaning = Curve::Circle(Circle {

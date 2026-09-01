@@ -79,14 +79,14 @@ impl Fitted {
         }
     }
 
-    /// Whether any of it passes within a slack of a box, where that has a
+    /// Whether any of it passes within `slack` of `fills`, where that has a
     /// closed form — see [`Natural::spans`](super::natural::Natural), which is
     /// where the two that do are.
     ///
-    /// Never, here: the nearest place of a box to a torus wants the nearest
-    /// place of it to a *circle*, which is the cylinder's own question one
-    /// level up and no more closed than that one.
-    pub(crate) fn spans(&self) -> Option<bool> {
+    /// Never, here, so neither argument is read: the nearest place of a box to
+    /// a torus wants the nearest place of it to a *circle*, which is the
+    /// cylinder's own question one level up and no more closed than that one.
+    pub(crate) fn spans(&self, _fills: Bounds<DVec3>, _slack: f64) -> Option<bool> {
         match self {
             Self::Torus(_) => None,
         }
@@ -96,6 +96,40 @@ impl Fitted {
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         match self {
             Self::Torus(torus) => torus.off(at),
+        }
+    }
+
+    /// The nearest place of the surface to `at` — see
+    /// [`Natural::nearest`](super::natural::Natural), where the one that parts
+    /// company is argued.
+    ///
+    /// Through the inversion, which is what this tier has where the exact one
+    /// has closed forms: [`Fitted::uv`] already answers with the nearest place
+    /// for anything off the surface, so evaluating what it says *is* that
+    /// place.
+    pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
+        self.at(self.uv(at))
+    }
+
+    /// The surface everywhere `by` off this one, along its own normal — see
+    /// [`Natural::offset`](super::natural::Natural).
+    ///
+    /// Nothing here answers: a torus offsets to a torus, and no caller asks
+    /// yet.
+    pub(crate) fn offset(&self, _by: f64) -> Option<Self> {
+        match self {
+            Self::Torus(_) => None,
+        }
+    }
+
+    /// The place `by` along this surface from `at`, setting out along the unit
+    /// tangent `way` — see [`Natural::walked`](super::natural::Natural).
+    ///
+    /// Nothing here answers: a geodesic of a torus is an elliptic integral and
+    /// no closed form walks one.
+    pub(crate) fn walked(&self, _at: DVec3, _way: DVec3, _by: f64) -> Option<DVec3> {
+        match self {
+            Self::Torus(_) => None,
         }
     }
 
@@ -129,7 +163,12 @@ impl Fitted {
         }
     }
 
-    /// How far apart the parameter lines of a face's grid must stand.
+    /// How far apart the parameter lines of a face's grid must stand, given
+    /// that no part of the face reaches further than `reach` along the second
+    /// parameter.
+    ///
+    /// `reach` is the cone's alone and is not read here — a torus bends by the
+    /// same amount wherever a face on it stands.
     ///
     /// **Half the sagitta each way**, which is what [`Fitted::straying`] being a
     /// *sum* of two turns asks for: a cell as wide as one whole sagitta in each
@@ -141,7 +180,7 @@ impl Fitted {
     ///
     /// A sphere next door divides by the square root of two instead, and can:
     /// its own straying is the true distance rather than a sum of bounds.
-    pub(crate) fn strides(&self, sagitta: f64) -> DVec2 {
+    pub(crate) fn strides(&self, _reach: f64, sagitta: f64) -> DVec2 {
         match self {
             Self::Torus(torus) => DVec2::new(
                 arc::widest(torus.major + torus.minor, sagitta / 2.0),
@@ -152,11 +191,12 @@ impl Fitted {
 
     /// The box a face on this surface fills, given the box its boundary fills.
     ///
-    /// The whole surface, for the reason a sphere is given the whole of itself:
+    /// The whole surface, so the boundary is not read, for the reason a sphere
+    /// is given the whole of itself:
     /// a torus has no parameter every world coordinate runs monotonically
     /// along, so the top of a bulge is interior and the box of the rim below
     /// misses it. Coarse, and not wrong.
-    pub(crate) fn fills(&self) -> Bounds<DVec3> {
+    pub(crate) fn fills(&self, _boundary: Bounds<DVec3>) -> Bounds<DVec3> {
         match self {
             Self::Torus(torus) => Bounds::about(torus.axis.origin, torus.major + torus.minor),
         }

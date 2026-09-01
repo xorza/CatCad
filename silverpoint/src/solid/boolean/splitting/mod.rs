@@ -51,6 +51,7 @@ pub(super) mod flare;
 pub(super) mod oval;
 pub(super) mod reading;
 pub(super) mod ripple;
+pub(super) mod straight;
 pub(super) mod traced;
 
 /// Which side of a cut a corner fell.
@@ -83,13 +84,8 @@ impl Side {
 /// is on neither side, so the answer comes off the first corner that is not —
 /// an outline standing clear of a hole the cut lies along, most often.
 ///
-/// Where every corner is on it, the region *is* what the cut bounds, and then
-/// what the cut shuts in is the one thing left to ask about. A shape answers
-/// that at its own middle and a marched cut by which way its loop winds, and
-/// both want somewhere the region stands — which is any corner of it, every one
-/// of them being on the cut. A straight cut needs none of this: a region every
-/// corner of which lies on one line has no width, and bounds nothing on either
-/// side of it.
+/// Where every corner is on it, the region *is* what the cut bounds, and
+/// [`Cut::keeps_its_inside`] is the one thing left to ask.
 fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>) -> bool {
     let mut anywhere = None;
     for walk in region {
@@ -103,25 +99,7 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>) -> bool {
             }
         }
     }
-    match cut {
-        Cut::Round(oval) => cut.side(oval.middle) > 0.0,
-        Cut::Bow(bow) if bow.closed() => cut.side(bow.middle()) > 0.0,
-        // No middle to read, a marched loop being places rather than a shape —
-        // so the same question is asked of which way the piece the region lies
-        // on winds.
-        Cut::Traced(traced) if traced.closed() => match anywhere {
-            Some(at) => traced.holds(at),
-            None => false,
-        },
-        // None of these is closed, so a region every corner of which lies on
-        // one has no width and bounds nothing on either side of it.
-        Cut::Straight { .. }
-        | Cut::Wave(_)
-        | Cut::Bow(_)
-        | Cut::Bough(_)
-        | Cut::Flare(_)
-        | Cut::Traced(_) => false,
-    }
+    cut.keeps_its_inside(anywhere)
 }
 
 /// Cuts regions along a line or a circle, keeping the room it works in.

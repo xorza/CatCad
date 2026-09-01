@@ -472,41 +472,24 @@ impl Constraint {
                 out.length - c.radius
             }
             Constraint::Tangent { segment, circle } => {
-                let s = sketch.segment(segment);
                 let c = sketch.circle(circle);
-                let edge = direction(sketch, s);
-                let offset = sketch.point(c.center).position - sketch.point(s.a).position;
-                let along = Direction::of(edge);
-                // How far off the line the centre stands, *times* how long the
-                // edge is — which is [`Self::PointOnSegment`]'s residual
-                // exactly, and why the three geometry gradients below are its
-                // three. Multiplied through rather than divided by the length,
-                // because dividing wants a guard against a segment whose ends
-                // have met and multiplying does not; the radius is scaled to
-                // match, so the whole equation is one length larger and reads
-                // zero in the same places.
-                //
-                // [`Self::Standoff`] is this equation with a constant in place
-                // of the radius and it divides instead, because there the other
-                // side of the equation is a number a user typed and an equation
-                // scaled by an edge's length would converge differently for
-                // every length of edge. The two want unifying once dimensions
-                // have settled.
-                let reach = edge.perp_dot(offset);
-                // The cross product carries which side of the line the centre
-                // is on, and tangency does not care: it is a distance, and the
-                // relation holds mirrored either way. Taking the sign out here
-                // is what lets a solve settle onto the nearer of the two rather
-                // than being dragged across the line to the other.
-                let side = if reach < 0.0 { -1.0 } else { 1.0 };
-                // The first term of each is [`Self::PointOnSegment`]'s own
-                // gradient turned by the side; the second is the radius, which
-                // grows and shrinks the equation with the segment's length.
-                row.point(c.center, side * edge.perp());
-                row.point(s.a, side * (offset - edge).perp() + c.radius * along.unit);
-                row.point(s.b, -side * offset.perp() - c.radius * along.unit);
-                row.radius(circle, -along.length);
-                side * reach - c.radius * along.length
+                // **The radius is the one gap here that is itself a
+                // parameter**, so it takes a column where a typed dimension
+                // takes none. The residual subtracts it, which is the whole of
+                // its gradient.
+                row.radius(circle, -1.0);
+                standoff(
+                    sketch,
+                    row,
+                    Gap {
+                        at: sketch.point(c.center).position,
+                        // The place is the circle's centre, a point the sketch
+                        // holds, so the whole of the gradient goes to it.
+                        carried: &[(c.center, 1.0)],
+                        segment,
+                        distance: c.radius,
+                    },
+                )
             }
             Constraint::EqualRadius { first, second } => {
                 row.radius(first, 1.0);
@@ -534,16 +517,26 @@ struct Gap<'a> {
     carried: &'a [(PointId, f64)],
     /// The segment whose infinite line the place stands off.
     segment: SegmentId,
+    /// How far off that line the place is asked to stand.
+    ///
+    /// A number a user typed, or a circle's radius — which is a parameter, so
+    /// there the caller writes its column and this reads its value alone.
     distance: f64,
 }
 
 /// The residual and partials of "this place stands `distance` off that line".
 ///
-/// Shared by [`Constraint::Standoff`] and [`Constraint::Spacing`], which differ
-/// only in where the place comes from — a point the sketch holds, or the middle
-/// of an edge — and so only in [`Gap::carried`]. Written once, because the
-/// two differing in the chain rule applied to one of three gradients is not two
-/// equations.
+/// Shared by [`Constraint::Standoff`], [`Constraint::Spacing`] and
+/// [`Constraint::Tangent`], which differ only in where the place comes from — a
+/// point the sketch holds, the middle of an edge, or a circle's centre — and so
+/// only in [`Gap::carried`]. Written once, because the three differing in the
+/// chain rule applied to one of three gradients is not three equations.
+///
+/// **Divided by the length rather than multiplied through**, which is what lets
+/// one spelling serve all three: the other side of the equation is a number a
+/// user typed or a radius they can drag, and an equation scaled by an edge's
+/// length would converge differently for every length of edge. What that costs
+/// is the guard below, against a segment whose ends have met.
 ///
 /// A private free fn rather than a method: it asks the sketch for geometry and
 /// answers a number, and there is no type here it is *of*.

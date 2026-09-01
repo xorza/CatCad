@@ -141,7 +141,7 @@ impl Surface {
     pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
         match self {
             Self::Natural(of) => of.nearest(at),
-            Self::Fitted(of) => of.at(of.uv(at)),
+            Self::Fitted(of) => of.nearest(at),
         }
     }
 
@@ -173,28 +173,27 @@ impl Surface {
     fn spans(&self, fills: Bounds<DVec3>, slack: f64) -> Option<bool> {
         match self {
             Self::Natural(of) => of.spans(fills, slack),
-            Self::Fitted(of) => of.spans(),
+            Self::Fitted(of) => of.spans(fills, slack),
         }
     }
 
     /// The surface everywhere `by` off this one, along its own normal — see
-    /// [`Natural::offset`].
-    ///
-    /// Nothing of the fitted tier answers: a torus offsets to a torus, and no
-    /// caller asks yet.
+    /// [`Natural::offset`] and [`Fitted::offset`], which is where each tier's
+    /// answer is.
     pub(crate) fn offset(&self, by: f64) -> Option<Self> {
         match self {
             Self::Natural(of) => of.offset(by).map(Self::Natural),
-            Self::Fitted(_) => None,
+            Self::Fitted(of) => of.offset(by).map(Self::Fitted),
         }
     }
 
     /// The place `by` along this surface from `at`, setting out along the unit
-    /// tangent `way` — see [`Natural::walked`].
+    /// tangent `way` — see [`Natural::walked`] and [`Fitted::walked`], which is
+    /// where each tier's answer is.
     pub(crate) fn walked(&self, at: DVec3, way: DVec3, by: f64) -> Option<DVec3> {
         match self {
             Self::Natural(of) => of.walked(at, way, by),
-            Self::Fitted(_) => None,
+            Self::Fitted(of) => of.walked(at, way, by),
         }
     }
 
@@ -299,7 +298,7 @@ impl Surface {
     pub(crate) fn strides(&self, reach: f64, sagitta: f64) -> DVec2 {
         match self {
             Self::Natural(of) => of.strides(reach, sagitta),
-            Self::Fitted(of) => of.strides(sagitta),
+            Self::Fitted(of) => of.strides(reach, sagitta),
         }
     }
 
@@ -307,7 +306,7 @@ impl Surface {
     pub(crate) fn fills(&self, boundary: Bounds<DVec3>) -> Bounds<DVec3> {
         match self {
             Self::Natural(of) => of.fills(boundary),
-            Self::Fitted(of) => of.fills(),
+            Self::Fitted(of) => of.fills(boundary),
         }
     }
 
