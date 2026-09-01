@@ -9,11 +9,6 @@ The crate routes comparisons through `number::tolerance` and states that a bare
 constant decides nothing. These places decide on exact equality or on a bare
 constant, and each sits next to code that uses the ladder.
 
-- [ ] `solid/build/revolving.rs:400` — `framed` decides a closed turn with
-  `sweep.abs() == TAU`. The crate's own convention for a whole turn is
-  `predicate::wraps` with the `WRAPPING` margin. A computed sweep one rounding
-  under `TAU` builds a partial turn whose two caps coincide. A sweep one
-  rounding over `TAU` is refused at `revolving.rs:388`.
 - [ ] `solid/boolean/splitting/mod.rs:382` — `punch` reads the region's side
   from `beside(outline, cut)`, which reads corner `outline[0]` with no
   `Side::On` guard. A closed cut can pass within `PLACED` of a corner and
@@ -22,22 +17,6 @@ constant, and each sits next to code that uses the ladder.
   comment at `splitting/mod.rs:79` claims no corner is near the cut, and this
   caller does not establish that. `kept` at `splitting/mod.rs:105` skips
   `Side::On` corners for the same question.
-- [ ] `math/sinusoid.rs:23` — `angles` pushes `turn + share` and `turn − share`
-  both. At a graze (`to == ±size`) the two are one angle, so a graze answers
-  one angle twice. `Reading::ends` at
-  `solid/meeting/seeding/mod.rs:255` has the same doubling: at
-  `share == ±1` it pushes `acos` and `TAU − acos`, which are one end. A
-  doubled end makes a zero-width stretch, and the seeding then lays a seed at
-  a tangency.
-- [ ] `math/sinusoid.rs:60` — `met` includes a root at the start of a forward
-  run (`along == 0`) and excludes a root at the start of a reversed run
-  (`angle == hi` fails `angle < hi`). The half-open rule is stated for the far
-  end only. The two directions read the start differently.
-- [ ] `solid/boolean/splitting/traced.rs:198` — `Piece::of` decides that a run
-  closes with `(last − first).length() < f64::EPSILON`. This is a bare machine
-  constant used as a geometric threshold, outside the `number` module's
-  vocabulary. The test in fact relies on bit-equality of a repeated sample,
-  and the constant does not say so.
 
 ## Rebuild-path work that grows as the square of the body
 
@@ -95,9 +74,6 @@ These rules are spelled more than once.
   `solid/boolean/splitting/bow.rs:315` (`Bow::bending`, closed arm) spell the
   kernel `q/√(1−s²) + s·q²/(1−s²)^{3/2}` twice, with different tails. The two
   bound the same `asin`-of-cosine parameterization.
-- [ ] `solid/mesh/lattice.rs:59` — `Lattice::of` hand-rolls a low/high fold
-  over the outline. `Bounds<DVec2>` exists for exactly this fold and is used
-  for it everywhere else on the same path.
 
 ## Refusal and drop paths leave minted state behind
 

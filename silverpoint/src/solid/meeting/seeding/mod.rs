@@ -254,12 +254,9 @@ impl Reading {
             }
             Against::Beside { wide, across, .. } => {
                 for out in [wide + across, wide - across, across - wide, -wide - across] {
-                    let share = (out - torus.major) / torus.minor;
-                    if share.abs() > 1.0 {
-                        continue;
+                    for turn in sinusoid::angles(torus.minor, 0.0, out - torus.major) {
+                        ends.push(turn.rem_euclid(TAU));
                     }
-                    ends.push(share.acos());
-                    ends.push(TAU - share.acos());
                 }
             }
             Against::Leaning(leaning) => return leaning.ends(&torus),

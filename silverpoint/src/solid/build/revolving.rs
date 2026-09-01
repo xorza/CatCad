@@ -2,7 +2,7 @@
 
 use crate::math::plane::Plane;
 use crate::number::predicate;
-use crate::number::tolerance::{EXACT, PLACED};
+use crate::number::tolerance::{EXACT, PLACED, WRAPPING};
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::strip::{Strip, Strips, Turn};
 use crate::solid::build::{Running, Walled, shelled};
@@ -383,11 +383,26 @@ impl Revolving {
             return None;
         }
         // More than a whole turn sweeps the same space twice, and nothing at
-        // all sweeps no space — neither is a solid.
+        // all sweeps no space — neither is a solid. The room the ladder gives
+        // below a whole turn is given above it as well, so a rounding over one
+        // is a whole turn here rather than a refusal.
         let Sector { from, sweep } = of.sector;
-        if !(sweep.abs() > 0.0 && sweep.abs() <= TAU) {
+        if !(sweep.abs() > 0.0 && sweep.abs() <= TAU + (TAU - WRAPPING)) {
             return None;
         }
+        // **A whole turn is decided on the ladder** — see [`predicate::wraps`],
+        // which is the crate's one question about a surface carried the whole
+        // way round. A sweep worked out rather than typed lands a rounding
+        // either side of `TAU`, and one under read as a partial turn builds two
+        // caps standing in the very same place.
+        //
+        // Taken as exactly a turn once it is one, so the seams cut it into
+        // equal parts and the last of them shuts on the first.
+        let closed = predicate::wraps(sweep);
+        let sweep = match closed {
+            true => TAU.copysign(sweep),
+            false => sweep,
+        };
         // Clamped rather than trusted to the arithmetic: a whole turn divided
         // by a third of one is three, and a rounding either side of it would be
         // a fourth face nothing needs or a wall left wrapping.
@@ -397,7 +412,7 @@ impl Revolving {
             plane: of.plane,
             by: of.by,
             parts,
-            closed: sweep.abs() == TAU,
+            closed,
             from,
             sweep,
             axis: Axis::new(

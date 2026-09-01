@@ -1036,6 +1036,34 @@ fn a_partial_turn_is_capped_at_both_ends() {
         "just over a third of a turn was not cut in two"
     );
     assert_ne!(under, over, "the sweep does not decide the count");
+
+    // **A whole turn is a whole turn to the room the ladder gives it**, and
+    // the same room either side. A sweep worked out rather than typed lands a
+    // rounding off `TAU`, and one under read as a partial turn would cap it at
+    // two ends standing in the very same place. Held against a sweep well
+    // outside that room, which is the capped turn it really is: the caps are
+    // the two faces, and the handle they shut is what the genus reads.
+    let turned = |sweep: f64| {
+        let body = spun(sweep);
+        (body.topology().faces().count(), body.reckoning().genus)
+    };
+    let whole = turned(TAU);
+    assert_eq!(whole, (2 * MOST, 1), "a ring is a handle cut into parts");
+    assert_eq!(
+        turned(TAU - 1e-12),
+        whole,
+        "a rounding under a turn capped it"
+    );
+    assert_eq!(
+        turned(TAU + 1e-12),
+        whole,
+        "a rounding over a turn was refused"
+    );
+    assert_eq!(
+        turned(TAU - 1e-6),
+        (2 * MOST + 2, 0),
+        "a sweep outside the room is the partial turn it is",
+    );
 }
 
 /// **A partial turn keeps the pole, and a hole in it is a hole again.**

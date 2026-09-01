@@ -190,12 +190,18 @@ impl Piece {
         // the walk as the run was sampled rather than as it is rotated above: a
         // closed run walked from anywhere is closed, and one rotated to begin
         // clear of the face ends a chord short of where it began.
+        //
+        // **The same place and not a place nearby**, which is why no tolerance
+        // is read here. A run that shuts hands back its own first place again
+        // as its last — a march pushes the one it began at, and a quartic's
+        // parameter wraps onto nought — so a run closed in the *face's*
+        // parameters is the very same pair of `f64`s twice over. One closed in
+        // space alone is carried onto another turn and stands a whole one off.
+        // There is nothing in between for a margin to decide.
         let closed = {
             let mut walked = flattened(on, sampled, 0, about, DVec2::ZERO);
             let first = walked.next()?.1;
-            walked
-                .last()
-                .is_some_and(|last| (last.1 - first).length() < f64::EPSILON)
+            walked.last().is_some_and(|last| last.1 == first)
         };
         let mut walked = flattened(on, sampled, from, about, DVec2::ZERO);
         let (first, second) = (walked.next()?, walked.next()?);
