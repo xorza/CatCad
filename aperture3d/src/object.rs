@@ -74,6 +74,11 @@ impl Styled for Object {
 /// How far along the ray from `origin` in `direction` it goes through the
 /// triangle, or `None` where it misses.
 ///
+/// Named apart from [`Bounds::crossed`](crate::Bounds), which a pick asks first
+/// of the box: that one answers whether the triangles are worth walking, this
+/// one answers where one of them was met. Two questions in one call chain, and
+/// one word for both would have been one word for a `bool` and a distance.
+///
 /// Möller–Trumbore, without the early-out that culls a back face: the
 /// determinant's *sign* is which side is being entered, and only its magnitude
 /// says whether the ray runs in the triangle's own plane.
@@ -82,7 +87,7 @@ impl Styled for Object {
 /// direction here is not unit and a ray promises that it is — see
 /// [`Object::pick`], which carries a world ray into a mesh's own space and needs
 /// `t` to keep meaning what it meant outside.
-fn crossed(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
+fn pierced(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
     let [a, b, c] = corners;
     let (along, across) = (b - a, c - a);
     let sideways = direction.cross(across);
@@ -188,7 +193,7 @@ impl Primitive for Object {
             (ray.origin, ray.direction)
         } else {
             // A singular transform inverts to non-finite, which every comparison
-            // in `crossed` then refuses — so a mesh scaled flat answers with
+            // in `pierced` then refuses — so a mesh scaled flat answers with
             // nothing rather than with nonsense, which is also what it draws.
             let inverse = self.transform.inverse();
             (
@@ -202,7 +207,7 @@ impl Primitive for Object {
         let mut along = f32::INFINITY;
         for triangle in self.mesh.triangles() {
             let corners = triangle.map(|index| self.mesh.vertices()[index as usize].position);
-            if let Some(travelled) = crossed(origin, direction, corners) {
+            if let Some(travelled) = pierced(origin, direction, corners) {
                 along = along.min(travelled);
             }
         }
@@ -252,8 +257,9 @@ mod tests {
     /// The box in front of the triangles admits every ray they could answer,
     /// including down the axis it has no thickness on.
     ///
-    /// Asked of [`Bounds::crossed`] rather than through a camera, because the
-    /// cases that matter are exact: a direction with a hard zero in it, and an
+    /// Asked of [`Bounds::crossed`](crate::Bounds) rather than through a camera,
+    /// because the cases that matter are exact: a direction with a hard zero in
+    /// it, and an
     /// origin lying exactly in the sheet's own plane. No camera reaches either —
     /// a quarter turn puts `cos` at 4.4e-8 rather than at nothing — so a test
     /// that went through one would be asking the ordinary case three times and
@@ -354,7 +360,7 @@ mod tests {
                 .into_iter()
                 .map(|s| {
                     let (origin, direction) = ray(s, sin);
-                    crossed(origin, direction, triangle(s)).is_some()
+                    pierced(origin, direction, triangle(s)).is_some()
                 })
                 .collect();
             assert_eq!(
@@ -367,9 +373,9 @@ mod tests {
         // well under it is not. Without this the assertion above would hold for
         // a test that always answered the same thing.
         let (origin, direction) = ray(1.0, 1e-3);
-        assert!(crossed(origin, direction, triangle(1.0)).is_some());
+        assert!(pierced(origin, direction, triangle(1.0)).is_some());
         let (origin, direction) = ray(1.0, 1e-9);
-        assert!(crossed(origin, direction, triangle(1.0)).is_none());
+        assert!(pierced(origin, direction, triangle(1.0)).is_none());
     }
 
     #[test]

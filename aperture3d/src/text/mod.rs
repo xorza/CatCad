@@ -365,7 +365,7 @@ impl Primitive for Text {
     /// [`Text::measure`] — so a run that has been recorded and never drawn is
     /// on screen in no sense and cannot be clicked in. An application paints
     /// every frame and never meets it; a harness that records without painting
-    /// meets it for every label it has, and `Text::reaches` is how it stands
+    /// meets it for every label it has, and `Text::set_extent` is how it stands
     /// one up.
     fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
@@ -424,13 +424,17 @@ pub(crate) mod measuring {
         /// takes `&self` and can be applied to a run already sitting in a
         /// [`Batch`](crate::Batch) — which is where a harness finds the ones it
         /// wants pickable.
-        pub fn reaches(&self, extent: Vec2) {
+        ///
+        /// Not `reaches`, which on this type already names the walk handing out
+        /// the world points a run covers. Two methods under one name on one
+        /// type is one of them being called by accident.
+        pub fn set_extent(&self, extent: Vec2) {
             self.extent.set(extent);
         }
 
         /// The same, as a builder, for a run being stood up rather than found.
         pub fn measured(self, extent: Vec2) -> Self {
-            self.reaches(extent);
+            self.set_extent(extent);
             self
         }
     }

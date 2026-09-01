@@ -127,9 +127,9 @@ impl RaisedView {
             // lays its glyphs out, and this harness records without ever
             // rasterizing — so without this no dimension mark on screen can be
             // clicked in, and every sweep for one quietly finds nothing. See
-            // [`Picture::labels_reach`](crate::scene_view::picture::Picture),
+            // [`Picture::measure_labels`](crate::scene_view::picture::Picture),
             // which says why the size is made up.
-            view.picture.labels_reach(MARK_BOX);
+            view.picture.measure_labels(MARK_BOX);
         });
     }
 

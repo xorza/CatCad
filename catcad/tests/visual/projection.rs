@@ -106,7 +106,7 @@ fn the_gpu_draws_the_marker_where_the_projection_says_it_is() {
     );
     // Off-centre both ways, so neither axis could have passed by accident:
     // mirroring either one moves the marker hundreds of pixels.
-    let centre = viewport.extent() * 0.5;
+    let centre = viewport.size() * 0.5;
     assert!(
         (expected.x - centre.x).abs() > 100.0 && (expected.y - centre.y).abs() > 100.0,
         "the anchor is too near the centre at {expected:?} to pin an axis"

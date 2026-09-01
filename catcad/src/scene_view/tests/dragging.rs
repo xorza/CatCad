@@ -429,7 +429,7 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
 ///
 /// A mark is not geometry: it has no grip, it is found through its *text*, and
 /// the box that text is picked against is filled by the pass that lays its
-/// glyphs out — see [`Picture::labels_reach`](crate::scene_view::picture::Picture).
+/// glyphs out — see [`Picture::measure_labels`](crate::scene_view::picture::Picture).
 /// This harness records and never rasterizes, so every mark on screen used to
 /// be unreachable and every sweep for one silently found nothing. The gap did
 /// not show as a failing test; it showed as no test.

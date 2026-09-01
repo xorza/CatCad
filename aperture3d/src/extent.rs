@@ -1,17 +1,20 @@
-//! How much of the world a scene occupies, and what walks a scene to find out.
+//! How much of the world a scene occupies.
 
-use crate::hit::Precedence;
-use crate::primitive::Primitive;
 use glam::Vec3;
 
 /// A world-space axis-aligned box, holding at least the point it was built
 /// from.
 ///
-/// A result rather than something to build up: the walk below grows one over a
-/// scene's batches and hands this back at the end, and what reads it wants a
-/// middle and a radius. There is no empty one — a scene with nothing in it has
-/// no extent at all rather than a degenerate box at the origin, which is why
-/// that walk answers with an `Option`.
+/// A result rather than something to build up: [`Bounds`](crate::Bounds) is
+/// what a walk grows, and this is what it hands back once there is something in
+/// it. What reads one wants a middle and a radius, and both of those are
+/// answers a box with nothing in it cannot give.
+///
+/// So there is no empty one. A scene with nothing in it has no extent at all
+/// rather than a degenerate box at the origin, which is why
+/// [`Scene::extent`](crate::Scene::extent) answers with an `Option` — and why
+/// the growable half is a type of its own rather than this one carrying a
+/// sentinel, an `Extent` being published with both fields public.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Extent {
     pub min: Vec3,
@@ -27,70 +30,6 @@ impl Extent {
     /// a camera has to fit, independent of which way it looks at it.
     pub fn radius(&self) -> f32 {
         (self.max - self.min).length() * 0.5
-    }
-}
-
-/// How much of the world a run of primitives covers, grown from nothing.
-///
-/// An [`Extent`] always holds at least one point, and a scene may hold none — so
-/// growing one over several batches through an `Option` means asking, at every
-/// point of every mesh, whether this is the first. Held inverted instead, the
-/// emptiness is a fact about the numbers rather than a branch: min starts above
-/// max, every point narrows the gap, and only [`Reach::extent`] has to ask.
-///
-/// Its own type rather than an [`Extent`] carrying the sentinel, because those
-/// bounds are the wrong way round and an `Extent` is published with both fields
-/// public. Nothing outside this walk should be able to hold one.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Reach {
-    min: Vec3,
-    max: Vec3,
-}
-
-impl Default for Reach {
-    /// Inverted, so that the first point covered replaces both bounds.
-    fn default() -> Self {
-        Self {
-            min: Vec3::INFINITY,
-            max: Vec3::NEG_INFINITY,
-        }
-    }
-}
-
-impl Reach {
-    /// Widen to hold everything `items` reaches, bar the furniture.
-    ///
-    /// **A frame does not count.** What an extent is for is aiming a camera at
-    /// what a scene holds — and furniture *around* a drawing is sized to that
-    /// drawing rather than the other way about, so counting it would let the
-    /// room decide how far back the camera stands to look at the thing in it. A
-    /// datum drawn as a sheet reaching past whatever lies on it is the case this
-    /// is written for; a backdrop is the same shape.
-    ///
-    /// Nothing is lost by leaving them out. A frame is drawn around something,
-    /// so what it frames is covered already — and a scene holding nothing but
-    /// frames has nothing worth aiming at.
-    pub(crate) fn cover<P: Primitive>(&mut self, items: &[P]) {
-        for item in items {
-            if item.standing() == Precedence::Frame {
-                continue;
-            }
-            item.reaches(|point| {
-                self.min = self.min.min(point);
-                self.max = self.max.max(point);
-            });
-        }
-    }
-
-    /// The box this came to, or `None` where nothing was ever put in it.
-    ///
-    /// One axis decides it because all three are written together above, so
-    /// either every bound has been narrowed or none has.
-    pub(crate) fn extent(self) -> Option<Extent> {
-        (self.min.x <= self.max.x).then_some(Extent {
-            min: self.min,
-            max: self.max,
-        })
     }
 }
 

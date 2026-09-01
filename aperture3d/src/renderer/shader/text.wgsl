@@ -75,7 +75,7 @@ fn text_vs(
     @location(3) uv_min: vec2<f32>,
     @location(4) uv_size: vec2<f32>,
     @location(5) color: vec3<f32>,
-    // Location 6 is the look's `half_extent`, and a glyph has no use for one —
+    // Location 6 is the look's `spread`, and a glyph has no use for one —
     // its size came from its shaping, not from a width the shader spreads. Left
     // undeclared rather than declared and ignored: what a declaration would buy
     // is wgpu matching its *base type* against the layout and nothing else — the

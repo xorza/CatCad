@@ -318,10 +318,10 @@ fn the_extent_covers_transformed_meshes_and_curves() {
     // A *frame* does not, however far it reaches. Furniture is drawn around
     // what a scene holds and sized to it, so a camera aimed at an extent that
     // counted one would be standing back to take in the room rather than the
-    // thing in it — see [`Reach::cover`](crate::extent::Reach). Reaching far
-    // enough to be unmissable in every direction, and in both a mesh batch and
-    // an overlay batch, because a walk that forgot one of them would still
-    // pass a test that used the other.
+    // thing in it — see `Scene::cover`. Reaching far enough to be unmissable in
+    // every direction, and in both a mesh batch and an overlay batch, because a
+    // walk that forgot one of them would still pass a test that used the
+    // other.
     scene.curves.push(Curve {
         precedence: Precedence::Frame,
         ..Curve::segment(Vec3::splat(-50.0), Vec3::splat(50.0))

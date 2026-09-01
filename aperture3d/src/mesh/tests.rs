@@ -1,5 +1,5 @@
 use super::*;
-use crate::mesh::bounds::Bounds;
+use crate::bounds::Bounds;
 use std::collections::HashMap;
 
 #[test]
@@ -90,8 +90,8 @@ fn the_box_follows_what_is_written_into_the_mesh() {
 
     // Four across the middle, so the corners stand at two.
     let mut mesh = Mesh::cube(4.0);
-    assert_eq!(mesh.bounds().low, Vec3::splat(-2.0));
-    assert_eq!(mesh.bounds().high, Vec3::splat(2.0));
+    assert_eq!(mesh.bounds().min, Vec3::splat(-2.0));
+    assert_eq!(mesh.bounds().max, Vec3::splat(2.0));
 
     let corner = |x: f32, y: f32| Vertex {
         position: Vec3::new(x, y, 0.0),
@@ -104,11 +104,11 @@ fn the_box_follows_what_is_written_into_the_mesh() {
         triangles.extend([[0, 1, 2]]);
     });
     assert_eq!(
-        mesh.bounds().low,
+        mesh.bounds().min,
         Vec3::ZERO,
         "the box kept the cube's reach"
     );
-    assert_eq!(mesh.bounds().high, Vec3::new(1.0, 0.5, 0.0));
+    assert_eq!(mesh.bounds().max, Vec3::new(1.0, 0.5, 0.0));
     // And the ray that the cube's box admitted and this one must not.
     assert!(
         !mesh

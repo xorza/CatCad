@@ -80,7 +80,7 @@ impl Inside {
     }
 }
 
-/// A render target's pixel extent, and the one statement of how a pixel
+/// A render target's size in pixels, and the one statement of how a pixel
 /// relates to NDC.
 ///
 /// The framebuffer counts y down from the top-left corner; NDC counts it up
@@ -102,44 +102,46 @@ impl Inside {
 /// has no y-flip in it — see `ndc_from_px_delta` in `common.wgsl`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
-    extent: Vec2,
+    size: Vec2,
 }
 
 impl Viewport {
     /// A viewport covering `size` pixels, and never fewer than one either way.
     ///
-    /// Floored rather than refused. Every mapping here divides by the extent, so
+    /// Floored rather than refused. Every mapping here divides by the size, so
     /// a zero would answer with infinities the whole crate would then carry — and
     /// what a window is worth in pixels arrives from outside, which makes it a
     /// number to bring into range rather than a contract for a caller to have
     /// broken.
     pub fn new(size: UVec2) -> Self {
         Self {
-            extent: size.max(UVec2::ONE).as_vec2(),
+            size: size.max(UVec2::ONE).as_vec2(),
         }
     }
 
     /// Width over height, which is all of the shape a projection needs.
     pub fn aspect(&self) -> f32 {
-        self.extent.x / self.extent.y
+        self.size.x / self.size.y
     }
 
-    /// The extent in pixels.
-    pub fn extent(&self) -> Vec2 {
-        self.extent
+    /// How many pixels across and down, which is the whole of what a viewport
+    /// is. Named `size` and not `extent`, which in this crate is a box in the
+    /// world — see [`Extent`](crate::Extent).
+    pub fn size(&self) -> Vec2 {
+        self.size
     }
 
     /// Where a point on the viewport sits in NDC. `cursor` counts down from
     /// the top-left corner, the way a pointer position arrives.
     pub(crate) fn ndc_from_pixel(&self, cursor: Vec2) -> Vec2 {
-        let unit = cursor / self.extent;
+        let unit = cursor / self.size;
         Vec2::new(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0)
     }
 
     /// Where an NDC position lands on the viewport — the inverse of
     /// [`Viewport::ndc_from_pixel`].
     pub(crate) fn pixel_from_ndc(&self, ndc: Vec2) -> Vec2 {
-        (ndc * Vec2::new(1.0, -1.0) * 0.5 + 0.5) * self.extent
+        (ndc * Vec2::new(1.0, -1.0) * 0.5 + 0.5) * self.size
     }
 
     /// Where a clip position lands on the viewport.
@@ -191,7 +193,7 @@ impl Viewport {
         // NDC counts y up from the middle and the framebuffer counts it down from
         // the top, which for a difference is the flip and nothing else; and it spans
         // two units across the whole target, which is the half.
-        ndc * Vec2::new(1.0, -1.0) * self.extent() * 0.5
+        ndc * Vec2::new(1.0, -1.0) * self.size * 0.5
     }
 }
 

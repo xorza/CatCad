@@ -10,40 +10,10 @@ sorted by what they cost, worst first.
 
 ---
 
-## Three axis-aligned box types, one shape, two vocabularies
-
-`Extent { min, max }` and `Reach { min, max }` in `extent.rs`, and
-`Bounds { low, high }` in `mesh/bounds.rs`, are one struct three times over.
-
-- [ ] `extent.rs:50` / `mesh/bounds.rs:22` — `Reach::default` and
-      `Bounds::default` are the same inverted identity, written twice, for the
-      same stated reason.
-- [ ] `extent.rs:79` / `mesh/bounds.rs:43` — `Reach::cover`'s inner fold and
-      `Bounds::of` are the same `min`/`max` fold.
-- [ ] `mesh/bounds.rs:17` — `Bounds` calls its corners `low` and `high` where
-      `Extent`, palantir's `Rect` and `Tile` all say `min` and `max`.
-      `Tile::min`'s doc says the corner is "named for it so the crate has one
-      word for a corner". Rename, or say why a box in object space wants a
-      second word.
-- [ ] `extent.rs:12` — `Extent`'s doc says "There is no empty one — a scene
-      with nothing in it has no extent at all rather than a degenerate box at
-      the origin". `Bounds::default` is exactly the empty one, is public, and
-      is re-exported from `lib.rs`. Settle which position the crate holds.
-
 ## One word, several meanings
 
-The guide gives one word one meaning. Five words carry more than one.
+The guide gives one word one meaning. Two words still carry more than one.
 
-- [ ] **extent** names five things: the world box (`Extent`), half the world
-      height a viewport covers (`Camera::half_extent`), a target's pixel size
-      (`Viewport::extent`), a run's screen box (`Text::extent`), and half a
-      stroke's width (`Look::half_extent`).
-- [ ] **reaches** names two methods on one type: `<Text as Primitive>::reaches`
-      hands out world points, and `Text::reaches` in `text::measuring`
-      (`text/mod.rs:427`) writes the extent memo.
-- [ ] **crossed** names two functions in one call chain: `Bounds::crossed`
-      (ray against box, `bool`) and `object::crossed` (ray against triangle,
-      `Option<f32>`), both reached from `Object::pick`.
 - [ ] **record** names the trait in `renderer::record`, the associated type
       `Flatten::Record`, and the buffers `Records` / `TextRecords`.
 - [ ] **look** names `record::Look`, the GPU tail, and `Highlight`, reached as
@@ -91,17 +61,16 @@ public, and the type alone where it is private. `broken_intra_doc_links` is
 denied at the workspace, and the type-only form passes it whatever the display
 text says — so the text is unchecked.
 
-- [ ] `mesh/bounds.rs:15` — links `[`Object::crosses`](crate::Object)`. There
-      is no `Object::crosses`, and there never was under that name. The method
-      is `Object::pick`.
-- [ ] Ten more use the type-only form for a member that is private or
+- [ ] Eleven links use the type-only form for a member that is private or
       crate-visible: `Renderer::gpu`, `Records::ordinary_to_upload`,
       `Passes::upload`, `Viewport::screen_tangent`, `PassSpec::depth_bias`,
       `PassSpec::depth_test`, `Uniforms::probe_reach`, `Scene::faces`,
-      `Text::anchor` (twice in `text/turn.rs`), `Text::pick`. Pick one shape
-      and hold every link to it.
+      `Scene::grabbed`, `Text::anchor` (twice in `text/turn.rs`), `Text::pick`,
+      `Object::pick`, `Bounds::crossed`. Pick one shape and hold every link to
+      it — `private_intra_doc_links` denies the full path for these, so the
+      choice is this form or naming the member in prose.
 - [ ] `Camera::ray_through` is linked as a full path in `aim.rs:71` and as the
-      bare type in `object.rs:122`.
+      bare type in `object.rs:127`.
 - [ ] `renderer/cpu/triangles.rs:212` and `renderer/cpu/triangles.rs:253` write
       doc-link syntax inside plain `//` comments, where nothing renders it.
 
@@ -147,6 +116,6 @@ already holds. Only one kind offers the setter that makes it work.
 
 - [ ] `highlight.rs:83` — `Highlight::lifted` is `const fn` and
       `Highlight::new` is not, though its body is const-compatible.
-- [ ] `mesh/mod.rs:6` declares `mod bounds` after the `use` that reaches
-      through it, `text/mod.rs:439` declares `mod turn` at the foot of the
-      file, and `renderer/mod.rs` splits its `use`s either side of its `mod`s.
+- [ ] `text/mod.rs:443` declares `mod turn` at the foot of the file, where
+      `renderer/mod.rs` splits its `use`s either side of its `mod`s and
+      `renderer/gpu/mod.rs` declares both at the head. Pick one placement.

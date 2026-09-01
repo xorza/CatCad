@@ -10,7 +10,7 @@ use glam::Vec3;
 
 /// What every overlay record ends with, whatever shape carries it.
 ///
-/// The three fields that mean the same thing for a stroke, a rim and a marker,
+/// The two fields that mean the same thing for a stroke, a rim and a marker,
 /// laid out once so they cannot drift.
 ///
 /// The plane a primitive lies in is *not* here, though three of the four carry
@@ -20,7 +20,7 @@ use glam::Vec3;
 /// field would ship a ring twelve bytes it has no use for and name something
 /// about it that is not true.
 ///
-/// `half_extent` is here on the opposite reasoning, and the two are worth
+/// [`Look::spread`] is here on the opposite reasoning, and the two are worth
 /// telling apart. A label has no use for it either — a glyph's size came from
 /// its shaping — so it ships four dead bytes in a ninety-six byte record, and
 /// `text_vs` does not even declare the attribute. What buys them is that
@@ -33,17 +33,17 @@ use glam::Vec3;
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct Look {
     pub(super) color: [f32; 3],
-    /// Half the stroke width, or half a marker's diameter — the distance the
+    /// Half the stroke width, or half a marker's diameter: the distance the
     /// shader spreads either side of the shape's own centre.
-    pub(super) half_extent: f32,
+    pub(super) spread: f32,
 }
 
 impl Look {
-    /// The look a primitive of this size would be given.
-    fn of(color: Vec3, extent: f32) -> Self {
+    /// The look a primitive drawn `across` wide would be given.
+    fn of(color: Vec3, across: f32) -> Self {
         Self {
             color: color.to_array(),
-            half_extent: extent * 0.5,
+            spread: across * 0.5,
         }
     }
 
@@ -55,7 +55,7 @@ impl Look {
     /// either side of a `look_mut()` read as the same operation twice.
     fn take_on(&mut self, look: Highlight) {
         self.color = look.tint.over(Vec3::from_array(self.color)).to_array();
-        self.half_extent *= look.scale;
+        self.spread *= look.scale;
     }
 }
 
@@ -240,8 +240,9 @@ pub(crate) struct GlyphInstance {
     pub(super) uv_size: [f32; 2],
     /// Colour and depth bias, as every overlay ends.
     ///
-    /// Its `half_extent` is unused and always zero: a glyph's size was decided
-    /// when the run was shaped, so there is nothing here to spread. That also
+    /// Its [`spread`](Look::spread) is unused and always zero: a glyph's size
+    /// was decided when the run was shaped, so there is nothing here to
+    /// spread. That also
     /// makes a highlight's `scale` a no-op on text, which is the honest answer
     /// — larger type is a different shaping, not a larger quad over the same
     /// pixels.

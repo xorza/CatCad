@@ -253,7 +253,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
     // **Either side, whichever is clear.** A dimension's number is drawn to one
     // side of what it measures and is a target like anything else, so a cursor
     // fixed to one side lands on the number about as often as on the bar — see
-    // [`Picture::labels_reach`](crate::scene_view::picture::Picture), which is
+    // [`Picture::measure_labels`](crate::scene_view::picture::Picture), which is
     // what gave the marks boxes in this harness and what makes that true here
     // rather than only in the application.
     let on_screen = ends.map(|end| raised.cursor_on(plane.point(end).as_vec3()));

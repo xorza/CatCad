@@ -350,7 +350,7 @@ impl Picture {
         // Past the far edge of the view there is nothing left for a form to
         // cover, and the diagonal is the furthest any bearing can carry inside
         // one.
-        let tip = from + step.normalize_or_zero() * lens.extent().length();
+        let tip = from + step.normalize_or_zero() * lens.size().length();
         Some(Rect::from_min_max(from.min(tip), from.max(tip)))
     }
 
@@ -417,9 +417,9 @@ pub(crate) mod internals {
         /// answers with are the renderer's business and differ between machines.
         /// The size is the caller's so a test that cares can say.
         #[cfg(test)]
-        pub(crate) fn labels_reach(&self, extent: Vec2) {
+        pub(crate) fn measure_labels(&self, extent: Vec2) {
             for text in self.pane().scene.texts.iter() {
-                text.reaches(extent);
+                text.set_extent(extent);
             }
         }
 

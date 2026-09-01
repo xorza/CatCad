@@ -6,13 +6,13 @@ fn the_corners_pin_which_way_each_axis_runs() {
     // mapping pass.
     let viewport = Viewport::new(UVec2::new(100, 50));
     assert_eq!(viewport.aspect(), 2.0);
-    assert_eq!(viewport.extent(), Vec2::new(100.0, 50.0));
+    assert_eq!(viewport.size(), Vec2::new(100.0, 50.0));
 
     // A window with no pixels in it is floored rather than refused: every
-    // mapping here divides by the extent, and what a window is worth arrives
+    // mapping here divides by the size, and what a window is worth arrives
     // from outside the crate.
     for empty in [UVec2::ZERO, UVec2::new(0, 40), UVec2::new(40, 0)] {
-        let floored = Viewport::new(empty).extent();
+        let floored = Viewport::new(empty).size();
         assert!(
             floored.x >= 1.0 && floored.y >= 1.0,
             "{empty:?} -> {floored:?}"

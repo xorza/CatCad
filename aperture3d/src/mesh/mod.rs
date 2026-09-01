@@ -1,9 +1,7 @@
 //! Indexed triangle geometry in object space.
 
-use crate::mesh::bounds::Bounds;
+use crate::bounds::Bounds;
 use glam::Vec3;
-
-pub(crate) mod bounds;
 
 /// One corner of a triangle. Normals are per-vertex, so a mesh that wants flat
 /// shading duplicates the corners it shares — which is what [`Mesh::cube`]

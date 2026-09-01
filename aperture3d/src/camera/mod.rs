@@ -156,8 +156,8 @@ impl Camera {
     }
 
     /// Half the world height the viewport covers at the orbit target, which is
-    /// the extent the orthographic view is built on. See [`Camera::fov_y`].
-    fn half_extent(&self) -> f32 {
+    /// what the orthographic view is built on. See [`Camera::fov_y`].
+    fn half_height(&self) -> f32 {
         self.distance * (self.fov_y * 0.5).tan()
     }
 
@@ -206,11 +206,11 @@ impl Camera {
         let half = match self.projection {
             // The slab is the same width all the way through, so the whole of
             // the scale is here and the `w` it is multiplied by is a flat one.
-            Projection::Orthographic => self.half_extent(),
+            Projection::Orthographic => self.half_height(),
             // Per unit of depth, which is exactly what `w` then supplies.
             Projection::Perspective => (self.fov_y * 0.5).tan(),
         };
-        2.0 * half / viewport.extent().y
+        2.0 * half / viewport.size().y
     }
 
     /// The `w` this camera's projection writes for a point at `at`.
@@ -259,7 +259,7 @@ impl Camera {
                 directx::perspective_infinite_reverse(self.fov_y, aspect, self.z_near())
             }
             Projection::Orthographic => {
-                let half_height = self.half_extent();
+                let half_height = self.half_height();
                 let half_width = half_height * aspect;
                 let reach = ORTHO_SLAB * self.distance;
                 // Near and far handed over swapped, which is what reverses a

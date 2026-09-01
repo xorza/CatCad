@@ -46,8 +46,12 @@ impl Lens {
     /// edge of the view there is nothing left to cover, so a ray that carries on
     /// for ever is answered by the room it has. What reads it is the anchor a
     /// form open about a growing solid stands clear of.
-    pub(crate) fn extent(self) -> Vec2 {
-        self.viewport.extent()
+    ///
+    /// `size` rather than `extent`, which aperture spends on a box in the world
+    /// — [`Scene::extent`](aperture::Scene::extent) is the drawing's own reach,
+    /// and this is how much screen there is to draw it on.
+    pub(crate) fn size(self) -> Vec2 {
+        self.viewport.size()
     }
 
     /// How many world units one logical pixel covers at `at`.

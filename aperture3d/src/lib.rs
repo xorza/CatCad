@@ -99,6 +99,7 @@
 
 pub(crate) mod aim;
 pub(crate) mod batch;
+pub(crate) mod bounds;
 pub(crate) mod camera;
 pub(crate) mod curve;
 pub(crate) mod extent;
@@ -126,12 +127,12 @@ pub mod internals {
 
 pub use aim::Aim;
 pub use batch::Batch;
+pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use extent::Extent;
 pub use highlight::{Highlight, Lit, Tint};
 pub use hit::{Hit, HitAt, Precedence};
-pub use mesh::bounds::Bounds;
 pub use mesh::{Mesh, Vertex};
 pub use motion::Motion;
 pub use object::Object;

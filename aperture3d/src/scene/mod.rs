@@ -2,8 +2,9 @@
 
 use crate::aim::Aim;
 use crate::batch::Batch;
+use crate::bounds::Bounds;
 use crate::curve::Curve;
-use crate::extent::{Extent, Reach};
+use crate::extent::Extent;
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::object::Object;
 use crate::point::Point;
@@ -159,7 +160,7 @@ impl Scene {
         // and holds its size on screen — see [`Scene::gizmos`] — so its world
         // coordinates are an *answer* to where the camera stands, and aiming the
         // camera at them would be aiming it at its own output. Structural rather
-        // than left to [`Reach::cover`]'s standing filter, because it is true of
+        // than left to [`Scene::cover`]'s standing filter, because it is true of
         // the batch whatever a control says it is for.
         let Self {
             solids,
@@ -171,15 +172,40 @@ impl Scene {
             points,
             texts,
         } = self;
-        let mut reach = Reach::default();
-        reach.cover(solids);
-        reach.cover(faces);
-        reach.cover(ghosts);
-        reach.cover(curves);
-        reach.cover(rings);
-        reach.cover(points);
-        reach.cover(texts);
-        reach.extent()
+        let mut bounds = Bounds::default();
+        Self::cover(&mut bounds, solids);
+        Self::cover(&mut bounds, faces);
+        Self::cover(&mut bounds, ghosts);
+        Self::cover(&mut bounds, curves);
+        Self::cover(&mut bounds, rings);
+        Self::cover(&mut bounds, points);
+        Self::cover(&mut bounds, texts);
+        bounds.extent()
+    }
+
+    /// Widen `bounds` to hold everything `items` reaches, bar the furniture.
+    ///
+    /// **A frame does not count.** What an extent is for is aiming a camera at
+    /// what a scene holds — and furniture *around* a drawing is sized to that
+    /// drawing rather than the other way about, so counting it would let the
+    /// room decide how far back the camera stands to look at the thing in it. A
+    /// datum drawn as a sheet reaching past whatever lies on it is the case this
+    /// is written for; a backdrop is the same shape.
+    ///
+    /// Nothing is lost by leaving them out. A frame is drawn around something,
+    /// so what it frames is covered already — and a scene holding nothing but
+    /// frames has nothing worth aiming at.
+    ///
+    /// Here rather than on [`Bounds`], which is a box and knows nothing about
+    /// what a primitive is for: which primitives count toward how far a scene
+    /// reaches is the scene's rule, and this is the scene.
+    fn cover<P: Primitive>(bounds: &mut Bounds, items: &[P]) {
+        for item in items {
+            if item.standing() == Precedence::Frame {
+                continue;
+            }
+            item.reaches(|point| bounds.hold(point));
+        }
     }
 
     /// What the aim was most likely meant for, or `None` if nothing is near

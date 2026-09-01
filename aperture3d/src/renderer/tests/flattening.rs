@@ -127,7 +127,7 @@ fn flatten_curves_ships_one_instance_per_segment() {
     assert_eq!(records[0].end, b.to_array());
     assert_eq!(records[1].start, b.to_array());
     assert_eq!(records[1].end, c.to_array());
-    assert!(records.iter().all(|i| i.look.half_extent == 1.5));
+    assert!(records.iter().all(|i| i.look.spread == 1.5));
     assert!(records.iter().all(|i| i.look.color == [0.25, 0.5, 0.75]));
     // The bias is the segment's, not a corner's: a ribbon tilted in depth
     // against itself would z-fight along its own length.
