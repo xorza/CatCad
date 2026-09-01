@@ -306,7 +306,7 @@ mod tests {
             "face {HUB} covers {} rather than the hub's disc",
             covered(&document, &build)
         );
-        assert_eq!(document.models(&build, Some(drawn)).lost(), 0);
+        assert_eq!(document.models(&build, Some(drawn)).faults().lost, 0);
 
         // The rim pulled out to radius 2, which is still clear of the frame's
         // top and bottom edges two and a half away — so the drawing keeps its
@@ -329,7 +329,7 @@ mod tests {
             },
         );
         assert_eq!(
-            document.models(&build, Some(drawn)).lost(),
+            document.models(&build, Some(drawn)).faults().lost,
             0,
             "growing the circle lost the region inside it"
         );

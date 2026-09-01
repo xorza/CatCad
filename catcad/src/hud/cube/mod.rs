@@ -21,7 +21,7 @@ use crate::intent::Intents;
 use crate::intent::change::Change;
 use crate::look;
 use crate::look::Theme;
-use crate::scene_view::ORBIT_RATE;
+use crate::scene_view::{Travelled, orbited};
 
 pub(crate) mod drawn;
 mod facet;
@@ -131,10 +131,11 @@ pub(super) struct Cube {
     /// Where the box was last arranged, which is where the pane goes.
     at: Rect,
     turning_to: Option<Bearing>,
-    /// How far the drag under way has travelled, so the next frame can ask for
-    /// the *step* rather than the whole of it again. Palantir reports a drag as
-    /// its total, which is what makes it safe to re-read on a settling frame.
-    travel: UiVec2,
+    /// How far the drag under way has come — see [`Travelled`].
+    ///
+    /// Palantir reports a drag as its total, which is what makes it safe to
+    /// re-read on a settling frame.
+    travel: Travelled,
 }
 
 impl Cube {
@@ -231,19 +232,15 @@ impl Cube {
     /// being turned to: taking hold of the cube is saying where to look more
     /// directly than a press did.
     fn drag(&mut self, drag: Drag, intents: &mut Intents) {
-        let (Drag::Started { delta } | Drag::Active { delta }) = drag else {
-            self.travel = UiVec2::ZERO;
+        let step = self.travel.step(drag);
+        // A drag of no distance is still a drag and gives up the view being
+        // turned to, where a frame with no drag at all leaves that turn
+        // running — which is why the drag is read again rather than the step.
+        let (Drag::Started { .. } | Drag::Active { .. }) = drag else {
             return;
         };
-        let step = delta - self.travel;
-        self.travel = delta;
         self.turning_to = None;
-        // Dragging right turns the model right, which means orbiting the camera
-        // the other way.
-        intents.push(Change::Orbit {
-            yaw: -step.x * ORBIT_RATE,
-            pitch: step.y * ORBIT_RATE,
-        });
+        intents.push(orbited(step));
     }
 
     /// Carry the camera toward whatever view was asked for.

@@ -290,7 +290,7 @@ fn two_faces_picked_out_offer_a_blend_and_one_face_does_not() {
     // in — where a refusal reported as nothing would be a chip that read as
     // broken.
     assert_eq!(
-        raised.models().unrounded(),
+        raised.models().faults().unrounded,
         1,
         "a blend the kernel refused went unreported: {}",
         raised.app.status()

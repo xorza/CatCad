@@ -2,7 +2,7 @@
 //! its travel writes.
 
 use aperture::{HitAt, Motion};
-use glam::{DVec3, Vec2, Vec3};
+use glam::{DVec3, Vec3};
 use silverpoint::{ConstraintId, Entity, Grown};
 
 use crate::document::Document;
@@ -12,6 +12,7 @@ use crate::intent::{Choice, Intent};
 use crate::lens::Lens;
 use crate::part::Part;
 use crate::prompt::Prompt;
+use crate::scene_view::Travelled;
 use crate::scene_view::aimed::Aimed;
 use crate::scene_view::picture::{Picture, Under};
 use crate::session::Session;
@@ -29,10 +30,9 @@ use std::f64::consts::{PI, TAU};
 pub(super) enum Gesture {
     #[default]
     None,
-    /// Turning the camera. Drag deltas arrive as cumulative travel, so the
-    /// previous total is subtracted to recover this frame's movement.
+    /// Turning the camera.
     Orbit {
-        travel: Vec2,
+        travel: Travelled,
     },
     Move(Held),
 }
@@ -44,7 +44,9 @@ impl Gesture {
     /// free to grab, nothing under the cursor, nothing there worth taking hold
     /// of, a cursor the motion cannot be resolved against — so it is one answer
     /// rather than a spelling of a zero at each of them.
-    const TURNS: Self = Gesture::Orbit { travel: Vec2::ZERO };
+    const TURNS: Self = Gesture::Orbit {
+        travel: Travelled::NONE,
+    };
 
     /// Decide what this press is the start of.
     ///

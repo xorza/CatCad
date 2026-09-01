@@ -15,7 +15,7 @@ use crate::scene_view::aimed::{self, Aimed};
 use crate::scene_view::click::{Click, clicked};
 use crate::scene_view::gesture::Gesture;
 use crate::scene_view::picture::Picture;
-use crate::scene_view::{ORBIT_RATE, view_id};
+use crate::scene_view::{Travelled, orbited, view_id};
 use crate::session::Session;
 use crate::tool::Tool;
 
@@ -50,10 +50,7 @@ pub(super) struct Pointing {
     /// meaning, so the two can run at once: a pan while something is held is a
     /// fair thing to ask for, and one field for both would have the second
     /// press cancel the first.
-    ///
-    /// Drag deltas arrive as cumulative travel, which is the same reason
-    /// [`Gesture::Orbit`] carries one.
-    panned: Vec2,
+    panned: Travelled,
     /// What the pointer is working on: the part under it, or the part it has
     /// hold of while a drag is under way.
     hovered: Option<Part>,
@@ -173,15 +170,13 @@ impl Pointing {
             self.gesture = Gesture::grab(over, lens, picture, document, session);
         }
         match (self.gesture, response.left.drag) {
-            (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
-                self.gesture = Gesture::Orbit { travel: delta };
-                let step = delta - was;
-                // Dragging right turns the model right, which means orbiting
-                // the camera the other way.
-                intents.push(Change::Orbit {
-                    yaw: -step.x * ORBIT_RATE,
-                    pitch: step.y * ORBIT_RATE,
-                });
+            (
+                Gesture::Orbit { mut travel },
+                drag @ (Drag::Started { .. } | Drag::Active { .. }),
+            ) => {
+                let step = travel.step(drag);
+                self.gesture = Gesture::Orbit { travel };
+                intents.push(orbited(step));
             }
             (Gesture::Move(held), drag @ (Drag::Started { .. } | Drag::Active { .. })) => {
                 // Taking hold of something picks it out. On the frame the drag
@@ -305,23 +300,7 @@ impl Pointing {
         // The middle button slides the picture under the pointer. Taken from
         // the cumulative travel rather than a per-frame delta, because that is
         // what a drag reports — see [`SceneView::panned`].
-        let step = match response.middle.drag {
-            // Started carries the travel that latched the drag, which is the
-            // first step and not a jump to be swallowed.
-            Drag::Started { delta } => {
-                self.panned = delta;
-                delta
-            }
-            Drag::Active { delta } => {
-                let step = delta - self.panned;
-                self.panned = delta;
-                step
-            }
-            Drag::None | Drag::Stopped => {
-                self.panned = Vec2::ZERO;
-                Vec2::ZERO
-            }
-        };
+        let step = self.panned.step(response.middle.drag);
         if step != Vec2::ZERO
             && let Some(lens) = lens
         {

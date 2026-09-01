@@ -230,7 +230,7 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 
     let document = Document::new(&mut build, timeline);
     let models = document.models(&build, Some(near));
-    assert_eq!(models.lost(), 0, "a step went wrong");
+    assert_eq!(models.faults().lost, 0, "a step went wrong");
     assert_eq!(build.bodied(first).built(), Built::Made);
     assert_eq!(build.bodied(second).built(), Built::Made);
 
@@ -262,7 +262,7 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 ///
 /// What the document then shows is both solids side by side: exactly the
 /// picture it showed before there were booleans at all. The tree says which
-/// step could not be merged, because [`Models::unmerged`] counts a refusal
+/// step could not be merged, because [`Faults::unmerged`] counts a refusal
 /// apart from a lost profile.
 ///
 /// **A refusal about the *answer* rather than about a crossing**, which is what
@@ -330,8 +330,12 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     // Reported as what it is. A refusal is not a lost profile — both profiles
     // are intact and still name their rings — and the two are counted apart so
     // the status line can say which happened.
-    assert_eq!(models.unmerged(), 1, "the refusal went unreported");
-    assert_eq!(models.lost(), 0, "a refusal was counted as a lost profile");
+    assert_eq!(models.faults().unmerged, 1, "the refusal went unreported");
+    assert_eq!(
+        models.faults().lost,
+        0,
+        "a refusal was counted as a lost profile"
+    );
     assert_eq!(models.broken_at(second), Some(Broken::Unmerged));
     assert_eq!(models.broken_at(first), None);
 }
@@ -382,8 +386,8 @@ fn a_rounding_becomes_the_model_and_names_its_blend() {
             "a face the blend ran out onto stopped answering to its name",
         );
     }
-    assert_eq!(models.unrounded(), 0);
-    assert_eq!(models.lost(), 0);
+    assert_eq!(models.faults().unrounded, 0);
+    assert_eq!(models.faults().lost, 0);
     assert_eq!(models.broken_at(round), None);
 }
 
@@ -410,14 +414,14 @@ fn a_blend_the_kernel_refuses_leaves_the_model_standing() {
         "a blend as wide as the edges it runs out onto was answered",
     );
     assert_eq!(models.broken_at(round), Some(Broken::Unrounded));
-    assert_eq!(models.unrounded(), 1, "the refusal went unreported");
+    assert_eq!(models.faults().unrounded, 1, "the refusal went unreported");
     assert_eq!(
-        models.lost(),
+        models.faults().lost,
         0,
         "a refused blend was counted as a step adrift"
     );
     assert_eq!(
-        models.unmerged(),
+        models.faults().unmerged,
         0,
         "a refused blend was counted as a solid apart"
     );
@@ -447,7 +451,11 @@ fn a_blend_the_kernel_refuses_leaves_the_model_standing() {
         Some(Built::Made),
         "a radius the kernel takes was refused after one it would not",
     );
-    assert_eq!(models.unrounded(), 0, "the mended blend is still counted");
+    assert_eq!(
+        models.faults().unrounded,
+        0,
+        "the mended blend is still counted"
+    );
     let (at, body) = models.model().expect("a rounded block is the model");
     assert_eq!(
         at, round,
@@ -546,7 +554,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         "the region covers {after} rather than 6, so the drag did something else"
     );
     assert_eq!(
-        document.models(&build, Some(drawn)).lost(),
+        document.models(&build, Some(drawn)).faults().lost,
         0,
         "moving the geometry lost the region"
     );
@@ -567,7 +575,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     assert_eq!(build.bodied(solid).built(), Built::Empty);
     let models = document.models(&build, Some(drawn));
     assert_eq!(
-        models.lost(),
+        models.faults().lost,
         0,
         "a depth of nothing was counted as a step that failed"
     );
@@ -617,7 +625,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         "the line did not cut the region in two"
     );
     assert!(build.bodied(solid).regions().is_empty());
-    assert_eq!(document.models(&build, Some(drawn)).lost(), 1);
+    assert_eq!(document.models(&build, Some(drawn)).faults().lost, 1);
     assert_eq!(build.bodied(solid).built(), Built::Lost);
 }
 
@@ -875,7 +883,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
 fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
     let whole = Standing::spun(Sector::WHOLE);
     let models = whole.models();
-    assert_eq!(models.lost(), 0, "the revolve lost its footing");
+    assert_eq!(models.faults().lost, 0, "the revolve lost its footing");
     let (_, body) = models.solids().next().expect("the revolve raised no solid");
     assert!(!body.exact(), "a ring stands on a torus");
     // One name over the faces a whole turn is cut into, a wall being named by
@@ -904,7 +912,11 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
         sweep: 0.0,
     });
     let models = none.models();
-    assert_eq!(models.lost(), 0, "a turn of nothing lost its footing");
+    assert_eq!(
+        models.faults().lost,
+        0,
+        "a turn of nothing lost its footing"
+    );
     assert!(
         models.solids().next().is_none(),
         "a turn of nothing swept a solid",

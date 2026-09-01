@@ -2,12 +2,13 @@
 
 use crate::hud::cube::Gizmo;
 use aperture::{Camera, Extent};
-use palantir::{Configure, GpuView, Sense, Sizing, Ui, WidgetId};
+use palantir::{Configure, Drag, GpuView, Sense, Sizing, Ui, Vec2, WidgetId};
 use silverpoint::Entity;
 
 use crate::build::Build;
 use crate::document::Document;
 use crate::intent::Intents;
+use crate::intent::change::Change;
 use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::Models;
@@ -44,6 +45,52 @@ pub(crate) const GIZMO: usize = 1;
 /// gestures that both orbit and disagree about how fast read as two different
 /// cameras.
 pub(crate) const ORBIT_RATE: f32 = 0.008;
+
+/// The orbit a drag of `step` asks for.
+///
+/// **Dragging right turns the model right, which means orbiting the camera the
+/// other way.** Written once because two gestures ask it — the pointer on the
+/// picture and a drag on the cube — and beside [`ORBIT_RATE`], the rate and the
+/// inversion being one rule: a cube that read either of them the other way
+/// would turn the model against the hand dragging it.
+pub(crate) fn orbited(step: Vec2) -> Change {
+    Change::Orbit {
+        yaw: -step.x * ORBIT_RATE,
+        pitch: step.y * ORBIT_RATE,
+    }
+}
+
+/// How far one drag has come since the frame before.
+///
+/// **A drag says how far it has come, not how far it came this frame** — see
+/// [`Drag::Active`] — so every gesture that moves something by the pointer
+/// subtracts what it saw last. Three do: the orbit, the pan and the cube.
+///
+/// **The clearing is the part that is easy to lose.** A drag begun while the
+/// last one's travel still stands answers its own delta *less* that one's, so
+/// the picture jumps by however far the last drag went before it settles.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Travelled(Vec2);
+
+impl Travelled {
+    /// Nothing travelled, which is where every drag begins.
+    pub(crate) const NONE: Self = Self(Vec2::ZERO);
+
+    /// How far it came since the frame before, and nothing where no drag is
+    /// running — which is also where the travel is cleared.
+    ///
+    /// A caller that has to tell a drag of no distance from no drag at all
+    /// reads the [`Drag`] itself: both answer nought here.
+    pub(crate) fn step(&mut self, drag: Drag) -> Vec2 {
+        let (Drag::Started { delta } | Drag::Active { delta }) = drag else {
+            self.0 = Vec2::ZERO;
+            return Vec2::ZERO;
+        };
+        let step = delta - self.0;
+        self.0 = delta;
+        step
+    }
+}
 
 /// What the viewport is recorded under.
 ///

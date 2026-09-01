@@ -377,6 +377,27 @@ pub(crate) enum Broken {
     Unrounded,
 }
 
+/// How many steps came to each kind of trouble — see [`Models::faults`].
+///
+/// A record rather than three numbers handed back loose: all three are counts
+/// of steps, and nothing about a number says which fault it counts.
+///
+/// **Counted apart because a person acts on the difference.** Each is mended
+/// its own way — see [`Broken`], where that is argued — so a reader handed one
+/// total would have to go back to the recipe to find out what to do about it.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Faults {
+    /// Steps that lost what they were built on — see [`Broken::Footing`].
+    pub(crate) lost: usize,
+    /// Steps whose solid the kernel would not put into the model, so it stands
+    /// beside one — see [`Broken::Unmerged`] and [`Models::solids`], which is
+    /// where those solids end up.
+    pub(crate) unmerged: usize,
+    /// Steps whose blend the kernel would not put in — see
+    /// [`Broken::Unrounded`].
+    pub(crate) unrounded: usize,
+}
+
 /// Every sketch a document holds, as it currently stands.
 ///
 /// The plural of [`Model`], and what anything drawing or pruning a *document*
@@ -674,14 +695,7 @@ impl<'a> Models<'a> {
         Some(self.timeline.drawn_on(self.open()?.of()))
     }
 
-    /// How many steps no longer know what they are built on.
-    ///
-    /// What a drawing can do to a feature standing downstream of it: a line
-    /// drawn across a region takes away the thing a sweep was built on, and
-    /// neither of the two regions that replaced it is what the name meant. A
-    /// rounding goes the same way where a face it picked stops answering. Said
-    /// as a count because that is what a reader can act on — which step went
-    /// wrong is a question for the timeline, which nothing shows yet.
+    /// How many of the steps currently built came to each kind of trouble.
     ///
     /// Here rather than on the build, though the build could count these on its
     /// own — every [`Bodied`](crate::build::bodied::Bodied) carries both the
@@ -689,38 +703,23 @@ impl<'a> Models<'a> {
     /// one of the readings that join the two: what a *reader* wants is the
     /// steps currently below the rollback bar, and only the timeline knows
     /// where that is.
-    pub(crate) fn lost(self) -> usize {
-        self.broken(Broken::Footing)
-    }
-
-    /// How many steps the kernel would not put into the model.
     ///
-    /// The other thing a step can come to — see [`Broken::Unmerged`], and
-    /// [`Models::solids`], which is where those solids end up. A count for the
-    /// same reason [`Models::lost`] is one, and told apart from it because a
-    /// person can act on the difference: a lost profile is the drawing having
-    /// moved under a step, and this is the kernel not being able to do what was
-    /// asked yet.
-    pub(crate) fn unmerged(self) -> usize {
-        self.broken(Broken::Unmerged)
-    }
-
-    /// How many blends the kernel would not put in.
-    ///
-    /// The third thing a step can come to — see [`Broken::Unrounded`]. Counted
-    /// apart from the two above on the terms they are counted apart from each
-    /// other: a person mends this one by scrubbing a reach down, which is
-    /// neither of the other two answers.
-    pub(crate) fn unrounded(self) -> usize {
-        self.broken(Broken::Unrounded)
-    }
-
-    /// How many of the steps currently built came to `trouble`.
-    fn broken(self, trouble: Broken) -> usize {
-        self.timeline
-            .making()
-            .filter(|step| self.broken_at(step.at) == Some(trouble))
-            .count()
+    /// **One walk for the three**, because the status line asks all of them
+    /// every frame and the walk is not free: each step of it is a `built`
+    /// check, a feature read and a binary search of the bodies. Counted one at
+    /// a time, the recipe is walked three times over to answer three numbers
+    /// about one pass of it.
+    pub(crate) fn faults(self) -> Faults {
+        let mut faults = Faults::default();
+        for step in self.timeline.making() {
+            match self.broken_at(step.at) {
+                Some(Broken::Footing) => faults.lost += 1,
+                Some(Broken::Unmerged) => faults.unmerged += 1,
+                Some(Broken::Unrounded) => faults.unrounded += 1,
+                None => {}
+            }
+        }
+        faults
     }
 
     /// Which version of the document these describe.
@@ -807,10 +806,10 @@ impl<'a> Models<'a> {
     /// [`Built::Unmerged`](crate::build::bodied::Built), which today is most
     /// often a body with a curved face
     /// in it, planar being as far as the boolean goes. Such a step's own solid
-    /// stands beside the model instead of in it, and [`Models::lost`] counts
-    /// it. Where every step merges this yields exactly one body; where none of
-    /// them can, it yields what the document showed before there were booleans
-    /// at all, which is one solid per sweep.
+    /// stands beside the model instead of in it, and [`Faults::unmerged`]
+    /// counts it. Where every step merges this yields exactly one body; where
+    /// none of them can, it yields what the document showed before there were
+    /// booleans at all, which is one solid per sweep.
     ///
     /// A [`Body`] is a thing the document holds where a prism was a reading of
     /// one: it is built once by [`Build::rebuild`](crate::build::Build) and

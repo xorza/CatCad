@@ -601,6 +601,7 @@ impl CatCad {
     /// over the drawing rather than into a log.
     fn status(&self) -> Status<'_> {
         let models = self.document.models(&self.build, self.session.editing());
+        let faults = models.faults();
         Status {
             solved: models.open().map(|model| {
                 let outcome = model.outcome();
@@ -611,9 +612,9 @@ impl CatCad {
                     redundant_constraints: outcome.redundant_constraints(),
                 }
             }),
-            lost: models.lost(),
-            unmerged: models.unmerged(),
-            unrounded: models.unrounded(),
+            lost: faults.lost,
+            unmerged: faults.unmerged,
+            unrounded: faults.unrounded,
             hovered: self.view.hovered(),
             reported: self.build.reported(),
             unsaved: self.filing.unsaved(self.document.edits()),

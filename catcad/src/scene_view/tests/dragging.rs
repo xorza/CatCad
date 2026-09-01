@@ -3,11 +3,13 @@
 
 use crate::demo;
 use crate::drawing::Grip;
+use crate::scene_view::Travelled;
 use crate::scene_view::aimed::Aimed;
 use crate::scene_view::tests::harness::{RaisedView, open_markers, unmoved};
 use crate::timeline::feature::Feature;
 use aperture::Motion;
 use glam::{DVec2, Vec2};
+use palantir::Drag;
 use silverpoint::Measurement;
 
 /// Pressing on something and moving takes it with the pointer, and leaves the
@@ -484,5 +486,57 @@ fn a_dimensions_number_is_pressed_and_carried_without_moving_what_it_measures() 
             .zip(&placed)
             .any(|(now, was)| now.distance(*was) > 1e-6),
         "the press found a number and carried none of them",
+    );
+}
+
+/// **A drag says how far it has come, and what is wanted is how far it came
+/// this frame.**
+///
+/// [`Travelled`] is what turns one into the other, and the part it exists for
+/// is the clearing: the second drag below begins where the first left off, so a
+/// travel left standing would answer its first frame as `(1, 1) − (5, 4)` and
+/// throw the picture backwards before settling.
+///
+/// The first frame of a drag is its whole delta and not a jump to be swallowed
+/// — the pointer really did travel that far before the drag latched.
+#[test]
+fn a_drag_answers_the_step_it_took_and_not_where_it_has_reached() {
+    let mut travelled = Travelled::NONE;
+    let at = |x, y| Vec2::new(x, y);
+
+    assert_eq!(
+        travelled.step(Drag::Started {
+            delta: at(3.0, 4.0)
+        }),
+        at(3.0, 4.0)
+    );
+    assert_eq!(
+        travelled.step(Drag::Active {
+            delta: at(5.0, 4.0)
+        }),
+        at(2.0, 0.0)
+    );
+    // Standing still is a step of nothing rather than no answer.
+    assert_eq!(
+        travelled.step(Drag::Active {
+            delta: at(5.0, 4.0)
+        }),
+        Vec2::ZERO
+    );
+    assert_eq!(travelled.step(Drag::Stopped), Vec2::ZERO);
+
+    // The second drag, begun a long way from where the first stopped.
+    assert_eq!(
+        travelled.step(Drag::Started {
+            delta: at(1.0, 1.0)
+        }),
+        at(1.0, 1.0)
+    );
+    assert_eq!(travelled.step(Drag::None), Vec2::ZERO);
+    assert_eq!(
+        travelled.step(Drag::Started {
+            delta: at(-2.0, 0.5)
+        }),
+        at(-2.0, 0.5)
     );
 }
