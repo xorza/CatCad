@@ -1612,12 +1612,21 @@ arcs is §7.5.
 
 **And it writes itself out.** A body leaves as ISO 10303-21, every surface as
 the analytic entity it is — plane, cylinder, cone, sphere and torus — and every
-curve the same, with the topology as `ADVANCED_FACE` over `EDGE_LOOP` over
-`EDGE_CURVE`. A cavity is a `BREP_WITH_VOIDS` and nothing is meshed. **Which is
-what §1's third requirement promised**: nothing downstream inherits an
-approximation, so a body whose curves were *walked* is refused rather than
-written with a spline fitted where the walk was, and the caller is told which it
-got. `Stepping::write` is the whole of it, and Ctrl+E in CatCad is the consumer.
+written-down curve the same, with the topology as `ADVANCED_FACE` over
+`EDGE_LOOP` over `EDGE_CURVE`. A cavity is a `BREP_WITH_VOIDS` and nothing is
+meshed. `Stepping::write` is the whole of it, and Ctrl+E in CatCad is the
+consumer.
+
+**A walked curve goes out as the polyline it is**, degree one through the very
+places the march laid down, with the file's own accuracy carrying the bound the
+body declares. That is §1's third requirement read the way it was meant: the
+file says what the body says, and no more. A smoother fit would read better and
+claim more.
+
+**And the same requirement refuses the other two.** The quartic and the saddle
+this kernel writes down *exactly*, so a spline through places sampled off either
+would add an error nothing measured. A body holding one is refused whole rather
+than quietly fitted.
 
 **What is not done, in the order §10's first rule puts it:**
 
@@ -1626,12 +1635,13 @@ got. `Stepping::write` is the whole of it, and Ctrl+E in CatCad is the consumer.
   goes there is a surface with a radius that moves — which is the NURBS the
   fitted tier is still waiting for, and the one thing left here that is blocked
   on a surface class rather than on a routine.
-- **A spline for the curves STEP has no entity for.** A body carrying one this
-  kernel *walked* — or the quartic a general pair of quadrics meets in — is
-  refused whole rather than written with a fit in place of the walk. What it
-  wants is a `B_SPLINE_CURVE_WITH_KNOTS` and the honesty to say the file is
-  fitted where the body already said it was. Every surface goes out analytic
-  today, the torus included, so this is curves alone.
+- **An entity for the two curves written down exactly that STEP cannot say.**
+  The quartic a general pair of quadrics meets in, and the saddle a cross
+  drilling leaves. Both are *exact* here, so a spline through places sampled off
+  one would add an error the body never carried — which is the one thing §1 says
+  nothing downstream may inherit. What it wants is a fit whose bound is measured
+  and then declared, so the file says how far it stands from the curve. Until
+  then a body holding one is refused whole, and told so.
 
 ---
 

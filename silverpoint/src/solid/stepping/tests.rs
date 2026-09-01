@@ -9,6 +9,8 @@ use super::*;
 use crate::math::plane::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
+use crate::solid::boolean::Boolean;
+use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::named::Step;
 use glam::{DVec2, DVec3};
@@ -136,73 +138,140 @@ fn every_real_is_written_the_way_the_format_reads_one() {
     }
 }
 
-/// **A curve the kernel walked has no entity to be**, so the body carrying one
-/// is refused whole rather than written with a spline fitted where the walk
-/// was — see `.notes/KERNEL.md` §1, which is the promise that would break.
+/// **A walked curve goes out as the polyline it is**, which is the one fit this
+/// export will make: a marched curve *is* a run of chords laid to a sagitta the
+/// body already declares, so writing it through those very places claims
+/// nothing the body did not.
 ///
 /// The body is a rod with a flat milled off its own axis and its base rim
 /// filleted: the blend's torus meets that flat in a quartic no exact route
 /// parameterizes, so each end of the run closes on an arc that was walked.
+///
+/// **And the file says how far it strays.** What a reader is told to weld by is
+/// the body's own bound rather than the machine's floor, which is what makes
+/// the polyline honest rather than merely small.
+///
+/// **A run is written once**, however many edges lie on it: a torus is four
+/// faces, so a curve across it is cut into several — and a polyline of hundreds
+/// of places repeated per edge would be a file many times the size for nothing.
 #[test]
-fn a_body_carrying_a_walked_curve_is_refused() {
+fn a_walked_curve_goes_out_as_the_polyline_it_is() {
+    let halved = halved();
+    assert!(halved.strays() > 0.0, "the cut left nothing walked");
+
+    let mut into = String::new();
+    assert!(
+        Stepping::default().write(&halved, "ring", &mut into),
+        "a body of walked curves was refused",
+    );
+    // Two ovals, and a run apiece. The torus is four faces (§4.4), so each oval
+    // is several edges — and a run of hundreds of places is written once and
+    // named by every edge on it, exactly as a vertex is.
+    let splines = count(&into, "B_SPLINE_CURVE_WITH_KNOTS");
+    assert_eq!(splines, 2, "one per curve the plane cut, not one per edge");
+    assert!(
+        count(&into, "EDGE_CURVE") > splines,
+        "more curves than edges, so nothing was written twice to no purpose",
+    );
+    assert!(
+        into.contains("B_SPLINE_CURVE_WITH_KNOTS('',1,("),
+        "the polyline was written at some other degree",
+    );
+    assert!(
+        into.contains(".POLYLINE_FORM."),
+        "the curve claims a form it was not fitted to",
+    );
+
+    // The file's own accuracy is what the body says it strays, not the floor a
+    // body of written-down curves would carry.
+    let mut floor = String::new();
+    real(&mut floor, halved.strays());
+    assert!(
+        into.contains(&format!("LENGTH_MEASURE({floor})")),
+        "the file claims an accuracy the body did not: {}",
+        into.lines()
+            .find(|line| line.contains("UNCERTAINTY"))
+            .unwrap_or_default(),
+    );
+}
+
+/// **The two curves this kernel writes down exactly have no entity**, and a
+/// spline through places sampled off one would add an error the body never
+/// carried. So a body holding one is refused whole.
+///
+/// A bar drilled across by a narrower hole, which leaves the quartic
+/// `Curve::Saddle` carries.
+#[test]
+fn a_body_carrying_a_curve_written_down_exactly_is_refused() {
     use crate::solid::boolean::Boolean;
     use crate::solid::boolean::operation::Operation;
-    use crate::solid::rounding::{Bevel, Round, Rounding};
 
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
-    sketch.add_circle(middle, 2.0);
-    let rod = Extrusion::new(&Arrangement::of(&sketch), &[0], Plane::GROUND, 3.0, SOLID).body();
-    let mut tool = Sketch::default();
-    tool.outline(&[(1.0, -4.0), (4.0, -4.0), (4.0, 4.0), (1.0, 4.0)]);
-    let flat = Extrusion::new(
-        &Arrangement::of(&tool),
+    sketch.add_circle(middle, 1.0);
+    let bar = Extrusion::new(&Arrangement::of(&sketch), &[0], Plane::GROUND, 4.0, SOLID).body();
+    let mut across = Sketch::default();
+    let at = across.add_point(DVec2::ZERO);
+    across.add_circle(at, 0.5);
+    let bore = Extrusion::new(
+        &Arrangement::of(&across),
         &[0],
         Plane {
-            origin: DVec3::new(0.0, -1.0, 0.0),
-            ..Plane::GROUND
+            origin: DVec3::new(0.0, 2.0, 2.0),
+            ..Plane::FRONT
         },
-        5.0,
+        -4.0,
         Step(2),
     )
     .body();
     let mut cut = Body::default();
     assert!(
-        Boolean::default().combine(&rod, &flat, Operation::Cut, &mut cut),
-        "milling a flat down a rod was refused",
+        Boolean::default().combine(&bar, &bore, Operation::Cut, &mut cut),
+        "cross drilling a bar was refused",
     );
-
-    let named = |wanted: fn(&Surface) -> bool| {
-        cut.topology()
-            .faces()
-            .find(|(_, face)| wanted(&face.surface))
-            .map(|(_, face)| face.name)
-            .expect("the flatted rod has the face asked for")
-    };
-    let along = [[
-        named(|surface| {
-            matches!(surface, Surface::Natural(Natural::Plane(plane))
-                if plane.origin.abs_diff_eq(DVec3::ZERO, 1e-9))
-        }),
-        named(|surface| matches!(surface, Surface::Natural(Natural::Cylinder(_)))),
-    ]];
-    let mut rounded = Body::default();
     assert!(
-        Rounding::default().round(
-            &Round::new(&along, 0.25, Bevel::Round, Step(3)),
-            &cut,
-            &mut rounded
-        ),
-        "a fillet down the broken rim was refused",
+        cut.topology()
+            .edges()
+            .any(|(_, edge)| matches!(edge.curve, Curve::Saddle(_))),
+        "the cross drilling left no saddle to refuse",
     );
-    assert!(rounded.strays() > 0.0, "the blend closed on nothing walked");
 
     let mut into = String::new();
     assert!(
-        !Stepping::default().write(&rounded, "rod", &mut into),
-        "a body of walked curves was written out",
+        !Stepping::default().write(&cut, "bar", &mut into),
+        "a body of exactly written curves with no entity was written out",
     );
     assert!(into.is_empty(), "a refusal left half a file behind");
+}
+
+/// Half a ring, cut by a plane that leans.
+///
+/// **The cheapest body with a walked curve in it.** A torus against a plane is
+/// a pair with a fitted half, so what they meet in is marched rather than
+/// written down — and a plane that leans is the one that neither the axis nor a
+/// square crossing answers exactly.
+fn halved() -> Body {
+    let ring = Body::ring(3.0, 1.0);
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)]);
+    let leaning = Extrusion::new(
+        &Arrangement::of(&sketch),
+        &[0],
+        Plane {
+            origin: DVec3::ZERO,
+            x: DVec3::new(1.0, -1.0, 0.0).normalize(),
+            y: DVec3::NEG_Z,
+        },
+        20.0,
+        Step(2),
+    )
+    .body();
+    let mut into = Body::default();
+    assert!(
+        Boolean::default().combine(&ring, &leaning, Operation::Intersect, &mut into),
+        "a ring halved by a leaning plane was refused",
+    );
+    into
 }
 
 /// **A torus goes out as a torus**, which is the whole of why the fitted tier
@@ -210,8 +279,7 @@ fn a_body_carrying_a_walked_curve_is_refused() {
 /// leaves as the surface it is rather than as a spline fitted to it.
 ///
 /// A rod with its whole base rim filleted. The rim closes, so nothing about it
-/// was walked and every curve is written down: three tube faces, and the arcs
-/// they are cut apart at.
+/// was walked and every curve is written down.
 #[test]
 fn a_filleted_rim_goes_out_as_the_torus_it_is() {
     use crate::solid::rounding::{Bevel, Round, Rounding};
@@ -247,9 +315,10 @@ fn a_filleted_rim_goes_out_as_the_torus_it_is() {
         2,
         "the rod's own two walls"
     );
-    assert!(
-        !into.contains("B_SPLINE"),
-        "something was fitted where an analytic entity would do",
+    assert_eq!(
+        count(&into, "B_SPLINE_CURVE_WITH_KNOTS"),
+        0,
+        "a rim that closes has nothing walked about it",
     );
 }
 

@@ -6,11 +6,13 @@
 //! to it. A cylinder leaves as a cylinder, and a reader on the other side gets
 //! the drawing rather than a rendering of it.
 //!
-//! **And it says where it stops.** A curve this kernel *walked* rather than
-//! wrote down has no analytic entity to be, and a spline fitted to it here
-//! would be the approximation §1 promises nothing downstream inherits. So a
-//! body carrying one is refused, and the caller is told rather than handed a
-//! file that quietly rounded — see [`Stepping::write`].
+//! **A curve this kernel walked goes out as the polyline it is.** A marched run
+//! is chords laid to a sagitta the body already declares, so writing it through
+//! those very places claims nothing more — and the file's own accuracy carries
+//! the bound. What is refused is the other way round: the two curves this
+//! kernel writes down *exactly* and STEP has no entity for, where any spline
+//! would add an error the body never carried. See [`Stepping::write`], and §1's
+//! third requirement, which is what both readings serve.
 //!
 //! Text into a caller's own `String`, the way every routine here writes into a
 //! caller's own body: this crate knows nothing about files, and a document
@@ -22,6 +24,7 @@ use glam::DVec3;
 
 use crate::number::tolerance::PLACED;
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
@@ -63,19 +66,31 @@ pub struct Stepping {
     /// vertex is an entity two edges point at rather than a place written twice.
     corners: Vec<u32>,
     edges: Vec<u32>,
+    /// The entity each marched run became, by run.
+    ///
+    /// **Written once and named by every edge on it**, which is what a vertex
+    /// already is here: a run is hundreds of places, and a torus cut by a plane
+    /// leaves several edges on the one curve — see `.notes/KERNEL.md` §4.4,
+    /// where the seams that split them are argued. Nothing indexes the analytic
+    /// curves the same way: those are a line apiece, and telling two of them
+    /// apart would want a map where this wants a slot.
+    walked: Vec<u32>,
     /// The last entity number handed out.
     last: u32,
-    /// What each list of an entity gathers before the entity that names them
-    /// can be written: a loop's oriented edges, a face's bounds, a shell's
-    /// faces and a lump's cavities.
+    /// What an entity's own list gathers before the entity that names it can
+    /// be written: a curve's places, a loop's oriented edges, a face's bounds,
+    /// a shell's faces and a lump's cavities.
+    ///
+    /// **One buffer and not five, because the five nest.** A shell writes its
+    /// faces, each of which writes its bounds, each of which writes its edges —
+    /// so every level takes the length as its mark, pushes above it and cuts
+    /// back to it. A stack is what that is, and five of them would be five
+    /// chances to gather into the wrong one.
     ///
     /// **Held rather than built per entity**, which is the whole of what this
     /// type is for — see [`Stepping::opened`], which makes the same argument
     /// about the entities themselves.
-    oriented: Vec<u32>,
-    bounded: Vec<u32>,
-    shelled: Vec<u32>,
-    voided: Vec<u32>,
+    gathered: Vec<u32>,
     /// Every solid of the body, which the shape representation names together.
     solids: Vec<u32>,
 }
@@ -101,6 +116,9 @@ impl Stepping {
         self.corners.resize(topology.vertex_slots(), 0);
         self.edges.clear();
         self.edges.resize(topology.edge_slots(), 0);
+        self.walked.clear();
+        self.walked
+            .resize(topology.carried().marched.len() as usize, 0);
         self.solids.clear();
         self.header(called, into);
         let context = self.preamble(called, body, into);
@@ -237,7 +255,7 @@ impl Stepping {
             shut(into);
             return made;
         }
-        self.voided.clear();
+        let from = self.gathered.len();
         for &shell in voids {
             let cavity = self.shell(topology, shell, into);
             // Turned over, which is what a cavity is: the same closed surface
@@ -245,29 +263,30 @@ impl Stepping {
             let turned = self.opened(into);
             let _ = write!(into, "ORIENTED_CLOSED_SHELL('',*,#{cavity},.F.)");
             shut(into);
-            self.voided.push(turned);
+            self.gathered.push(turned);
         }
         let made = self.opened(into);
         let _ = write!(into, "BREP_WITH_VOIDS('',#{held},(");
-        listed(into, &self.voided);
+        listed(into, &self.gathered[from..]);
         into.push_str("))");
         shut(into);
+        self.gathered.truncate(from);
         made
     }
 
     /// One closed shell, and every face on it.
     fn shell(&mut self, topology: &Topology, shell: ShellId, into: &mut String) -> u32 {
-        let from = self.shelled.len();
+        let from = self.gathered.len();
         for &face in topology.faces_of(shell) {
             let made = self.face(topology, face, into);
-            self.shelled.push(made);
+            self.gathered.push(made);
         }
         let held = self.opened(into);
         into.push_str("CLOSED_SHELL('',(");
-        listed(into, &self.shelled[from..]);
+        listed(into, &self.gathered[from..]);
         into.push_str("))");
         shut(into);
-        self.shelled.truncate(from);
+        self.gathered.truncate(from);
         held
     }
 
@@ -280,7 +299,7 @@ impl Stepping {
     fn face(&mut self, topology: &Topology, at: FaceId, into: &mut String) -> u32 {
         let face = topology.face(at);
         let surface = self.surface(&face.surface, into);
-        let from = self.bounded.len();
+        let from = self.gathered.len();
         for (which, walk) in topology.loops_of(face).enumerate() {
             let held = self.walk(topology, walk, into);
             let bound = self.opened(into);
@@ -290,20 +309,20 @@ impl Stepping {
             };
             let _ = write!(into, "{kind}('',#{held},.T.)");
             shut(into);
-            self.bounded.push(bound);
+            self.gathered.push(bound);
         }
         let made = self.opened(into);
         into.push_str("ADVANCED_FACE('',(");
-        listed(into, &self.bounded[from..]);
+        listed(into, &self.gathered[from..]);
         let _ = write!(into, "),#{surface},{})", flag(face.outward));
         shut(into);
-        self.bounded.truncate(from);
+        self.gathered.truncate(from);
         made
     }
 
     /// One loop of one face, as the edges it walks and which way it takes each.
     fn walk(&mut self, topology: &Topology, walk: &[Coedge], into: &mut String) -> u32 {
-        let from = self.oriented.len();
+        let from = self.gathered.len();
         for coedge in walk {
             let edge = self.edge(topology, coedge.edge, into);
             let held = self.opened(into);
@@ -313,14 +332,14 @@ impl Stepping {
                 flag(coedge.forward)
             );
             shut(into);
-            self.oriented.push(held);
+            self.gathered.push(held);
         }
         let made = self.opened(into);
         into.push_str("EDGE_LOOP('',(");
-        listed(into, &self.oriented[from..]);
+        listed(into, &self.gathered[from..]);
         into.push_str("))");
         shut(into);
-        self.oriented.truncate(from);
+        self.gathered.truncate(from);
         made
     }
 
@@ -336,7 +355,7 @@ impl Stepping {
         }
         let edge = topology.edge(at);
         let ends = [edge.from, edge.to].map(|end| self.corner(topology, end, into));
-        let curve = self.curve(&edge.curve, into);
+        let curve = self.curve(&edge.curve, topology.carried(), into);
         let made = self.opened(into);
         let _ = write!(
             into,
@@ -404,7 +423,7 @@ impl Stepping {
     ///
     /// Every arm a body that reached here can hold: the three it cannot are
     /// what [`analytic`] turned away before a line was written.
-    fn curve(&mut self, of: &Curve, into: &mut String) -> u32 {
+    fn curve(&mut self, of: &Curve, carried: &Carried, into: &mut String) -> u32 {
         match of {
             Curve::Line(line) => {
                 let from = self.point(line.origin, into);
@@ -433,10 +452,63 @@ impl Stepping {
                 let placed = self.placement(of.axis, into);
                 self.wrote(into, "PARABOLA", placed, &[of.focal])
             }
-            Curve::Saddle(_) | Curve::Marched(_) | Curve::Quartic(_) => {
+            Curve::Marched(of) => self.marched(of.run, carried, into),
+            Curve::Saddle(_) | Curve::Quartic(_) => {
                 unreachable!("a body carrying a curve with no entity was turned away")
             }
         }
+    }
+
+    /// One walked curve, as the run of places it already is.
+    ///
+    /// **Degree one, which is what makes this honest.** A marched curve *is* a
+    /// run of chords, laid down to a sagitta the body already declares — see
+    /// [`Strayed::most`](crate::solid::geometry::marchings::Strayed). Written
+    /// through those very places as a polyline, the file says what the body
+    /// says and no more. A smoother fit would read better and claim more: it
+    /// would add an error nothing measured, where §1's third requirement is
+    /// that nothing downstream inherits an approximation this kernel did not
+    /// already declare. What declares this one is the file's own
+    /// `UNCERTAINTY_MEASURE_WITH_UNIT`, which carries what the body strays.
+    ///
+    /// **The whole run, trimmed by the vertices**, exactly as a circle is: an
+    /// edge takes a stretch of the curve it lies on, and which stretch is what
+    /// its two ends and its sense say.
+    fn marched(&mut self, run: u32, carried: &Carried, into: &mut String) -> u32 {
+        if self.walked[run as usize] != 0 {
+            return self.walked[run as usize];
+        }
+        let from = self.gathered.len();
+        for (_, at) in carried.marched.sampled(run) {
+            let place = self.point(at, into);
+            self.gathered.push(place);
+        }
+        let held = self.gathered.len() - from;
+        // A walk lays its own start down again where it closed, so a run is
+        // three places at the very least — see `Marching::walk`. Two would give
+        // a knot vector the multiplicities below do not spell.
+        debug_assert!(held > 1, "a marched run of {held} places has no chord");
+        let made = self.opened(into);
+        into.push_str("B_SPLINE_CURVE_WITH_KNOTS('',1,(");
+        listed(into, &self.gathered[from..]);
+        // A polyline that closes, whose knots are the places counted off and
+        // whose ends are doubled — the one knot vector a degree of one takes.
+        into.push_str("),.POLYLINE_FORM.,.T.,.U.,(2");
+        for _ in 2..held {
+            into.push_str(",1");
+        }
+        into.push_str(",2),(");
+        for at in 0..held {
+            if at > 0 {
+                into.push(',');
+            }
+            real(into, at as f64);
+        }
+        into.push_str("),.UNSPECIFIED.)");
+        shut(into);
+        self.gathered.truncate(from);
+        self.walked[run as usize] = made;
+        made
     }
 
     /// An entity that is a placement and a run of numbers, which most of the
@@ -532,16 +604,19 @@ fn quoted(into: &mut String, of: &str) {
 ///
 /// **Asked of the curves and not of the surfaces**, because the surfaces all
 /// pass: STEP carries a torus as readily as a plane, so this kernel's own
-/// fitted *tier* is no bar. What has no entity is a curve that was walked or
-/// written as a quartic, and a body holding one is refused whole rather than
-/// written with a gap in it.
+/// fitted *tier* is no bar.
+///
+/// **And a walked curve passes too**, written as the polyline it is — see
+/// [`Stepping::marched`]. What is left are the two this kernel writes down
+/// *exactly*: the quartic a general pair of quadrics meets in, and the saddle a
+/// cross drilling leaves. Neither has an entity, and a spline through places
+/// sampled off one would add an error the body never carried — which is the one
+/// thing §1 says nothing downstream may inherit. So they are refused, and a
+/// caller is told rather than handed a file that quietly fitted.
 fn analytic(topology: &Topology) -> bool {
-    topology.edges().all(|(_, edge)| {
-        !matches!(
-            edge.curve,
-            Curve::Saddle(_) | Curve::Marched(_) | Curve::Quartic(_)
-        )
-    })
+    topology
+        .edges()
+        .all(|(_, edge)| !matches!(edge.curve, Curve::Saddle(_) | Curve::Quartic(_)))
 }
 
 /// A boolean as the format spells one.
