@@ -87,13 +87,6 @@ mod tests {
         round * angle.cos() + up * angle.sin()
     }
 
-    /// Least first, so an answer given in no order can be held against one
-    /// written down.
-    fn sorted<const N: usize>(mut found: Inline<f64, N>) -> Inline<f64, N> {
-        found.all_mut().sort_by(f64::total_cmp);
-        found
-    }
-
     /// **A crossing answers two angles and a graze answers one.**
     ///
     /// `cos ψ` takes nought at `±π/2` and takes one at nought alone, which is
@@ -109,29 +102,29 @@ mod tests {
     #[test]
     fn a_graze_is_one_angle_where_a_crossing_is_two() {
         assert_eq!(
-            sorted(angles(1.0, 0.0, 0.0)).all(),
+            angles(1.0, 0.0, 0.0).sorted().all(),
             [-FRAC_PI_2, FRAC_PI_2],
             "cos is nought a quarter turn either side of nought",
         );
         assert_eq!(
-            sorted(angles(1.0, 0.0, 1.0)).all(),
+            angles(1.0, 0.0, 1.0).sorted().all(),
             [0.0],
             "cos is one once"
         );
         assert_eq!(
-            sorted(angles(1.0, 0.0, -1.0)).all(),
+            angles(1.0, 0.0, -1.0).sorted().all(),
             [PI],
             "cos is less one once"
         );
 
         let bearing = 4.0_f64.atan2(3.0);
         assert_eq!(
-            sorted(angles(3.0, 4.0, 5.0)).all(),
+            angles(3.0, 4.0, 5.0).sorted().all(),
             [bearing],
             "the top is one"
         );
         assert_eq!(
-            sorted(angles(3.0, 4.0, -5.0)).all(),
+            angles(3.0, 4.0, -5.0).sorted().all(),
             [bearing + PI],
             "the bottom is one",
         );
@@ -173,7 +166,7 @@ mod tests {
     #[test]
     fn a_run_holds_its_near_end_whichever_way_it_runs() {
         fn held(named: &str, found: Inline<f64, 2>, want: &[f64]) {
-            let found = sorted(found);
+            let found = found.sorted();
             let all = found.all();
             assert_eq!(all.len(), want.len(), "{named}: {all:?} against {want:?}");
             for (&at, &to) in all.iter().zip(want) {

@@ -588,13 +588,8 @@ impl Splitting {
         self.order.clear();
         self.order.extend(0..self.chains.len());
         let chains = &self.chains;
-        self.order.sort_by(|&a, &b| {
-            chains
-                .by(a)
-                .entered
-                .partial_cmp(&chains.by(b).entered)
-                .expect("finite")
-        });
+        self.order
+            .sort_by(|&a, &b| chains.by(a).entered.total_cmp(&chains.by(b).entered));
         self.taken.clear();
         self.taken.resize(self.chains.len(), false);
 

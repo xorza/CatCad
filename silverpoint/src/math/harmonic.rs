@@ -71,8 +71,7 @@ pub(crate) fn angles(readings: [f64; READINGS], from: f64) -> Inline<f64, 6> {
     for at in roots(straightened(round, up)) {
         found.push(branch::nearest(cut + 2.0 * at.atan(), 0.0));
     }
-    found.all_mut().sort_by(f64::total_cmp);
-    found
+    found.sorted()
 }
 
 /// The two halves of `(1 + ix)²`, real and imaginary — low order first.

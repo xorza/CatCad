@@ -162,9 +162,7 @@ fn wound(loop_: &[DVec2], counterclockwise: bool, corners: &mut Vec<DVec2>, into
 fn rightmost(corners: &[DVec2], loop_: &[u32]) -> Option<usize> {
     (0..loop_.len()).max_by(|&a, &b| {
         let across = |at: usize| corners[loop_[at] as usize].x;
-        across(a)
-            .partial_cmp(&across(b))
-            .expect("corner coordinates are finite")
+        across(a).total_cmp(&across(b))
     })
 }
 
@@ -329,11 +327,7 @@ fn clip(
             // makes progress and keeps the loop shrinking, where giving up would
             // hand back a hole in the drawing.
             None => (0..contour.len())
-                .min_by(|&a, &b| {
-                    turn(corners, contour, a)
-                        .partial_cmp(&turn(corners, contour, b))
-                        .expect("corner coordinates are finite")
-                })
+                .min_by(|&a, &b| turn(corners, contour, a).total_cmp(&turn(corners, contour, b)))
                 .expect("a contour of four or more has a corner"),
         };
         // One place a corner leaves from, ear or guess alike — because what

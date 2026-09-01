@@ -640,7 +640,7 @@ impl Meeting {
     /// in — `r·a = cos α` for either of them and `r·r' = cos 2α` between them —
     /// which is `|along|·sin²α`.
     fn parabola(plane: &Plane, cone: &Cone, met: DVec3, along: f64, free: DVec3) -> Self {
-        let vertex = cone.axis.origin + met * along;
+        let vertex = cone.apex() + met * along;
         let opening = free * along.signum();
         let focal = along.abs() * cone.half_angle.sin().powi(2);
         Self::Along(Curves::one(Curve::Parabola(Parabola {

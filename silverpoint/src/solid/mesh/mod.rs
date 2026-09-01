@@ -98,6 +98,7 @@ impl Mesher {
     /// carries comes back empty rather than wrong: there is nothing to cut, and
     /// answering with nothing is what that means.
     pub fn cut(&mut self, of: &Body, named: Named, sagitta: f64, into: &mut Patch) {
+        assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         into.clear();
         for (_, face) in of.patches(named) {
             self.patch(of.topology(), face, sagitta, into);

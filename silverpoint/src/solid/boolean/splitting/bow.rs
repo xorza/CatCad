@@ -205,17 +205,17 @@ impl Bow {
         for turn in self.turning(from, to) {
             fences.push(turn);
         }
-        let fences = sorted(fences.all_mut());
+        let fences = fences.sorted();
         // The derivative's own roots, which are where the difference turns.
         let mut turns: Inline<f64, 8> = Inline::two(0.0, 1.0);
-        for pair in fences.windows(2) {
+        for pair in fences.all().windows(2) {
             if let Some(root) = bisect::root(pair[0], pair[1], slope) {
                 turns.push(root);
             }
         }
-        let turns = sorted(turns.all_mut());
+        let turns = turns.sorted();
         let mut bowed = Bowed::none();
-        for pair in turns.windows(2) {
+        for pair in turns.all().windows(2) {
             let Some(root) = bisect::root(pair[0], pair[1], at) else {
                 continue;
             };
@@ -366,12 +366,6 @@ fn unwound(turn: f64) -> f64 {
     } else {
         2.0 * turn.signum() - turn.sin()
     }
-}
-
-/// The places in `of`, in order.
-fn sorted(of: &mut [f64]) -> &[f64] {
-    of.sort_by(f64::total_cmp);
-    of
 }
 
 #[cfg(test)]

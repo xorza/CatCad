@@ -322,7 +322,7 @@ impl Natural {
     pub(crate) fn singular(&self, at: DVec3) -> bool {
         match self {
             Self::Plane(_) | Self::Cylinder(_) => false,
-            Self::Cone(cone) => at.approx_eq(cone.axis.origin, PLACED),
+            Self::Cone(cone) => at.approx_eq(cone.apex(), PLACED),
             // On the axis, which for a sphere is the two poles and nowhere
             // else, the centre not being on the surface.
             Self::Sphere(sphere) => predicate::touching(sphere.axis.off(at), PLACED),

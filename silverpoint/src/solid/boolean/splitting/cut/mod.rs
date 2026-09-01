@@ -982,7 +982,7 @@ fn flared(cone: Cone, on: Axis, at: DVec3, laid: Bounds<DVec2>, run: Option<u32>
         level: normal.dot(cone.axis.direction),
         swing: cone.half_angle.tan() * out.length(),
         phase: cone.axis.bearing(out),
-        apart: (on.origin - cone.axis.origin).dot(normal),
+        apart: (on.origin - cone.apex()).dot(normal),
         upward: cone.axis.along(at) > 0.0,
         under: true,
         reach: laid.low.y.abs().max(laid.high.y.abs()),

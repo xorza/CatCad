@@ -136,7 +136,7 @@ impl Quadric {
                         y.clone() * z.clone(),
                         z.clone() * z.clone() - narrow,
                     ],
-                    cone.axis.origin,
+                    cone.apex(),
                     Rational::ZERO,
                 )
             }

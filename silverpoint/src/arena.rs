@@ -193,7 +193,7 @@ impl<T> Arena<T> {
     /// the walk having to end before the removing starts: a caller sweeping out
     /// whatever matches would otherwise collect the handles first, because the
     /// iteration borrows what the removal writes.
-    pub(crate) fn retain(&mut self, keep: impl Fn(&T) -> bool) {
+    pub(crate) fn retain(&mut self, mut keep: impl FnMut(&T) -> bool) {
         for slot in 0..self.slots.len() {
             if self.slots[slot]
                 .value

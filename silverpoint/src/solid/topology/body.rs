@@ -251,9 +251,10 @@ pub(crate) mod internals {
         /// Here rather than beside the body because an *operation* checks its
         /// own output through a [`Checking`] it keeps — see
         /// [`Builder`](crate::Builder), which runs the same checks over the
-        /// body it just filled, guarded by `cfg!(debug_assertions)` so a
-        /// release build pays nothing. What this is for is a test holding a
-        /// body it has taken apart by hand.
+        /// body it just filled. What a shipped rebuild pays for them is
+        /// nothing, which [`Checking::run`] settles for every caller at once.
+        /// What this is for is a test holding a body it has taken apart by
+        /// hand.
         pub(crate) fn check(&self) {
             Checking::default().run(self);
         }

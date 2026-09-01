@@ -451,9 +451,7 @@ impl Rounding {
         self.mint(from, into);
         self.write(from, into);
         self.gather(from, into);
-        if cfg!(debug_assertions) {
-            self.checking.run(into);
-        }
+        self.checking.run(into);
         true
     }
 

@@ -54,7 +54,21 @@ impl Checking {
     /// In the order a failure is most usefully reported: structure before
     /// geometry, because a geometric complaint about a body whose loops do not
     /// close says nothing about the geometry.
+    ///
+    /// **Nothing at all in a release build that is not a test build**, the
+    /// whole of it being a walk of every loop of every face and a mesh of the
+    /// body besides — which no shipped rebuild should pay for. The guard is
+    /// here rather than at each of the four operations that ask, so that none
+    /// of them can pay for the checking by forgetting it.
+    ///
+    /// **A test build checks whatever profile it was built at.** What holds
+    /// these checks to their own word is a body taken apart by hand — see
+    /// `Body::check` — and a run at `--release` that quietly checked nothing
+    /// would pass every one of those for the wrong reason.
     pub(crate) fn run(&mut self, body: &Body) {
+        if !cfg!(debug_assertions) && !cfg!(test) {
+            return;
+        }
         let topology = body.topology();
         self.loops_close(topology);
         self.edges_are_used_twice(topology);

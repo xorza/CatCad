@@ -222,9 +222,7 @@ impl Builder {
     /// Which is what a feature with nothing to raise hands back — see
     /// [`Builder::extrude`].
     fn check(&mut self, into: &Body) {
-        if cfg!(debug_assertions) {
-            self.checking.run(into);
-        }
+        self.checking.run(into);
     }
 
     /// One of the two ends: the region itself, lying flat.

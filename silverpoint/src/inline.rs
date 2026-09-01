@@ -82,6 +82,19 @@ impl<T: Copy + Default, const N: usize> Inline<T, N> {
     }
 }
 
+impl<const N: usize> Inline<f64, N> {
+    /// The same ones, least first.
+    ///
+    /// **[`f64::total_cmp`] and never a partial comparison**, which is what
+    /// makes this a sort rather than a panic waiting for a reading that came
+    /// out nought over nought: the total order agrees with `<` wherever `<`
+    /// answers, and orders the rest rather than refusing to.
+    pub(crate) fn sorted(mut self) -> Self {
+        self.all_mut().sort_by(f64::total_cmp);
+        self
+    }
+}
+
 // Over what is held and not over the slots standing in for what is not. The
 // derive would compare the whole array, so two answers that carry one place
 // would read as different for having filled their spare slot differently.

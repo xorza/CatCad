@@ -60,6 +60,16 @@ impl Cone {
         })
     }
 
+    /// The point the surface closes to.
+    ///
+    /// Named, because [`Axis::origin`] is where it is kept and not what it is
+    /// called — a reader of `cone.axis.origin` has to know that a cone's frame
+    /// is hung off its apex before the line means anything. The same reading
+    /// [`Sphere::centre`](super::sphere::Sphere::centre) is for a sphere.
+    pub(crate) fn apex(&self) -> DVec3 {
+        self.axis.origin
+    }
+
     /// Where the parameters `uv` land: `u` radians round, `v` from the apex.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
         let radius = uv.y * self.half_angle.tan();

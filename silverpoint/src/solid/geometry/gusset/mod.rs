@@ -244,8 +244,7 @@ impl Gusset {
                 found.push(along);
             }
         }
-        found.all_mut().sort_by(f64::total_cmp);
-        found
+        found.sorted()
     }
 
     /// The ruling the fillet's angle `angle` carries, and how fast its two ends

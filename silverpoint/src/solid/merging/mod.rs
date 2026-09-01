@@ -122,9 +122,7 @@ impl Merging {
         // the copy is argued.
         self.carried.take_from(of.carried());
         into.topology_mut().trade_curves(&mut self.carried);
-        if cfg!(debug_assertions) {
-            self.checking.run(into);
-        }
+        self.checking.run(into);
     }
 
     /// Lay every coedge of the body end to end, and note where each edge is

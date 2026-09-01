@@ -103,11 +103,7 @@ impl<T, By> Loops<T, By> {
         for run in runs.iter_mut() {
             run.key = key(run.of(items));
         }
-        runs.sort_by(|a, b| {
-            b.key
-                .partial_cmp(&a.key)
-                .expect("a key measured over finite items is finite")
-        });
+        runs.sort_by(|a, b| b.key.total_cmp(&a.key));
     }
 }
 

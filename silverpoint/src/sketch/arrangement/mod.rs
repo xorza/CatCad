@@ -282,12 +282,9 @@ impl Arrangement {
         self.scratch.tightest.clear();
         self.scratch.tightest.extend(0..self.faces_filled);
         let faces = &self.faces;
-        self.scratch.tightest.sort_by(|&a, &b| {
-            faces[a]
-                .area
-                .partial_cmp(&faces[b].area)
-                .expect("an area computed from finite corners is finite")
-        });
+        self.scratch
+            .tightest
+            .sort_by(|&a, &b| faces[a].area.total_cmp(&faces[b].area));
 
         // Decided and placed one at a time, which is safe because placing
         // changes nothing the deciding reads: an owner is found by casting a ray

@@ -326,9 +326,7 @@ impl Sewing {
             into.clear();
             return false;
         }
-        if cfg!(debug_assertions) {
-            self.scratch.checking.run(into);
-        }
+        self.scratch.checking.run(into);
         true
     }
 
@@ -421,11 +419,9 @@ impl Sewing {
     /// of the two the body ends up standing on was arbitrary before.
     fn fold(&mut self) {
         self.scratch.pinned.sort_unstable_by(|one, two| {
-            one.curve.cmp(&two.curve).then_with(|| {
-                one.along
-                    .partial_cmp(&two.along)
-                    .expect("a parameter is finite")
-            })
+            one.curve
+                .cmp(&two.curve)
+                .then_with(|| one.along.total_cmp(&two.along))
         });
         let (mut kept, mut group) = (0, 0);
         for at in 0..self.scratch.pinned.len() {
@@ -493,11 +489,7 @@ impl Sewing {
         }
         // Lifting turns the order the places arrived in, which was the curve's
         // own, into that order begun somewhere else along it.
-        around.sort_by(|one, two| {
-            one.along
-                .partial_cmp(&two.along)
-                .expect("an angle is finite")
-        });
+        around.sort_by(|one, two| one.along.total_cmp(&two.along));
         if to < from {
             around.reverse();
         }

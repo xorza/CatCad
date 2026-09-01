@@ -108,7 +108,7 @@ impl<const N: usize> Polynomial<N> {
             }
         }
         fence.push(reach);
-        fence.all_mut().sort_by(f64::total_cmp);
+        let fence = fence.sorted();
         let mut found = Inline::none();
         for pair in fence.all().windows(2) {
             if let Some(root) = bisect::root(pair[0], pair[1], |x| self.at(x)) {

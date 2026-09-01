@@ -53,11 +53,9 @@ impl Departures {
         // compared only where the corners already match, which is exactly the
         // comparison a fan of its own would have made.
         leaving.sort_by(|a, b| {
-            a.corner.cmp(&b.corner).then_with(|| {
-                a.angle
-                    .partial_cmp(&b.angle)
-                    .expect("a direction between finite corners is finite")
-            })
+            a.corner
+                .cmp(&b.corner)
+                .then_with(|| a.angle.total_cmp(&b.angle))
         });
 
         // Where each corner's fan begins, by counting what landed in it and

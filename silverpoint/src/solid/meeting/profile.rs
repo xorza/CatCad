@@ -73,7 +73,7 @@ impl Profile {
                 })
             }
             Surface::Natural(Natural::Cone(cone)) => spun(cone.axis).then(|| Self::Vee {
-                apex: DVec2::new(0.0, axis.along(cone.axis.origin)),
+                apex: DVec2::new(0.0, axis.along(cone.apex())),
                 slope: cone.half_angle.tan(),
             }),
             Surface::Fitted(Fitted::Torus(torus)) => spun(torus.axis).then_some(Self::Round {

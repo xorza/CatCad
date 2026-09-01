@@ -1074,7 +1074,7 @@ fn a_chamfer_down_a_rim_is_a_cone_and_stays_exact() {
                 .origin
                 .abs_diff_eq(Plane::GROUND.normal() * -(radius - reach), PLACED),
             "the cone's apex stands at {}",
-            cone.axis.origin,
+            cone.apex(),
         );
     }
 

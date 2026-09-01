@@ -74,12 +74,7 @@ impl Curves {
                 .enumerate()
                 .map(|(at, (ring, _))| Reach::ring(at, *ring)),
         );
-        sweep.sort_by(|a, b| {
-            a.low
-                .x
-                .partial_cmp(&b.low.x)
-                .expect("a curve of the sketch reaches somewhere finite")
-        });
+        sweep.sort_by(|a, b| a.low.x.total_cmp(&b.low.x));
     }
 
     /// Every place a curve should be cut: the ends of the straight ones, and
@@ -191,7 +186,7 @@ impl Curves {
                     nearest.approx_eq(corner, PLACED).then_some((t, at))
                 }),
             );
-            on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("parameters are finite"));
+            on.sort_by(|a, b| a.0.total_cmp(&b.0));
             for pair in on.windows(2) {
                 if pair[0].1 != pair[1].1 {
                     edges.push(Edge {
@@ -225,7 +220,7 @@ impl Curves {
                         .then(|| (out.y.atan2(out.x).rem_euclid(TAU), at))
                 }),
             );
-            on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("angles are finite"));
+            on.sort_by(|a, b| a.0.total_cmp(&b.0));
             if on.is_empty() {
                 // Nothing crosses it, so it is its own loop — and a loop needs
                 // a corner to start from, whichever one it is.
@@ -290,11 +285,7 @@ impl Curves {
 /// finds the corners a curve could touch by searching it rather than by walking
 /// the lot. Sorting here is what pays for that as well as for the fold.
 fn fold(corners: &mut Vec<Crossing>) {
-    corners.sort_by(|a, b| {
-        a.at.x
-            .partial_cmp(&b.at.x)
-            .expect("a crossing of finite curves is finite")
-    });
+    corners.sort_by(|a, b| a.at.x.total_cmp(&b.at.x));
     let mut kept = 0;
     for at in 0..corners.len() {
         let candidate = corners[at];

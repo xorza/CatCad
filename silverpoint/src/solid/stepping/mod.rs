@@ -113,7 +113,7 @@ impl Stepping {
     /// is declared: the file's own accuracy is the widest of what the body
     /// strays, what this chorded, and the tolerance the kernel works to.
     pub fn write(&mut self, body: &Body, called: &str, sagitta: f64, into: &mut String) {
-        debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
+        assert!(sagitta > 0.0, "a sagitta of {sagitta} chords nothing");
         into.clear();
         let topology = body.topology();
         self.last = 0;
