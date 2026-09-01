@@ -253,17 +253,18 @@ rather than three meeting at seams. The bignum layer is commodity, and is
 
 ### 4.3 Tolerance lives on entities, not in a global constant
 
-Every vertex, edge and face carries a `tolerance: f64`.
+Every vertex and edge carries a `tolerance: f64`.
 
 - A **vertex** tolerance is the radius of a ball containing every curve end and
   surface corner the vertex stands for. Parasolid's sphere.
 - An **edge** tolerance is the radius of a tube containing the true intersection
   of its two faces' surfaces along it. Parasolid's tube.
-- A **face** tolerance is zero — the surface is exact, in both tiers. Only
-  curves and points are ever fitted.
+- A **face** carries none: its tolerance is zero, the surface being exact in
+  both tiers. Only curves and points are ever fitted, so the bottom rung is the
+  constant nought rather than a number stored per face.
 
 Invariant, asserted by the validity checker: at any point of the boundary,
-vertex tolerance ≥ edge tolerance ≥ face tolerance.
+vertex tolerance ≥ edge tolerance ≥ 0.
 
 *Why not a global epsilon:* it is what makes a small feature in a large model
 break, and it is the single most-cited failure mode in every kernel's
@@ -1050,7 +1051,7 @@ merges, it meshes, and it costs the heap nothing on the second call.
 - **Euler–Poincaré**: `V − E + F − R = 2(S − G)`, per shell;
 - every vertex within its own tolerance of the curve at the parameter its edge
   says it stands at, and every edge within its own of both faces' surfaces;
-- the tolerance ladder of §4.3, and a face's tolerance still zero;
+- the tolerance ladder of §4.3, down to the nought a face stands for;
 - an edge flagged smooth exactly when its two faces lie on one surface;
 - every lump shutting in material and every cavity the lack of it, measured
   through the mesher and read for its sign alone — the one break a shell turned

@@ -180,10 +180,7 @@ impl Meeting {
             // — and `.notes/KERNEL.md` §7.3 is where that route is argued.
             (one @ Surface::Natural(Natural::Cone(cone)), other)
             | (other, one @ Surface::Natural(Natural::Cone(cone))) => {
-                match Self::coaxial(one, other, cone.axis) {
-                    Self::Marched => Self::Algebraic,
-                    answered => answered,
-                }
+                Self::coaxial(one, other, cone.axis).unwrap_or(Self::Algebraic)
             }
         }
     }
@@ -203,14 +200,12 @@ impl Meeting {
     /// two after it.
     fn fitted(fitted: &Fitted, other: &Surface) -> Self {
         let Fitted::Torus(torus) = fitted;
-        let coaxial = Self::coaxial(&Surface::Fitted(*fitted), other, torus.axis);
-        if !matches!(coaxial, Self::Marched) {
-            return coaxial;
-        }
-        match other {
-            Surface::Natural(Natural::Plane(plane)) => Self::plane_torus(plane, torus),
-            _ => Self::Marched,
-        }
+        Self::coaxial(&Surface::Fitted(*fitted), other, torus.axis)
+            .or_else(|| match other {
+                Surface::Natural(Natural::Plane(plane)) => Self::plane_torus(plane, torus),
+                _ => None,
+            })
+            .unwrap_or(Self::Marched)
     }
 
     /// Two surfaces of revolution sharing an axis meet in circles about it.
@@ -222,17 +217,18 @@ impl Meeting {
     /// place. A plane square across and a cylinder about the axis are lines, a
     /// sphere on it and a torus are circles.
     ///
-    /// [`Meeting::Marched`] where either surface is not of this axis, which is
-    /// the caller's cue to try what else it has.
-    fn coaxial(one: &Surface, two: &Surface, axis: Axis) -> Self {
+    /// **`None` where this row has no answer** — either surface not of this
+    /// axis, or the two crossing in more circles than a meeting carries — which
+    /// is the caller's cue to try what else it has.
+    fn coaxial(one: &Surface, two: &Surface, axis: Axis) -> Option<Self> {
         let (Some(here), Some(there)) = (Profile::of(one, axis), Profile::of(two, axis)) else {
-            return Self::Marched;
+            return None;
         };
         // One curve spun twice is one surface, which a pair given the same
         // value is told by [`Meeting::of`] and a pair that worked one out
         // separately is told here.
         if here == there {
-            return Self::Same;
+            return Some(Self::Same);
         }
         let round = |at: DVec2| {
             Curve::Circle(Circle {
@@ -264,32 +260,35 @@ impl Meeting {
         let (first, second) = (round.next(), round.next());
         match (first, second, round.next()) {
             // More circles than a meeting carries, which a coaxial cone and
-            // torus genuinely make. Handed on rather than cut down — see
-            // [`Meeting::Marched`], which is what the caller does with it.
-            (Some(_), Some(_), Some(_)) => Self::Marched,
-            (Some(near), Some(far), None) => Self::Along(Curves::two(near, far)),
-            (Some(only), None, None) => Self::Along(Curves::one(only)),
-            _ => match crossings.all().iter().find(|at| at.x.abs() <= PLACED) {
-                Some(apex) => Self::Touching(axis.origin + axis.direction * apex.y),
-                None => Self::Apart,
-            },
+            // torus genuinely make. Handed back as no answer rather than cut
+            // down, so the caller falls through to whatever it keeps for a pair
+            // this row does not reduce.
+            (Some(_), Some(_), Some(_)) => None,
+            (Some(near), Some(far), None) => Some(Self::Along(Curves::two(near, far))),
+            (Some(only), None, None) => Some(Self::Along(Curves::one(only))),
+            _ => Some(
+                match crossings.all().iter().find(|at| at.x.abs() <= PLACED) {
+                    Some(apex) => Self::Touching(axis.origin + axis.direction * apex.y),
+                    None => Self::Apart,
+                },
+            ),
         }
     }
 
     /// A plane cuts a torus in circles two ways it is not square to the axis
-    /// for, and in a spiric quartic anywhere else.
+    /// for, and `None` anywhere else — the spiric quartic its caller marches.
     ///
     /// Through the axis is the one any table would have. The other is the one
     /// worth the table: a plane through the middle leaning at the angle that
     /// makes it tangent twice cuts a torus in *two* circles of the major
     /// radius, crossing at both tangencies — Villarceau's, and the case the
     /// spike found defeats subdivision and marching outright.
-    fn plane_torus(plane: &Plane, torus: &Torus) -> Self {
+    fn plane_torus(plane: &Plane, torus: &Torus) -> Option<Self> {
         let normal = plane.normal();
         let axis = torus.axis;
         // Through the middle, which both of the cases here need.
         if !predicate::touching((axis.origin - plane.origin).dot(normal).abs(), PLACED) {
-            return Self::Marched;
+            return None;
         }
         // Along the axis: the plane holds the tube's own circle at each of the
         // two angles it reaches, and those two are the whole meeting. Framed so
@@ -304,7 +303,10 @@ impl Meeting {
                     radius: torus.minor,
                 })
             };
-            return Self::Along(Curves::two(tube(out, -normal), tube(-out, normal)));
+            return Some(Self::Along(Curves::two(
+                tube(out, -normal),
+                tube(-out, normal),
+            )));
         }
         // Bitangent: the plane touches the tube at two places, and the lean
         // that makes it do so is `cos α = √(R² − r²)/R`. Both circles are the
@@ -312,7 +314,7 @@ impl Meeting {
         // way along the line the plane crosses the equator in.
         let lean = (torus.major * torus.major - torus.minor * torus.minor).sqrt() / torus.major;
         if !normal.dot(axis.direction).abs().approx_eq(lean, ALIGNED) {
-            return Self::Marched;
+            return None;
         }
         let along = normal.cross(axis.direction).normalize();
         let round = |way: f64| {
@@ -321,7 +323,7 @@ impl Meeting {
                 radius: torus.major,
             })
         };
-        Self::Along(Curves::two(round(1.0), round(-1.0)))
+        Some(Self::Along(Curves::two(round(1.0), round(-1.0))))
     }
 
     /// Two planes meet in a line, unless they are the same plane or never meet

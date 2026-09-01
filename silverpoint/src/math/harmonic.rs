@@ -15,8 +15,8 @@
 //! never a root and the polynomial never loses its degree.
 
 use crate::inline::Inline;
-use crate::math::bisect;
 use crate::math::branch;
+use crate::math::polynomial::Polynomial;
 use crate::math::quartic;
 use std::f64::consts::{PI, TAU};
 
@@ -81,7 +81,7 @@ const TWICE: [f64; 3] = [0.0, 2.0, 0.0];
 /// `1 + x²`, which is what the half-angle tangent divides by.
 const RAISED: [f64; 3] = [1.0, 0.0, 1.0];
 
-/// `(1 + x²)³` times the harmonic read at `2 arctan x`, low order first.
+/// `(1 + x²)³` times the harmonic read at `2 arctan x`.
 ///
 /// **Exact rather than fitted**, which is what the half-angle tangent buys:
 /// `e^{iu}` is `(1 + ix)²/(1 + x²)`, so `cos ku` and `sin ku` are the real and
@@ -93,96 +93,33 @@ const RAISED: [f64; 3] = [1.0, 0.0, 1.0];
 /// it by `w` leaves one running power of `q` to carry rather than a separate
 /// power for every order. What is carried is complex and what comes back is its
 /// real half, `cₖ` being `roundₖ − i·upₖ`.
-fn straightened(round: [f64; 4], up: [f64; 3]) -> [f64; 7] {
+fn straightened(round: [f64; 4], up: [f64; 3]) -> Polynomial<7> {
     let up = [0.0, up[0], up[1], up[2]];
-    let mut raised = [0.0; 7];
-    raised[0] = 1.0;
-    let (mut plain, mut times) = ([0.0; 7], [0.0; 7]);
-    plain[0] = round[3];
-    times[0] = -up[3];
+    let mut raised = Polynomial::constant(1.0);
+    let mut plain = Polynomial::constant(round[3]);
+    let mut times = Polynomial::constant(-up[3]);
     for order in (0..3).rev() {
-        raised = multiplied(raised, RAISED);
+        raised = raised.multiplied(RAISED);
         let (was, wast) = (plain, times);
-        plain = multiplied(was, SQUARE);
-        times = multiplied(wast, SQUARE);
-        let (across, along) = (multiplied(wast, TWICE), multiplied(was, TWICE));
-        for at in 0..plain.len() {
-            plain[at] += round[order] * raised[at] - across[at];
-            times[at] += along[at] - up[order] * raised[at];
-        }
+        plain = was.multiplied(SQUARE) + (raised * round[order] - wast.multiplied(TWICE));
+        times = wast.multiplied(SQUARE) + (was.multiplied(TWICE) - raised * up[order]);
     }
     plain
-}
-
-/// `of` times `by`, both low order first.
-///
-/// What runs off the top is nought, which every caller here holds to: a
-/// harmonic of degree three straightens to a sextic and no step of it reaches
-/// further.
-fn multiplied(of: [f64; 7], by: [f64; 3]) -> [f64; 7] {
-    let mut out = [0.0; 7];
-    for (at, one) in of.into_iter().enumerate() {
-        for (step, two) in by.into_iter().enumerate() {
-            match out.get_mut(at + step) {
-                Some(out) => *out += one * two,
-                None => debug_assert!(one * two == 0.0, "the product overruns a sextic"),
-            }
-        }
-    }
-    out
-}
-
-/// `of` differentiated, low order first.
-fn differentiated(of: [f64; 7]) -> [f64; 7] {
-    let mut out = [0.0; 7];
-    for (step, out) in out.iter_mut().take(6).enumerate() {
-        *out = of[step + 1] * (step + 1) as f64;
-    }
-    out
 }
 
 /// Where the sextic `of` is nought, in order.
 ///
 /// Fenced twice: its second derivative is a quartic, which
 /// [`quartic::roots`] isolates outright, and those fence the fifth degree,
-/// which fences the sixth.
-fn roots(of: [f64; 7]) -> Inline<f64, 6> {
-    // Cauchy's bound: every root stands within this of nought, so the two outer
-    // stretches have an end to bracket against. Gauss and Lucas put every root
-    // of a derivative inside the hull of the roots above it, so one bound holds
-    // for the whole chain.
-    let reach = 1.0 + of[..6].iter().fold(0.0f64, |at, one| at.max(one.abs())) / of[6].abs();
-    let first = differentiated(of);
-    let second = differentiated(first);
+/// which fences the sixth. One bound serves all three — see
+/// [`Polynomial::reach`].
+fn roots(of: Polynomial<7>) -> Inline<f64, 6> {
+    let reach = of.reach();
+    let first = of.differentiated();
+    let second = first.differentiated();
     let turns = quartic::roots(second[4], second[3], second[2], second[1], second[0]);
-    let bends: Inline<f64, 5> = fenced(first, turns.all(), reach);
-    fenced(of, bends.all(), reach)
-}
-
-/// Where `of` is nought between `−reach` and `reach`, fenced at `posts`.
-///
-/// Between two neighbouring roots of its derivative a polynomial only goes one
-/// way, so a stretch holds one root or none.
-///
-/// Five posts at most, which is what a quintic leaves the sextic above it —
-/// seven of them with the two ends counted in.
-fn fenced<const N: usize>(of: [f64; 7], posts: &[f64], reach: f64) -> Inline<f64, N> {
-    let mut fence = Inline::<f64, 7>::one(-reach);
-    for post in posts {
-        if *post > -reach && *post < reach {
-            fence.push(*post);
-        }
-    }
-    fence.push(reach);
-    fence.all_mut().sort_by(f64::total_cmp);
-    let at = |x: f64| of.iter().rev().fold(0.0, |sum, one| sum * x + one);
-    let mut found = Inline::none();
-    for pair in fence.all().windows(2) {
-        if let Some(root) = bisect::root(pair[0], pair[1], at) {
-            found.push(root);
-        }
-    }
-    found
+    let bends: Inline<f64, 5> = first.fenced(turns.all(), reach);
+    of.fenced(bends.all(), reach)
 }
 
 #[cfg(test)]

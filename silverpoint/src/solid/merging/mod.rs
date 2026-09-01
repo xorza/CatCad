@@ -288,7 +288,6 @@ impl Merging {
                     outward: face.outward,
                     loops: 0..0,
                     name: face.name,
-                    tolerance: face.tolerance,
                 }));
             }
             self.made[id.slot()] = self.made[at];
@@ -407,7 +406,7 @@ impl Merging {
         self.traced.clear();
         of.trace(self.laid.get(at), CHORDED, &mut self.traced);
         self.flat.clear();
-        face.flatten(&self.traced, None, &mut self.flat);
+        face.flatten(&self.traced, &mut None, &mut self.flat);
     }
 
     /// Gather the answer's faces into the shells and lumps the body had.

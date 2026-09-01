@@ -9,40 +9,8 @@ rewritten to fit a better production shape.
 
 Line numbers are as of the working tree at the time of the review.
 
-## 1. One rule, spelled at every call site
+## 1. Shapes a type states unevenly, so callers make up the difference
 
-Each is one statement about the geometry, written out at two or three callers.
-Each copy is a place for two of them to drift apart.
-
-- [ ] "Flatten the outline, take its middle, flatten each hole about that
-  middle" is written three times with the same `about` dance:
-  `solid/mesh/mod.rs:163` (`Mesher::patch`),
-  `solid/boolean/sounding/mod.rs:286` (`Sounding::about`),
-  `solid/boolean/combining.rs:716` (`Combining::lay`). `Face::flatten` documents
-  that a caller with more than one loop "owes" the `about` argument. Move the
-  rule onto `Face` as one call over all of a face's loops, so no caller can get
-  the second loop's branch wrong.
-- [ ] Root isolation by fence-and-bisect is written twice: inline in
-  `math/quartic.rs:36-55` and as the generic `fenced` in
-  `math/harmonic.rs:149-186`. Cauchy's bound is at `quartic.rs:38` and again at
-  `harmonic.rs:154`. `quartic::roots` should call the shared `fenced`, and the
-  polynomial helpers `differentiated`/`multiplied` in `harmonic.rs` belong with
-  the Horner closure in `quartic.rs` as one small polynomial module.
-
-## 2. Sentinel variants, constant fields and one-sided rules
-
-- [ ] `Meeting::Marched` means "walk it" to the boolean and means "not this
-  case" inside the table. `coaxial` returns it for "not coaxial"
-  (`solid/meeting/mod.rs:229`) and for "too many circles" (`:269`),
-  `plane_torus` returns it for "not a special plane" (`:292`, `:315`), `fitted`
-  tests `matches!(coaxial, Marched)` to fall through (`:207`), and the cone arm
-  rewrites `Marched` into `Algebraic` (`:184`). Make `coaxial` and `plane_torus`
-  return `Option<Meeting>` and let `Meeting::of` decide the fallback once.
-- [ ] `Face::tolerance` is stored on every face, set to `EXACT` or copied by
-  every writer, and asserted to be zero by the checker
-  (`solid/topology/validity.rs:511`). It is a constant carried per face. Remove
-  the field and the assert. The ladder still has `Edge::tolerance >= 0.0` as its
-  floor.
 - [ ] `Constraint::Tangent` multiplies its residual by the edge length and
   `standoff` divides by it (`sketch/constraint/mod.rs:474-510` against
   `:550-588`). The comment at `:489-494` says the two "want unifying once
@@ -59,17 +27,17 @@ Each copy is a place for two of them to drift apart.
   against `strides(reach, sagitta)`, `fills()` against `fills(boundary)`. So
   `Surface` dispatches with a different shape per tier
   (`solid/geometry/surface.rs:173-178`, `:299-312`). Give both tiers one
-  signature. Either land the second member (see group 4) or collapse `Fitted` to
+  signature. Either land the second member (see group 3) or collapse `Fitted` to
   `Torus` until one exists.
 - [ ] `kept` (`solid/boolean/splitting/mod.rs:93`) ends in a `match` that names
   `Cut::Bow` and `Cut::Traced` twice, once guarded and once in the catch-all. A
   `Cut::inside_is_kept(at)` answered per shape removes the double listing.
 - [ ] `Curves` is `Inline<Curve, 2>`, so `Meeting::coaxial` counts its circles
-  into `(first, second, third)` and refuses four (`solid/meeting/mod.rs:259-276`).
+  into `(first, second, third)` and refuses four (`solid/meeting/mod.rs:260-277`).
   A coaxial cone and torus meet in four circles and are refused by that cap, not
   by the geometry. Widen `Curves` to four or state the limit on `Curves` itself.
 
-## 3. Per-frame work that grows as the square of the sketch
+## 2. Per-frame work that grows as the square of the sketch
 
 Both are on the solve path a drag runs every frame. The elimination next door
 avoids the same costs and says why.
@@ -89,7 +57,7 @@ avoids the same costs and says why.
   `elimination/mod.rs:384-391` measured the same clearing at three quarters of
   a reduction and removed it.
 
-## 4. Code kept ahead of any caller
+## 3. Code kept ahead of any caller
 
 Each is justified in a comment. Each is still production code nothing runs.
 
@@ -104,9 +72,9 @@ Each is justified in a comment. Each is still production code nothing runs.
   (`number/exact/expansion/mod.rs:148`) and exists for one test cross-check.
   Move it into the test module.
 
-## 5. Files and functions past the size they read well at
+## 4. Files and functions past the size they read well at
 
-- [ ] `solid/rounding/mod.rs` is 2641 lines and `Rounding` has 38 fields, most
+- [ ] `solid/rounding/mod.rs` is 2639 lines and `Rounding` has 38 fields, most
   of them scratch for one stage. Split by stage the way `boolean/` is split into
   `combining`, `splitting` and `sewing`: planning (`plan`, `chain`, `follow`,
   `note`, `settle`, `close`), minting (`mint`, `tube`, `rail`, `ended`, `join`,
@@ -117,7 +85,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   a method that answers `bool`.
 - [ ] `Sewing::raise` (`solid/boolean/sewing/mod.rs:578`) is 150 lines with a
   sixty-line match arm inside two loops. The arc case is a method.
-- [ ] `imprinted` (`solid/boolean/combining.rs:850`) is a 300-line match that
+- [ ] `imprinted` (`solid/boolean/combining.rs:849`) is a 300-line match that
   builds every `Cut` shape. It is a table and should stay one, but it belongs in
   `splitting/` beside the shapes it builds, with `flared` and `boughed`.
 - [ ] `solid/build/builder.rs` and `solid/build/revolving.rs` are parallel
@@ -125,17 +93,17 @@ Each is justified in a comment. Each is still production code nothing runs.
   exist in both, with `Raising` and `Spinning` as twin contexts. An extrusion is
   a revolve with a straight spine. At minimum share the cap-loop reversal.
 
-## 6. Smaller things
+## 5. Smaller things
 
 - [ ] `use super::decides::Decides` at `number/exact/filtered.rs:3` and
   `number/exact/rational.rs:3` are the only production `super::` imports in the
   crate.
 - [ ] Import order differs in two files: `solid/stepping/mod.rs:26-44` and
-  `solid/boolean/sewing/mod.rs:41-47` put `std` and `glam` before `crate::` and
-  a `use` after the `mod` lines.
+  `solid/boolean/sewing/mod.rs:41-48` put `std` and `glam` before `crate::` and
+  a second `use` block after the first.
 - [ ] `Merging::whole` flattens every merged loop to ask whether it wraps
-  (`solid/merging/mod.rs:246` through `wraps` at `:451`) and `Merging::sorted`
-  flattens each again for its area (`:380` through `shut`). One flattening
+  (`solid/merging/mod.rs:245` through `wraps` at `:449`) and `Merging::sorted`
+  flattens each again for its area (`:378` through `shut`). One flattening
   answers both.
 - [ ] `Refining::rule` evaluates `wide` twice per triangle
   (`solid/mesh/refining/mod.rs:194`).
@@ -144,7 +112,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   boxes again per span and per ring (`:182-185`, `:215-222`). Keep them on
   `Reach` and read them.
 - [ ] `Inline<f64, N>` is sorted with `all_mut().sort_by(f64::total_cmp)` at
-  five production sites, and `solid/boolean/splitting/bow.rs:371` has its own
+  four production sites, and `solid/boolean/splitting/bow.rs:371` has its own
   `sorted`. Add a `sorted()` on `Inline<f64, N>`.
 - [ ] `partial_cmp(..).expect("finite")` appears at twelve sites where
   `f64::total_cmp` gives the same order with no panic path (`loops.rs:108`,
@@ -160,7 +128,7 @@ Each is justified in a comment. Each is still production code nothing runs.
   never sort.
 - [ ] `Sphere::centre()` exists (`solid/geometry/sphere.rs:43`) while `Cone`,
   `Cylinder` and `Torus` read `axis.origin` directly, and
-  `solid/meeting/mod.rs:354` and `:759` mix the two on one line.
+  `solid/meeting/mod.rs:356` and `:761` mix the two on one line.
 - [ ] `Stepping::write` checks its public `sagitta` with `debug_assert!`
   (`solid/stepping/mod.rs:118`) and `Mesher::cut` does not check it at all.
   Public-API misuse outside a hot path is a release `assert!`.

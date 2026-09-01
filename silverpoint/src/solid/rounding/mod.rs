@@ -1458,7 +1458,6 @@ impl Rounding {
                 outward: face.outward,
                 loops: 0..0,
                 name: face.name,
-                tolerance: face.tolerance,
             });
             self.made[id.slot()] = Some(raised);
         }
@@ -1513,7 +1512,6 @@ impl Rounding {
             outward,
             loops: 0..0,
             name,
-            tolerance: EXACT,
         })
     }
 

@@ -87,7 +87,6 @@ fn a_name_answers_with_its_patches_in_the_order_they_were_made() {
             outward: true,
             loops: 0..0,
             name,
-            tolerance: EXACT,
         })
     };
     // Turn and turn about, the second name beginning after the first.
@@ -386,7 +385,6 @@ fn cone() -> Body {
             outward,
             loops: 0..0,
             name: named,
-            tolerance: EXACT,
         })
     };
     // Material inside, so every one of them faces away from the axis — and the
@@ -539,7 +537,7 @@ fn a_mark_is_written_twice_where_a_corner_is() {
     }
 
     let mut flattened = Vec::new();
-    face.flatten(&traced, None, &mut flattened);
+    face.flatten(&traced, &mut None, &mut flattened);
     let mut doubled = Vec::new();
     face.doubled(&traced, &marks, &mut doubled);
     assert_eq!(
@@ -599,7 +597,6 @@ fn ball() -> Body {
             outward: true,
             loops: 0..0,
             name: named,
-            tolerance: EXACT,
         })
     };
     let (here, there) = (face(), face());

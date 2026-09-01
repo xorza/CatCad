@@ -1,7 +1,7 @@
 use super::*;
 use crate::Plane;
 use crate::math::winding;
-use crate::number::tolerance::{CHORDED, DRIFTING, EXACT};
+use crate::number::tolerance::{CHORDED, DRIFTING};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
@@ -390,7 +390,6 @@ fn a_block_bored_through_comes_out_a_solid_with_a_hole_through_it() {
         assert_eq!(tube.axis.direction, Plane::GROUND.normal());
         assert!(!wall.outward, "the wall of a bore faces into the material");
     }
-    assert!(topology.faces().all(|(_, face)| face.tolerance == EXACT));
 
     // Four arcs, two on each rim, each a half turn of the tool's own circle.
     // The *sweep* and not the ends: two places on a circle say nothing about

@@ -164,7 +164,7 @@ impl Checking {
                 // One loop at a time and against itself alone, which is what
                 // this check asks — so each is read on its own branch and there
                 // is nothing for it to agree with.
-                face.flatten(&traced[..], None, flattened);
+                face.flatten(&traced[..], &mut None, flattened);
                 let held = flattened.len();
                 let chord = |step: usize| Span {
                     from: flattened[step],
@@ -502,21 +502,21 @@ impl Checking {
     }
 
     /// The tolerance ladder holds: a vertex covers every edge meeting it, and
-    /// an edge covers both faces using it.
+    /// an edge covers the faces it lies on.
     ///
     /// A body whose ladder is upside down is claiming to know a corner more
     /// precisely than it knows the curves that make it, which is how a
     /// tolerance model quietly stops meaning anything. See
     /// `.notes/KERNEL.md` §4.3.
+    ///
+    /// **The bottom rung is nought and not a number a face carries**: a surface
+    /// is exact in both tiers, and only curves and points are ever fitted.
     fn tolerances_ladder(&self, topology: &Topology) {
         for (id, edge) in topology.edges() {
-            for face in edge.between {
-                let face = topology.face(face);
-                assert!(
-                    edge.tolerance >= face.tolerance,
-                    "edge {id:?} is tighter than the face it lies on",
-                );
-            }
+            assert!(
+                edge.tolerance >= 0.0,
+                "edge {id:?} is tighter than the exact surface it lies on",
+            );
             for end in edge.ends(true) {
                 let vertex = topology.vertex(end);
                 assert!(
@@ -524,13 +524,6 @@ impl Checking {
                     "vertex {end:?} is tighter than edge {id:?}, which ends there",
                 );
             }
-        }
-        for (id, face) in topology.faces() {
-            assert!(
-                face.tolerance == 0.0,
-                "face {id:?} carries a tolerance of {}, and a surface here is exact",
-                face.tolerance,
-            );
         }
     }
 }

@@ -462,7 +462,6 @@ impl Revolving {
                     outward,
                     loops: 0..0,
                     name,
-                    tolerance: EXACT,
                 })
             });
             self.walls.push(Some(Walls { parts, faces }));
@@ -490,7 +489,6 @@ impl Revolving {
             outward: far == (spinning.sweep > 0.0),
             loops: 0..0,
             name,
-            tolerance: EXACT,
         })
     }
 

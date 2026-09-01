@@ -731,6 +731,7 @@ impl Combining {
         cells.clear();
         cells.add(|loops| {
             let mut turned = false;
+            let mut about = None;
             for (at, round) in topology.loops_of(face).enumerate() {
                 // **The whole loop traced before any of it is flattened.**
                 // Flattening unwraps the angle as it goes so the loop comes out
@@ -755,11 +756,7 @@ impl Combining {
                     marks.resize(traced.len(), came);
                 }
                 walk.clear();
-                // The turn the outline was laid out in, which every hole of
-                // the face is read into as well — see [`Face::flatten`]. The
-                // outline comes first, so what `laid` already holds is it.
-                let about = (at > 0).then(|| laid.middle());
-                face.flatten(traced, about, walk);
+                face.flatten(traced, &mut about, walk);
                 laid.extend(walk.iter().copied());
                 spread.clear();
                 face.doubled(traced, marks, spread);

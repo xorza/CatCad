@@ -10,11 +10,11 @@
 //!
 //! The derivative is a cubic, and that one *is* solved in closed form — a cubic
 //! has no interval to isolate over, and its roots here are only ever used as
-//! fences. What walks each bracket down is [`bisect::root`], which is where
-//! the graze policy lives.
+//! fences. What lays them out and walks each bracket down is
+//! [`Polynomial::fenced`], which is where the graze policy lives.
 
 use crate::inline::Inline;
-use crate::math::bisect;
+use crate::math::polynomial::Polynomial;
 use std::f64::consts::TAU;
 
 /// Where a quartic is nought, in order.
@@ -29,30 +29,12 @@ use std::f64::consts::TAU;
 /// Nothing comes back for a leading coefficient of nought, which is not a
 /// quartic.
 pub(crate) fn roots(a: f64, b: f64, c: f64, d: f64, e: f64) -> Inline<f64, 4> {
-    let mut found = Inline::none();
     if a == 0.0 {
-        return found;
+        return Inline::none();
     }
-    // Cauchy's bound: every real root stands within this of nought, so the two
-    // outer intervals have an end to bracket against.
-    let reach = 1.0 + [b, c, d, e].iter().fold(0.0f64, |at, of| at.max(of.abs())) / a.abs();
-    let at = |x: f64| (((a * x + b) * x + c) * x + d) * x + e;
-    // The fences. Between two neighbouring roots of the derivative the quartic
-    // only goes one way, so an interval holds one root or none.
-    let mut fence = Inline::<f64, 5>::one(-reach);
-    for turn in cubic(4.0 * a, 3.0 * b, 2.0 * c, d) {
-        if turn > -reach && turn < reach {
-            fence.push(turn);
-        }
-    }
-    fence.push(reach);
-    fence.all_mut().sort_by(f64::total_cmp);
-    for pair in fence.all().windows(2) {
-        if let Some(root) = bisect::root(pair[0], pair[1], at) {
-            found.push(root);
-        }
-    }
-    found
+    let of = Polynomial::of([e, d, c, b, a]);
+    let turns = cubic(4.0 * a, 3.0 * b, 2.0 * c, d);
+    of.fenced(turns.all(), of.reach())
 }
 
 /// How many real roots a quartic has, which is four, two or none.

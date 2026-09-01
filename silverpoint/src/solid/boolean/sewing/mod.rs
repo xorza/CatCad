@@ -18,7 +18,7 @@
 use crate::loops::Loops;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::CHORDED;
-use crate::number::tolerance::{EXACT, PLACED};
+use crate::number::tolerance::PLACED;
 use crate::solid::boolean::combining::{Kept, Sewn};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
@@ -723,7 +723,6 @@ impl Sewing {
             outward: region.outward,
             loops: 0..0,
             name: region.name,
-            tolerance: EXACT,
         });
         self.raised.push(face);
         self.owned.push(from..to);

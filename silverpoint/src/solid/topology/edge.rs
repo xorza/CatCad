@@ -54,7 +54,8 @@ pub(crate) struct Edge {
     /// The radius of the tube this edge stands for.
     ///
     /// Parasolid's tube, and the middle rung of the ladder: at most its
-    /// vertices' tolerance and at least its faces'.
+    /// vertices' tolerance, and never under nought — the surfaces it lies on
+    /// being exact.
     ///
     /// A place over the exact tier, the curve being written down and read back
     /// to a rounding. Over the fitted tier it is the sagitta the curve was

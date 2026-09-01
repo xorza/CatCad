@@ -292,21 +292,15 @@ impl Sounding {
         for (id, face) in topology.faces() {
             let from = self.starts.len() - 1;
             let began = self.walk.len();
-            // The turn the outline was laid out in, which every hole of the
-            // face is read into as well — see [`Face::flatten`], and
-            // [`Covered::anchor`], which is the same branch read back.
+            // [`Covered::anchor`] reads this branch back off the first corner.
             let mut about = None;
             let mut boundary = Bounds::default();
             for round in topology.loops_of(face) {
                 self.traced.clear();
                 topology.trace(round, CHORDED, &mut self.traced);
                 boundary.extend(self.traced.iter().copied());
-                face.flatten(&self.traced, about, &mut self.walk);
+                face.flatten(&self.traced, &mut about, &mut self.walk);
                 self.starts.push(self.walk.len());
-                about = about.or_else(|| {
-                    let laid: Bounds<DVec2> = self.walk[began..].iter().copied().collect();
-                    Some(laid.middle())
-                });
             }
             self.faces.push(Covered {
                 face: id,

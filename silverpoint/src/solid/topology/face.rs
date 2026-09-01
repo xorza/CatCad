@@ -1,6 +1,7 @@
 //! A bounded piece of surface.
 
 use crate::arena::Id;
+use crate::math::bounds::Bounds;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::ALIGNED;
 use crate::solid::geometry::carried::Carried;
@@ -46,10 +47,6 @@ pub(crate) struct Face {
     /// What made it — see [`Named`], and `.notes/KERNEL.md` §5 for why several
     /// faces may honestly share one name.
     pub(crate) name: Named,
-    /// Zero, always: a surface here is exact in both tiers, and only curves and
-    /// points are ever fitted. Carried anyway so the ladder in
-    /// `.notes/KERNEL.md` §4.3 has a bottom rung to be measured against.
-    pub(crate) tolerance: f64,
 }
 
 impl Face {
@@ -92,26 +89,35 @@ impl Face {
     /// it, and a face drawn to one boundary and picked against another is a
     /// hairline nobody can find by reading either.
     ///
-    /// **`about` is the turn the rest of the face was laid out in**, and a
-    /// caller with more than one loop owes it. Each loop is continuous in
-    /// itself whatever it starts from, but *which* turn it lands in is decided
-    /// by its own first corner — so a hole whose walk happens to begin the
-    /// other side of the branch comes back a whole turn from the outline that
-    /// holds it, and every reader afterwards sees a hole outside its own face.
-    /// `None` for the first loop, which has nothing to agree with, and the
-    /// middle of what that one filled for the rest.
-    pub(crate) fn flatten(&self, traced: &[DVec3], about: Option<DVec2>, into: &mut Vec<DVec2>) {
+    /// **`about` is the turn the face is laid out in, carried from one of its
+    /// loops to the next.** Each loop is continuous in itself whatever it
+    /// starts from, but *which* turn it lands in is decided by its own first
+    /// corner — so a hole whose walk happens to begin the other side of the
+    /// branch comes back a whole turn from the outline that holds it, and every
+    /// reader afterwards sees a hole outside its own face.
+    ///
+    /// So a caller starts it at `None` and hands the same one to every loop of
+    /// the face: the first call fills it with the middle of what it laid, and
+    /// every call after reads it. A face of one loop has nothing to agree with
+    /// and never reads it back.
+    pub(crate) fn flatten(
+        &self,
+        traced: &[DVec3],
+        about: &mut Option<DVec2>,
+        into: &mut Vec<DVec2>,
+    ) {
         // **Walked twice and nothing kept**, which is what a path a frame goes
         // down owes: a corner at the head of the loop that the surface says
         // nothing about takes its angle from the corner at the tail, so where
         // the chain comes round to has to be known before the writing starts.
         // The first walk works that out and remembers where.
-        let mut behind = about;
+        let mut behind = *about;
         for &corner in traced {
             behind = self.parameters(corner, behind).or(behind);
         }
+        let began = into.len();
         into.reserve(traced.len());
-        let mut last = about;
+        let mut last = *about;
         for (at, &corner) in traced.iter().enumerate() {
             if let Some(uv) = self.parameters(corner, last) {
                 into.push(uv);
@@ -130,6 +136,12 @@ impl Face {
                 .map_or(before, |uv| uv.x);
             into.push(DVec2::new(before, up));
             into.push(DVec2::new(after, up));
+        }
+        // Nothing laid leaves the turn unfilled: an empty box has its two ends
+        // inverted, and the middle of that is no place at all.
+        if about.is_none() && into.len() > began {
+            let laid: Bounds<DVec2> = into[began..].iter().copied().collect();
+            *about = Some(laid.middle());
         }
     }
 

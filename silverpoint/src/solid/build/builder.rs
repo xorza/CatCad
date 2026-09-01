@@ -237,7 +237,6 @@ impl Builder {
             // that stretch falls is decided when it is written.
             loops: 0..0,
             name,
-            tolerance: EXACT,
         })
     }
 
@@ -253,7 +252,6 @@ impl Builder {
                 outward,
                 loops: 0..0,
                 name,
-                tolerance: EXACT,
             });
             self.walls.push(wall);
         }

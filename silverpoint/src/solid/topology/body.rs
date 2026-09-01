@@ -323,7 +323,6 @@ pub(crate) mod internals {
                     outward: true,
                     loops: 0..0,
                     name: named,
-                    tolerance: EXACT,
                 })
             };
             // The quarters, named for the half of each angle they cover.
