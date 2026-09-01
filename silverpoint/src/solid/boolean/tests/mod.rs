@@ -341,7 +341,7 @@ fn rim(by: f64) -> Circle {
 /// **A block bored through comes out one solid with a hole through it**, and
 /// the hole is a circle rather than the seventy-one flats it was classified as.
 ///
-/// The case the whole of M5 was arranged around: a closed imprint has no corner
+/// The case a boolean over curved surfaces is arranged around: a closed imprint has no corner
 /// of its own to begin at, and has to be split exactly where the wall meeting it
 /// is already split, or the rim of the hole and the rim of the wall are two
 /// circles with four vertices between them and no edge in common — see
@@ -1244,7 +1244,7 @@ mod matrix;
 /// **Two equal cylinders on crossing axes intersect in the Steinmetz solid**,
 /// whose volume is exactly `16r³/3`.
 ///
-/// The analytic cross-check `.notes/KERNEL.md` M5 owes, and it catches nearly
+/// The analytic cross-check a boolean over cylinders owes, and it catches nearly
 /// every error there is to make: a wall kept where it should be cut, an ellipse
 /// walked the wrong way round, a region classified inside out, a shell sewn
 /// with a seam left open — each of them moves this number, and none of them
@@ -1301,7 +1301,7 @@ fn two_crossing_rods_intersect_in_the_steinmetz_solid() {
 
 /// **A cut that removes everything leaves nothing, and says it did.**
 ///
-/// The case `.notes/KERNEL.md` M5 owes, and the one a modeller reaches by
+/// The case a boolean owes, and the one a modeller reaches by
 /// typing a depth one digit too long. A unit block wholly inside a larger one,
 /// cut the wrong way round: what is left of the small block after the big one
 /// is taken out of it is nothing at all.

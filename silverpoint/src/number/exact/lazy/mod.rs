@@ -3,7 +3,7 @@
 //! **No caller yet, and the consumer is written down.** `.notes/KERNEL.md`
 //! §4.2 commits to CGAL's `Lazy_exact_nt` architecture, and §6 names the value
 //! that wants it: a vertex re-derived exactly from the surfaces meeting there
-//! rather than held as a rounded triple. The pencil route in M3b is the first
+//! rather than held as a rounded triple. The pencil route of §7.3 is the first
 //! to ask, and the arithmetic lands ahead of it deliberately. See
 //! [`exact`](crate::number::exact).
 #![allow(dead_code)]

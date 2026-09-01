@@ -10,7 +10,7 @@ use glam::{DMat4, DVec4};
 
 /// A ruled quadric as the four places its two parameters weigh.
 ///
-/// **The whole reason M3b's curve has the form it does.** A place is
+/// **The whole reason the algebraic route's curve has the form it does.** A place is
 /// `u₀t₀·A + u₀t₁·B + u₁t₀·C + u₁t₁·D`, which is linear in `t` for each `u` and
 /// linear in `u` for each `t` — two families of lines, and every place of the
 /// quadric on one of each. Substituting that into the other quadric of the

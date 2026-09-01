@@ -1,8 +1,8 @@
 //! Where a binary quadratic form is nought, over any field and one root above
 //! it.
 //!
-//! Read by both of M3b's solves — a tangent plane's form and a line's. See
-//! [`quadric`](super::quadric).
+//! Read by both of the algebraic route's solves — a tangent plane's form and a
+//! line's. See [`quadric`](super::quadric), and `.notes/KERNEL.md` §7.3.
 
 use crate::number::exact::field::Field;
 use std::cmp::Ordering;
@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 /// The two `(x : y)` a binary quadratic form is nought at, and what they are
 /// written over.
 ///
-/// **The one solve M3b does twice.** A ruled quadric's two directions through a
+/// **The one solve the algebraic route does twice.** A ruled quadric's two directions through a
 /// place are the roots of the form its tangent plane carries — see
 /// [`Quadric::rulings`](super::quadric::Quadric) — and the two places a line
 /// meets a quadric are the roots of the form the substitution leaves. Same
@@ -109,7 +109,7 @@ impl<T: Field> Roots<T> {
 
 /// Two 4-vectors, each written over one square root.
 ///
-/// **What both of M3b's solves hand back.** A quadric's rulings are directions
+/// **What both of the algebraic route's solves hand back.** A quadric's rulings are directions
 /// read off the roots of what its tangent plane carries, and the places a line
 /// meets a quadric are read off the roots of what the substitution leaves —
 /// same carrier, so the reading is written once. See

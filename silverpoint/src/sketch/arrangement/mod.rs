@@ -348,8 +348,8 @@ impl Arrangement {
     /// places, where an arc is met through a square root and an angle — so a
     /// drawing of segments is counted rightly however far from the origin it
     /// stands, and one of arcs is counted as well as an `f64` can. That is the
-    /// same split M6 will have to close, and it is written down rather than
-    /// hidden.
+    /// same split the kernel's own exactness tier draws — `.notes/KERNEL.md`
+    /// §4.1 — and it is written down rather than hidden.
     fn encloses(&self, boundary: &[Half], at: DVec2) -> bool {
         let mut crossings = 0;
         for half in boundary {

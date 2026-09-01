@@ -13,7 +13,8 @@ use glam::DVec2;
 /// **What an ellipse is in a cylinder's own parameters.** A plane meeting a
 /// cylinder obliquely crosses it in one, and so does a second cylinder of the
 /// same radius on a crossing axis — which is the mitred pipe and the Steinmetz
-/// solid, and between them the whole of what M5 had left. On a plane that curve
+/// solid, and between them the whole of what a boolean over cylinders was left
+/// owing. On a plane that curve
 /// is an ellipse and `Oval` carries it; on the cylinder it is a *graph over the
 /// angle*, which is why it is its own shape rather than a case of one.
 ///

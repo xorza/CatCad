@@ -1,6 +1,7 @@
 //! One square root away from whatever is below it.
 //!
-//! What carries both storeys is the parameterization in M3b. `solid::geometry`
+//! What carries both storeys is the parameterization of the algebraic route —
+//! `.notes/KERNEL.md` §7.3. `solid::geometry`
 //! asks it the same question it asks the rationals, over the directions a ruled
 //! quadric hands back: a line that lies in a surface has to lie in it over the
 //! field its direction is written in too. See [`exact`](super).

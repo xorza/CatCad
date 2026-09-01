@@ -201,7 +201,7 @@ impl Meeting {
     /// A pair with a fitted half in it: the few that reduce, and
     /// [`Meeting::Marched`] for the rest.
     ///
-    /// **M3a's argument one tier up.** The general route for these is a march,
+    /// **The reducible table's argument one tier up.** The general route for these is a march,
     /// and a march is worst at exactly the cases below: a plane lying tangent
     /// along a whole circle of a torus is invisible to a sign change, and the
     /// bitangent plane's two circles cross each other, which a march has no

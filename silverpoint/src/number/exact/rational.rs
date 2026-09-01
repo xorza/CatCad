@@ -53,7 +53,8 @@ impl Rational {
     ///
     /// What a drawing never hands in — it is `f64` throughout — and what the
     /// algebra over it does: a pencil is sampled at whole `λ` to be
-    /// interpolated, and M3b's ruled member is found by choosing an integer
+    /// interpolated, and the algebraic route's ruled member is found by
+    /// choosing an integer
     /// point (`.notes/KERNEL.md` §7.3). The tests below are written in whole
     /// numbers too, where reading them through [`Rational::of`] would be
     /// checking a conversion rather than the arithmetic.

@@ -1,5 +1,6 @@
-//! The matrix M4 is measured by: every placement two solids can take, against
-//! every operator, read as volumes worked out by hand.
+//! The matrix a boolean is measured by — `.notes/KERNEL.md` §7.4: every
+//! placement two solids can take, against every operator, read as volumes
+//! worked out by hand.
 //!
 //! Seven placements and three operators, in one sweep rather than twenty-one
 //! tests. What makes it a sweep rather than a list is that the *contrast*

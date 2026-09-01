@@ -1,8 +1,8 @@
 //! A natural quadric as the exact matrix that defines it.
 //!
-//! **What reads it is the algebraic route.** This is the floor M3b is built
-//! on — the pencil, the repeated-root test and the parameterization all read
-//! the matrix and nothing else.
+//! **What reads it is the algebraic route** of `.notes/KERNEL.md` §7.3. This
+//! is the floor that route stands on — the pencil, the repeated-root test and
+//! the parameterization all read the matrix and nothing else.
 
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
@@ -17,8 +17,8 @@ use glam::DVec3;
 /// `solid::meeting` answers a *pair* of surfaces by knowing which pair it was
 /// handed; the algebraic route knows nothing about the four kinds and works on
 /// `λQ₁ + μQ₂` alone — see `.notes/KERNEL.md` §7.3. So the four naturals arrive
-/// here as one thing, and everything M3b does after this is linear algebra over
-/// [`Rational`].
+/// here as one thing, and everything the route does after this is linear
+/// algebra over [`Rational`].
 ///
 /// **Exact throughout and not written over a tier**, where every other exact
 /// routine in the crate is asked in whatever arithmetic a caller hands it. The

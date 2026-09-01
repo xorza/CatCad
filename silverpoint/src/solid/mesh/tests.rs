@@ -418,7 +418,7 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
 /// **A flat body measures exactly what it was drawn to measure, wherever it is
 /// drawn.**
 ///
-/// The test `.notes/KERNEL.md` M0 owes: hand-computed values, held with `==`
+/// The test `.notes/KERNEL.md` §7.2 owes: hand-computed values, held with `==`
 /// rather than to a tolerance. Nothing here is chorded — every face is a
 /// polygon — so the sagitta buys nothing and the answer is arithmetic alone.
 ///

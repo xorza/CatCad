@@ -13,7 +13,8 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 /// A cut along `v = level ± √(across² − (reach·sin(θ − phase) − off)²)`.
 ///
 /// **What a *cross drilling* is in either cylinder's own parameters**, and the
-/// case `.notes/KERNEL.md` M5 had left. Two cylinders on crossing axes meet in
+/// last shape a boolean over curved surfaces was left owing —
+/// `.notes/KERNEL.md` §7.4. Two cylinders on crossing axes meet in
 /// an ellipse where their radii agree — [`Ripple`](super::ripple::Ripple)
 /// carries that one, `v = level + swing·cos(θ − phase)`. Where the radii differ
 /// the meeting is a quartic in space, [`Saddle`](crate::solid::geometry::saddle::Saddle),

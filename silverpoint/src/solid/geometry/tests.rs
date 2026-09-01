@@ -995,7 +995,7 @@ fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
 
 /// **Every natural surface is the exact zero set of its own matrix.**
 ///
-/// The floor M3b stands on — see [`Quadric`], which the pencil and everything
+/// The floor the algebraic route stands on — see [`Quadric`], which the pencil and everything
 /// after it read instead of the four kinds. What it has to be is *exact*: a
 /// place on the surface gives nought and no rounding, and a place off it gives
 /// the number the algebra says and not one near it.
@@ -1016,7 +1016,7 @@ fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
 /// knowing.** Its parameter is an *angle*, where every other surface's are
 /// places and lengths — so `cos²θ` is a float and the matrix is the cone that
 /// float names, a rounding from the cone the angle names. Its apex is still
-/// exact, that being the constant term. Everything M3b does after this is
+/// exact, that being the constant term. Everything the route does after this is
 /// exact over whatever the matrix holds, so the rounding stops here rather
 /// than growing.
 #[test]
@@ -1101,7 +1101,7 @@ fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
 /// **A pencil's characteristic form is the one the algebra says, and its
 /// discriminant says whether the two meet in a smooth quartic.**
 ///
-/// M3b's second piece — see [`Pencil`]. Two cases, hand-computed, and they are
+/// The algebraic route's second piece — see [`Pencil`]. Two cases, hand-computed, and they are
 /// the two answers the form can give.
 ///
 /// **Two concentric spheres of one and two.** Their matrices are
@@ -1112,7 +1112,7 @@ fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
 /// right, because they meet nowhere at all.
 ///
 /// **Two unequal cylinders on crossing axes**, radius two about the upright and
-/// radius three about the sideways, which is the case `.notes/KERNEL.md` M3b
+/// radius three about the sideways, which is the case `.notes/KERNEL.md` §7.3
 /// owes. `diag(1, 1, 0, −4)` and `diag(0, 1, 1, −9)` give `λ(λ+1)(−4λ−9)`,
 /// which is `−4λ³ − 13λ² − 9λ`. Both the leading and the trailing coefficient
 /// are nought — every cylinder's matrix is singular — and the form still has
@@ -1204,7 +1204,7 @@ fn quadric(of: &[[Rational; 4]; 4]) -> Quadric {
 /// **A quadric diagonalizes by congruence exactly, and how it leans says
 /// whether it is ruled.**
 ///
-/// M3b's third piece — see [`Congruence`].
+/// The algebraic route's third piece — see [`Congruence`].
 /// What the algebraic route wants of a pencil is a *ruled* member, and this is
 /// what tells one: a ruled quadric's rulings are lines, a line meets the other
 /// quadric in two places, and those two are the `±√Δ` of the parameterization.
@@ -1333,7 +1333,7 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
 /// **A ruling is a whole line the quadric holds, and naming one takes a single
 /// square root.**
 ///
-/// M3b's fourth piece — see [`Quadric::rulings`]. A line `p + s·d` lies in a quadric
+/// The algebraic route's fourth piece — see [`Quadric::rulings`]. A line `p + s·d` lies in a quadric
 /// exactly when three things vanish: `pᵀQp`, because the place is on it;
 /// `pᵀQd`, because the direction is in the tangent plane there; and `dᵀQd`,
 /// because the direction is asymptotic. The first is the fixture's own claim
@@ -1485,7 +1485,7 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
 /// **A ruling meets the other quadric in two places, and both are on the
 /// intersection curve exactly.**
 ///
-/// M3b's last piece before the curve itself — see
+/// The algebraic route's last piece before the curve itself — see
 /// [`Quadric::met_by`](crate::solid::geometry::quadric::Quadric). A ruled
 /// member of the pencil is covered by lines, each meets the other quadric in
 /// two places, and a place on a line is *linear* in how far along it stands —
@@ -1582,7 +1582,7 @@ fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
 /// **A ruled quadric is bilinear in two parameters, and that is what makes the
 /// curve a quartic.**
 ///
-/// M3b's last derivation — see [`Ruled`]. Over the basis `{p, d₊, d₋, e}` the
+/// The algebraic route's last derivation — see [`Ruled`]. Over the basis `{p, d₊, d₋, e}` the
 /// Gram matrix collapses to two entries: `pᵀQp` is nought because the place is
 /// on the quadric, `pᵀQd±` because the directions lie in its tangent plane, and
 /// `d±ᵀQd±` because they are rulings. Moving `e` by multiples of the other
@@ -1733,10 +1733,10 @@ fn a_ruled_quadric_is_bilinear_in_two_parameters() {
 /// **Two unequal cylinders on crossing axes meet in a smooth quartic, and every
 /// place of it is on both of them.**
 ///
-/// The end of `.notes/KERNEL.md` §7.3's algebraic route, and M3b's own owed
-/// case — see [`Quartic`]. Radius two about the upright and three about the
-/// sideways: `x² + y² = 4` and `y² + z² = 9`, which is the cross drilling the
-/// milestone is for and which no entry of the reducible table answers.
+/// The end of `.notes/KERNEL.md` §7.3's algebraic route, and the case that
+/// route owes — see [`Quartic`]. Radius two about the upright and three about
+/// the sideways: `x² + y² = 4` and `y² + z² = 9`, which is the cross drilling
+/// it is for and which no entry of the reducible table answers.
 ///
 /// **What is asserted is that the curve is the curve.** A place read off the
 /// parameterization has to satisfy both equations, and it does to within what a
