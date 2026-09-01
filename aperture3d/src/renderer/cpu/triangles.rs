@@ -3,6 +3,7 @@
 use crate::batch::Batch;
 use crate::highlight::Highlights;
 use crate::object::Object;
+use crate::renderer::cpu::marked::Marked;
 use crate::renderer::record::GpuVertex;
 use glam::{Mat3, Vec3};
 
@@ -12,8 +13,14 @@ use glam::{Mat3, Vec3};
 /// uploaded, where a mesh has to be baked out of its transform first.
 #[derive(Debug, Default)]
 pub(crate) struct Triangles {
-    pub(crate) vertices: Vec<GpuVertex>,
-    pub(crate) indices: Vec<u32>,
+    /// Marked apart from the indices beside them, because the two do not always
+    /// move together: colour lives in a vertex, and an index says which vertex
+    /// without saying anything about how it looks. A relight rewrites every
+    /// vertex and leaves every index exactly as it was, so one mark for both
+    /// would re-upload the whole model's indices on every frame a pointer
+    /// crosses the drawing, to change nothing in them.
+    pub(crate) vertices: Marked<GpuVertex>,
+    pub(crate) indices: Marked<u32>,
     /// Where each object's corners begin in `vertices`, one per object in the
     /// batch's order.
     ///
@@ -39,17 +46,6 @@ pub(crate) struct Triangles {
     /// batch's own order is the answer, and the count is the whole of what could
     /// have changed it.
     next: Vec<u32>,
-    /// Whether the vertices have been rewritten since the GPU was handed them.
-    vertices_dirty: bool,
-    /// Whether the indices have.
-    ///
-    /// Apart from the vertices' own mark, because the two do not always move
-    /// together: colour lives in a vertex, and an index says which vertex
-    /// without saying anything about how it looks. A relight rewrites every
-    /// vertex and leaves every index exactly as it was, so one mark for both
-    /// would re-upload the whole model's indices on every frame a pointer
-    /// crosses the drawing, to change nothing in them.
-    indices_dirty: bool,
     /// Whether the last flatten wrote a highlight's colour into any vertex.
     ///
     /// What makes a relight skippable. A batch with nothing lit in it *and*
@@ -206,24 +202,6 @@ impl Triangles {
         moved
     }
 
-    /// The corners if they have been rewritten since this last handed them
-    /// over, and `None` if they have not.
-    ///
-    /// The shape [`Records::ordinary_to_upload`](super::records::Records) answers in, and for its reason:
-    /// handing back the buffer rather than a flag about it is what leaves no
-    /// way to read one and upload the other.
-    pub(crate) fn vertices_to_upload(&mut self) -> Option<&[GpuVertex]> {
-        std::mem::take(&mut self.vertices_dirty).then(|| &self.vertices[..])
-    }
-
-    /// The triangle list, on the same terms.
-    ///
-    /// Asked apart from the corners because the two do not always move
-    /// together — see [`Triangles::indices_dirty`].
-    pub(crate) fn indices_to_upload(&mut self) -> Option<&[u32]> {
-        std::mem::take(&mut self.indices_dirty).then(|| &self.indices[..])
-    }
-
     /// World-space corners for every object handed in, in the order the batch
     /// holds them.
     ///
@@ -248,31 +226,32 @@ impl Triangles {
     /// never sorts pays nothing at all for it and a pass that does reads memory
     /// it has this moment touched.
     fn write_vertices(&mut self, objects: &[Object], highlights: &Highlights, measure: bool) {
-        self.vertices.clear();
-        // Emptied and marked in one act, on the terms
-        // [`Records::ordinary_to_fill`] sets: a buffer refilled without its mark
-        // is one the GPU goes on drawing the old contents of, and the pairing is
-        // only reliable where there is no way to do one without the other.
-        self.vertices_dirty = true;
-        self.vertices
-            .reserve_exact(objects.iter().map(|o| o.mesh.vertices().len()).sum());
-        self.bases.clear();
-        self.bases.reserve_exact(objects.len());
+        let Self {
+            vertices,
+            bases,
+            centres,
+            highlighted,
+            ..
+        } = self;
+        let vertices = vertices.emptied();
+        vertices.reserve_exact(objects.iter().map(|o| o.mesh.vertices().len()).sum());
+        bases.clear();
+        bases.reserve_exact(objects.len());
         if measure {
-            self.centres.clear();
-            self.centres.reserve_exact(objects.len());
+            centres.clear();
+            centres.reserve_exact(objects.len());
         }
-        let mut highlighted = false;
+        let mut any_lit = false;
         for object in objects {
-            let base = self.vertices.len();
-            self.bases.push(base as u32);
+            let base = vertices.len();
+            bases.push(base as u32);
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
             let look = highlights.look_of(object.tag);
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
-            highlighted |= look.is_some();
+            any_lit |= look.is_some();
             // One colour for the whole object, resolved here rather than in the
             // shader: what a corner is drawn in is the object's colour, and a
             // highlight is what replaces or lifts it. It rides per vertex
@@ -281,28 +260,27 @@ impl Triangles {
             let color = look
                 .map_or(object.color, |look| look.tint.over(object.color))
                 .to_array();
-            self.vertices
-                .extend(object.mesh.vertices().iter().map(|vertex| {
-                    GpuVertex {
-                        position: object
-                            .transform
-                            .transform_point3(vertex.position)
-                            .to_array(),
-                        normal: (normal_matrix * vertex.normal)
-                            .normalize_or_zero()
-                            .to_array(),
-                        color,
-                    }
-                }));
+            vertices.extend(object.mesh.vertices().iter().map(|vertex| {
+                GpuVertex {
+                    position: object
+                        .transform
+                        .transform_point3(vertex.position)
+                        .to_array(),
+                    normal: (normal_matrix * vertex.normal)
+                        .normalize_or_zero()
+                        .to_array(),
+                    color,
+                }
+            }));
             if measure {
-                let mine = &self.vertices[base..];
+                let mine = &vertices[base..];
                 let sum: Vec3 = mine.iter().map(|at| Vec3::from_array(at.position)).sum();
                 // A mesh with no vertices contributes no triangles either, so
                 // where it sorts is a question with no consequence.
-                self.centres.push(sum / mine.len().max(1) as f32);
+                centres.push(sum / mine.len().max(1) as f32);
             }
         }
-        self.highlighted = highlighted;
+        *highlighted = any_lit;
     }
 
     /// The triangle list, in the order the objects are drawn.
@@ -311,15 +289,13 @@ impl Triangles {
     /// — which is [`Triangles::bases`], and not where this walk has got to,
     /// because the two agree only when the draw order is the batch's own.
     fn write_indices(&mut self, objects: &[Object]) {
-        self.indices.clear();
-        // Emptied and marked together, as the corners are above.
-        self.indices_dirty = true;
         let Self {
             indices,
             order,
             bases,
             ..
         } = self;
+        let indices = indices.emptied();
         indices.reserve_exact(objects.iter().map(|o| o.mesh.indices().len()).sum());
         for &step in order.iter() {
             let object = &objects[step as usize];

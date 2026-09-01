@@ -3,7 +3,7 @@
 use crate::renderer::band;
 use crate::renderer::cpu::triangles::Triangles;
 use crate::renderer::gpu::MESH;
-use crate::renderer::record::Record;
+use crate::renderer::record::Attributed;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::viewport;
@@ -171,7 +171,7 @@ pub(super) struct Pipelines<'a> {
 impl Pipelines<'_> {
     /// The pipeline alone, which is the whole of what every mirror of a scene
     /// shares: what a mirror adds is the records it draws through this.
-    pub(super) fn build<R: Record>(&self, spec: PassSpec) -> wgpu::RenderPipeline {
+    pub(super) fn build<R: Attributed>(&self, spec: PassSpec) -> wgpu::RenderPipeline {
         let () = R::LAYOUT_SPANS_STRUCT;
         let constants = overrides(&spec);
         let compilation_options = wgpu::PipelineCompilationOptions {
@@ -313,11 +313,11 @@ impl Pass {
         queue: &wgpu::Queue,
         triangles: &mut Triangles,
     ) {
-        if let Some(vertices) = triangles.vertices_to_upload() {
+        if let Some(vertices) = triangles.vertices.owed() {
             self.records
                 .write(device, queue, bytemuck::cast_slice(vertices));
         }
-        if let Some(indices) = triangles.indices_to_upload() {
+        if let Some(indices) = triangles.indices.owed() {
             self.indices
                 .write(device, queue, bytemuck::cast_slice(indices));
             self.index_count = indices.len() as u32;
@@ -333,7 +333,7 @@ impl Pass {
     /// Refill from overlay instances, every one of them drawn through the
     /// triangle list this pass was built holding — which is why only the
     /// count of instances moves.
-    pub(super) fn upload_instances<R: Record>(
+    pub(super) fn upload_instances<R: Attributed>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,

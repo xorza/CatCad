@@ -10,34 +10,6 @@ sorted by what they cost, worst first.
 
 ---
 
-## One word, several meanings
-
-The guide gives one word one meaning. Two words still carry more than one.
-
-- [ ] **record** names the trait in `renderer::record`, the associated type
-      `Flatten::Record`, and the buffers `Records` / `TextRecords`.
-- [ ] **look** names `record::Look`, the GPU tail, and `Highlight`, reached as
-      `Lit::look`, `Highlights::look_of` and `Look::take_on(look: Highlight)`.
-
-## Two flags and four methods per buffer, spelled out twice
-
-Both flattened halves hold a buffer beside a mark, empty and mark it in one
-act, and hand it over while taking the mark. Each spells the pair out for
-itself.
-
-- [ ] `renderer/cpu/records.rs:27` — `Records` holds `ordinary_dirty` and
-      `lit_dirty` with `ordinary_to_fill`, `lit_to_fill`, `ordinary_to_upload`
-      and `lit_to_upload`: four methods that are two, twice.
-- [ ] `renderer/cpu/triangles.rs:14` — `Triangles` holds `vertices_dirty` and
-      `indices_dirty` with `vertices_to_upload` and `indices_to_upload`, and
-      marks by hand inside `write_vertices` and `write_indices` — which is the
-      pairing `Records::ordinary_to_fill` exists to make unavoidable, done the
-      way that type refuses to do it.
-- [ ] One "buffer and its mark" type with `to_fill` and `to_upload` replaces
-      four fields and six methods. `Batch`'s own doc rejects a bare
-      `Dirty(bool)`, and is right — a flag alone saves nothing. What is worth
-      sharing is the pairing, which is what both of these write out.
-
 ## The same projected-stretch arithmetic in two places
 
 - [ ] `curve/mod.rs:187` (`nearest_on_segment`) and `motion/mod.rs:75`
@@ -71,23 +43,22 @@ text says — so the text is unchecked.
       choice is this form or naming the member in prose.
 - [ ] `Camera::ray_through` is linked as a full path in `aim.rs:71` and as the
       bare type in `object.rs:127`.
-- [ ] `renderer/cpu/triangles.rs:212` and `renderer/cpu/triangles.rs:253` write
-      doc-link syntax inside plain `//` comments, where nothing renders it.
 
 ## Files holding more than one major type
 
 One major struct, one file, same name. Seven files hold two to six.
 
-- [ ] `renderer/record.rs` (382 lines) — `Look`, `GpuVertex`, `CurveInstance`,
+- [ ] `renderer/record.rs` — `Paint`, `GpuVertex`, `CurveInstance`,
       `RingInstance`, `PointInstance`, `GlyphInstance`, and the `Instance` and
-      `Record` traits. Each instance type carries its own constructor and its
-      own attribute list.
+      `Attributed` traits. Each instance type carries its own constructor and
+      its own attribute list.
 - [ ] `highlight.rs` — `Highlight`, `Tint` and `Lit` are a family, but
       `Highlights` and `Keyed` are a sorted index with a build and a binary
       search of their own, and stand apart.
 - [ ] `renderer/cpu/records.rs` — `Records`, `TextRecords`, `Laying`, `Inked`.
       The file doc argues `TextRecords` belongs beside `Records`; `Laying` and
-      `Inked` are its own satellites and go with it.
+      `Inked` are its own satellites and go with it. `Records` is two fields and
+      one method now, so the split is cheaper than it was.
 - [ ] `renderer/atlas.rs` — `Slot`, `GlyphAtlas`, `GlyphQuad`. `GlyphQuad` is
       read by `record.rs` and belongs to neither.
 - [ ] `renderer/pass.rs` — `PassSpec`, `Pipelines`, `Pass`. `Pipelines` builds

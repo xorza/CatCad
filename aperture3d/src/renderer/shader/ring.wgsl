@@ -66,7 +66,7 @@ fn ring_vs(
     @location(1) x_axis: vec3<f32>,
     @location(2) y_axis: vec3<f32>,
     @location(3) radius: f32,
-    // The tail every overlay record shares — see `Look`.
+    // The tail every overlay record shares — see `Paint`.
     @location(4) color: vec3<f32>,
     @location(5) half_width: f32,
 ) -> RingVsOut {

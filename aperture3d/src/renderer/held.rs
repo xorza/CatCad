@@ -4,7 +4,7 @@ use crate::renderer::cpu::Cpu;
 use crate::renderer::cpu::records::Records;
 use crate::renderer::gpu::{Gpu, Twin};
 use crate::renderer::pass::Pass;
-use crate::renderer::record::Record;
+use crate::renderer::record::Attributed;
 use crate::renderer::uniforms::Uniforms;
 
 /// The two passes one overlay kind is drawn through: its own, and the same
@@ -51,16 +51,16 @@ impl Passes {
     /// this be written once: three kinds are a bare `Records` and text keeps its
     /// beside a raster scale and a scratch buffer, and neither is any of this
     /// method's business.
-    fn upload<R: Record>(
+    fn upload<R: Attributed>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         records: &mut Records<R>,
     ) {
-        if let Some(instances) = records.ordinary_to_upload() {
+        if let Some(instances) = records.ordinary.owed() {
             self.ordinary.upload_instances(device, queue, instances);
         }
-        if let Some(instances) = records.lit_to_upload() {
+        if let Some(instances) = records.lit.owed() {
             self.lit.upload_instances(device, queue, instances);
         }
     }

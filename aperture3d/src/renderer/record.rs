@@ -8,10 +8,16 @@ use crate::ring::Ring;
 use crate::text::turn::Facing;
 use glam::Vec3;
 
-/// What every overlay record ends with, whatever shape carries it.
+/// What every overlay record ends with, whatever shape carries it: the colour
+/// it is drawn in, and how far the shader spreads it.
 ///
 /// The two fields that mean the same thing for a stroke, a rim and a marker,
 /// laid out once so they cannot drift.
+///
+/// A *look* in this crate is a [`Highlight`] — reached as `Lit::look`, answered
+/// by `Highlights::look_of`, and laid over this by [`Paint::take_on`]. So this
+/// is named for what it is rather than for what overwrites it: one word for
+/// both would be one word for both sides of that call.
 ///
 /// The plane a primitive lies in is *not* here, though three of the four carry
 /// one. A stroke, a marker and a label are widened in screen space, so their
@@ -20,7 +26,7 @@ use glam::Vec3;
 /// field would ship a ring twelve bytes it has no use for and name something
 /// about it that is not true.
 ///
-/// [`Look::spread`] is here on the opposite reasoning, and the two are worth
+/// [`Paint::spread`] is here on the opposite reasoning, and the two are worth
 /// telling apart. A label has no use for it either — a glyph's size came from
 /// its shaping — so it ships four dead bytes in a ninety-six byte record, and
 /// `text_vs` does not even declare the attribute. What buys them is that
@@ -31,15 +37,15 @@ use glam::Vec3;
 /// four are.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct Look {
+pub(crate) struct Paint {
     pub(super) color: [f32; 3],
     /// Half the stroke width, or half a marker's diameter: the distance the
     /// shader spreads either side of the shape's own centre.
     pub(super) spread: f32,
 }
 
-impl Look {
-    /// The look a primitive drawn `across` wide would be given.
+impl Paint {
+    /// The paint a primitive drawn `across` wide is given.
     fn of(color: Vec3, across: f32) -> Self {
         Self {
             color: color.to_array(),
@@ -47,34 +53,34 @@ impl Look {
         }
     }
 
-    /// Take on a highlight's look, in place of this one.
+    /// Take on a highlight's look, in place of the paint that was here.
     ///
-    /// Named for what it does to a `Look` rather than sharing
+    /// Named for what it does to a `Paint` rather than sharing
     /// [`Instance::highlighted`]'s name: that one answers with a whole record,
     /// this one edits the tail of one, and two things called `highlighted` on
-    /// either side of a `look_mut()` read as the same operation twice.
+    /// either side of a `paint_mut()` read as the same operation twice.
     fn take_on(&mut self, look: Highlight) {
         self.color = look.tint.over(Vec3::from_array(self.color)).to_array();
         self.spread *= look.scale;
     }
 }
 
-/// An overlay record: a shape, and the [`Look`] every one of them ends with.
+/// An overlay record: a shape, and the [`Paint`] every one of them ends with.
 ///
-/// The look is reached through rather than restated, the way [`Styled`] does it
+/// The paint is reached through rather than restated, the way [`Styled`] does it
 /// for the primitives themselves — so what a highlight *is* lives in one place
 /// and all three inherit it.
 ///
 /// [`Styled`]: crate::styled::Styled
-pub(crate) trait Instance: Record {
-    fn look_mut(&mut self) -> &mut Look;
+pub(crate) trait Instance: Attributed {
+    fn paint_mut(&mut self) -> &mut Paint;
 
     /// Drawn again in `look`, over the top of its ordinary self.
     fn highlighted(mut self, look: Highlight) -> Self
     where
         Self: Sized,
     {
-        self.look_mut().take_on(look);
+        self.paint_mut().take_on(look);
         self
     }
 }
@@ -116,7 +122,7 @@ pub(crate) struct GpuVertex {
 pub(crate) struct CurveInstance {
     pub(super) start: [f32; 3],
     pub(super) end: [f32; 3],
-    pub(super) look: Look,
+    pub(super) paint: Paint,
     /// The plane the curve lies in, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
@@ -132,26 +138,26 @@ pub(crate) struct RingInstance {
     pub(super) x_axis: [f32; 3],
     pub(super) y_axis: [f32; 3],
     pub(super) radius: f32,
-    pub(super) look: Look,
+    pub(super) paint: Paint,
 }
 
 impl CurveInstance {
     /// The instances one stroke ships, one per segment.
     pub(crate) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
-        let look = Look::of(curve.color, curve.width);
+        let paint = Paint::of(curve.color, curve.width);
         let plane = direction_of(curve.plane_normal);
         curve.segments().map(move |(a, b)| Self {
             start: a.to_array(),
             end: b.to_array(),
-            look,
+            paint,
             plane,
         })
     }
 }
 
 impl Instance for CurveInstance {
-    fn look_mut(&mut self) -> &mut Look {
-        &mut self.look
+    fn paint_mut(&mut self) -> &mut Paint {
+        &mut self.paint
     }
 }
 
@@ -162,14 +168,14 @@ impl RingInstance {
             x_axis: ring.x_axis.to_array(),
             y_axis: ring.y_axis.to_array(),
             radius: ring.radius,
-            look: Look::of(ring.color, ring.width),
+            paint: Paint::of(ring.color, ring.width),
         }
     }
 }
 
 impl Instance for RingInstance {
-    fn look_mut(&mut self) -> &mut Look {
-        &mut self.look
+    fn paint_mut(&mut self) -> &mut Paint {
+        &mut self.paint
     }
 }
 
@@ -179,7 +185,7 @@ impl Instance for RingInstance {
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PointInstance {
     pub(super) position: [f32; 3],
-    pub(super) look: Look,
+    pub(super) paint: Paint,
     /// The plane the marker sits on, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
@@ -188,15 +194,15 @@ impl PointInstance {
     pub(crate) fn of(point: &Point) -> Self {
         Self {
             position: point.position.to_array(),
-            look: Look::of(point.color, point.size),
+            paint: Paint::of(point.color, point.size),
             plane: direction_of(point.plane_normal),
         }
     }
 }
 
 impl Instance for PointInstance {
-    fn look_mut(&mut self) -> &mut Look {
-        &mut self.look
+    fn paint_mut(&mut self) -> &mut Paint {
+        &mut self.paint
     }
 }
 
@@ -240,13 +246,13 @@ pub(crate) struct GlyphInstance {
     pub(super) uv_size: [f32; 2],
     /// Colour and depth bias, as every overlay ends.
     ///
-    /// Its [`spread`](Look::spread) is unused and always zero: a glyph's size
+    /// Its [`spread`](Paint::spread) is unused and always zero: a glyph's size
     /// was decided when the run was shaped, so there is nothing here to
     /// spread. That also
     /// makes a highlight's `scale` a no-op on text, which is the honest answer
     /// — larger type is a different shaping, not a larger quad over the same
     /// pixels.
-    pub(super) look: Look,
+    pub(super) paint: Paint,
     /// The plane the run lies on, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
     /// The world direction the run advances along, and zero where it advances
@@ -288,7 +294,7 @@ impl GlyphInstance {
             size: quad.size.to_array(),
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
-            look: Look::of(color, 0.0),
+            paint: Paint::of(color, 0.0),
             plane: direction_of(facing.normal()),
             right: direction_of(facing.right()),
             lift: facing.lift_world().to_array(),
@@ -297,20 +303,28 @@ impl GlyphInstance {
 }
 
 impl Instance for GlyphInstance {
-    fn look_mut(&mut self) -> &mut Look {
-        &mut self.look
+    fn paint_mut(&mut self) -> &mut Paint {
+        &mut self.paint
     }
 }
 
-/// A record the renderer ships in a vertex buffer: one per vertex for modelled
-/// geometry, one per primitive for the overlays, which build their own
-/// corners.
+/// How one record is laid out for the vertex buffer it is shipped in: one entry
+/// per vertex for modelled geometry, one per primitive for the overlays, which
+/// build their own corners.
+///
+/// Named for what it declares rather than for what declares it. Everything else
+/// under `record` is the data — the structs below, [`Flatten::Record`] naming
+/// one of them, and the [`Records`] a mirror keeps them in — where this is the
+/// attribute list that has to agree with the struct it describes.
 ///
 /// Always reached through a concrete type. [`Self::LAYOUT_SPANS_STRUCT`] is
 /// evaluated per implementor, so putting records behind `dyn` to spare the
 /// renderer naming each kind would drop that check without a word — which is
 /// why `paint` names three and stops there.
-pub(crate) trait Record: bytemuck::Pod {
+///
+/// [`Flatten::Record`]: crate::primitive::Flatten
+/// [`Records`]: crate::renderer::cpu::records::Records
+pub(crate) trait Attributed: bytemuck::Pod {
     /// Whether the buffer advances per vertex or per instance.
     const STEP_MODE: wgpu::VertexStepMode;
 
@@ -345,13 +359,13 @@ pub(crate) trait Record: bytemuck::Pod {
     };
 }
 
-impl Record for GpuVertex {
+impl Attributed for GpuVertex {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Vertex;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] =
         &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3];
 }
 
-impl Record for CurveInstance {
+impl Attributed for CurveInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
@@ -359,14 +373,14 @@ impl Record for CurveInstance {
     ];
 }
 
-impl Record for PointInstance {
+impl Attributed for PointInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32x3
     ];
 }
 
-impl Record for GlyphInstance {
+impl Attributed for GlyphInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
@@ -374,7 +388,7 @@ impl Record for GlyphInstance {
     ];
 }
 
-impl Record for RingInstance {
+impl Attributed for RingInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32,

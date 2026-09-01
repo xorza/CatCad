@@ -1,5 +1,6 @@
 //! The scene flattened into what the GPU takes, held on the CPU between frames.
 
+pub(crate) mod marked;
 pub(crate) mod records;
 pub(crate) mod triangles;
 

@@ -125,10 +125,10 @@ fn a_highlight_repeats_only_what_its_tag_names() {
         cpu.curves
             .lit
             .iter()
-            .all(|i| i.look.color == [1.0, 0.0, 0.0])
+            .all(|i| i.paint.color == [1.0, 0.0, 0.0])
     );
-    assert!(cpu.curves.lit.iter().all(|i| i.look.spread == 3.0)); // 2.0/2 × 3
-    assert_eq!(cpu.rings.lit[0].look.spread, 4.5); // 3.0/2 × 3
+    assert!(cpu.curves.lit.iter().all(|i| i.paint.spread == 3.0)); // 2.0/2 × 3
+    assert_eq!(cpu.rings.lit[0].paint.spread, 4.5); // 3.0/2 × 3
 
     // The geometry is the primitive's own, untouched. Copied out first: the
     // records are held on the renderer now, so flattening another one needs
@@ -151,8 +151,8 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     renderer.refresh(1.0);
     let cpu = &renderer.mirrors[0].cpu;
     assert_eq!(cpu.curves.lit.len(), 2, "still doubled once, not twice");
-    assert_eq!(cpu.rings.lit[0].look.spread, 1.5);
-    assert_eq!(cpu.rings.lit[0].look.color, [0.0, 1.0, 0.0]);
+    assert_eq!(cpu.rings.lit[0].paint.spread, 1.5);
+    assert_eq!(cpu.rings.lit[0].paint.color, [0.0, 1.0, 0.0]);
 
     // Lighting one thing alone drops the rest, and clearing drops everything.
     renderer.highlight_only(

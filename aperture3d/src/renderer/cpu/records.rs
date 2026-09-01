@@ -9,29 +9,28 @@ use crate::batch::Batch;
 use crate::highlight::Highlights;
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
+use crate::renderer::cpu::marked::Marked;
 use crate::renderer::record::{GlyphInstance, Instance};
 use crate::text::Text;
 use crate::text::turn::Facing;
 use glam::{Vec2, Vec3};
 use palantir::{PlacedGlyph, TextGlyphs};
 
-/// Two buffers and their marks: what one kind flattens to, and what a highlight
-/// over it flattens to.
+/// Two buffers: what one kind flattens to, and what a highlight over it
+/// flattens to.
 ///
 /// Held apart from what fills either, because the filling is the one thing the
 /// kinds disagree about — three of them flatten themselves from a batch and text
 /// needs a shaper and a sheet — while this half is the same for all four: two
-/// buffers refilled in place, and a mark apiece on the terms
+/// [`Marked`] buffers refilled in place, each answering for itself on the terms
 /// [`Batch::take_dirty`] sets.
 #[derive(Debug)]
 pub(crate) struct Records<R> {
     /// The kind drawn as itself.
-    pub(crate) ordinary: Vec<R>,
+    pub(crate) ordinary: Marked<R>,
     /// The same records again in a highlight's look, for whatever a caller has
     /// singled out — and empty whenever nothing is lit.
-    pub(crate) lit: Vec<R>,
-    ordinary_dirty: bool,
-    lit_dirty: bool,
+    pub(crate) lit: Marked<R>,
 }
 
 impl<R> Default for Records<R> {
@@ -39,57 +38,13 @@ impl<R> Default for Records<R> {
     /// claim about records that nothing here needs.
     fn default() -> Self {
         Self {
-            ordinary: Vec::new(),
-            lit: Vec::new(),
-            ordinary_dirty: false,
-            lit_dirty: false,
+            ordinary: Marked::default(),
+            lit: Marked::default(),
         }
     }
 }
 
 impl<R> Records<R> {
-    /// The ordinary buffer, emptied and marked, to be filled again.
-    ///
-    /// Emptying and marking are one act rather than two a caller has to
-    /// remember to pair: a buffer refilled without its mark is one the GPU goes
-    /// on drawing the old contents of, and a mark set without the refill asks
-    /// for an upload of what was already uploaded. Handing the buffer over is
-    /// what makes that unavoidable — there is no reaching the one without the
-    /// other.
-    ///
-    /// Keeps whatever room it has grown to, which is the point of holding these
-    /// between frames at all.
-    fn ordinary_to_fill(&mut self) -> &mut Vec<R> {
-        self.ordinary.clear();
-        self.ordinary_dirty = true;
-        &mut self.ordinary
-    }
-
-    /// The highlight buffer, on the same terms.
-    fn lit_to_fill(&mut self) -> &mut Vec<R> {
-        self.lit.clear();
-        self.lit_dirty = true;
-        &mut self.lit
-    }
-
-    /// The ordinary records if they have been rewritten since this last handed
-    /// them over, and `None` if they have not.
-    ///
-    /// Hands back the buffer rather than a flag about it, so there is no reading
-    /// one and uploading the other, and no uploading a buffer nobody rewrote.
-    pub(crate) fn ordinary_to_upload(&mut self) -> Option<&[R]> {
-        std::mem::take(&mut self.ordinary_dirty).then(|| &self.ordinary[..])
-    }
-
-    /// The highlighted records, on the same terms.
-    ///
-    /// Answers `Some` with an empty slice where the last thing lit was put out:
-    /// emptying is a rewrite like any other, and a pass left holding the old
-    /// records would go on drawing them.
-    pub(crate) fn lit_to_upload(&mut self) -> Option<&[R]> {
-        std::mem::take(&mut self.lit_dirty).then(|| &self.lit[..])
-    }
-
     /// Bring both buffers up to date with `batch`, for a kind that can flatten
     /// itself.
     ///
@@ -116,7 +71,7 @@ impl<R> Records<R> {
         let moved = batch.take_dirty();
         let items: &[O] = batch;
         if moved {
-            let ordinary = self.ordinary_to_fill();
+            let ordinary = self.ordinary.emptied();
             // Counted here rather than up front, so a still frame does not walk
             // the batch to reserve room it is not about to fill.
             ordinary.reserve_exact(items.iter().map(O::record_count).sum());
@@ -129,7 +84,7 @@ impl<R> Records<R> {
             // on what the caller lit — so this is the one buffer that grows
             // rather than reserving exactly. It settles after a few frames of
             // hovering and stops allocating there.
-            let lit = self.lit_to_fill();
+            let lit = self.lit.emptied();
             for item in items {
                 let Some(look) = highlights.look_of(item.tag()) else {
                     continue;
@@ -209,7 +164,7 @@ impl TextRecords {
             // No count to reserve, unlike every other kind: how many glyphs a
             // run comes to is the shaper's answer, and asking would be laying
             // it out twice.
-            let ordinary = records.ordinary_to_fill();
+            let ordinary = records.ordinary.emptied();
             for text in texts.iter() {
                 // Measured immediately before it is laid out, because where a
                 // run's glyphs sit depends on where its box hangs and that is
@@ -223,7 +178,7 @@ impl TextRecords {
             }
         }
         if relaid || relight {
-            let lit = records.lit_to_fill();
+            let lit = records.lit.emptied();
             for text in texts.iter() {
                 let Some(look) = highlights.look_of(text.tag()) else {
                     continue;

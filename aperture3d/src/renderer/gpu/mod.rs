@@ -12,7 +12,7 @@ use crate::renderer::gpu::sheet::Sheet;
 use crate::renderer::pass;
 use crate::renderer::pass::{PassSpec, Pipelines};
 use crate::renderer::record::{
-    CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
+    Attributed, CurveInstance, GlyphInstance, GpuVertex, PointInstance, RingInstance,
 };
 use crate::renderer::retained::Retained;
 use glam::{UVec2, Vec3};
@@ -161,7 +161,7 @@ impl Twin {
     ///
     /// The highlight's spec is derived here rather than handed in, so a kind
     /// names itself once and everything else follows from that one name.
-    fn build<R: Record>(
+    fn build<R: Attributed>(
         pipelines: &Pipelines<'_>,
         spec: PassSpec,
         indices: &'static [u32],

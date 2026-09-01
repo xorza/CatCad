@@ -116,8 +116,9 @@ pub(super) struct Uniforms {
 /// WGSL rounds [`Uniforms`] up to.
 ///
 /// The guard the vertex records are already under, for the same reason — see
-/// [`Record::LAYOUT_SPANS_STRUCT`](super::record::Record). What it catches is a
-/// scalar added without the padding beside it being taken back: the buffer is
+/// [`Attributed::LAYOUT_SPANS_STRUCT`](super::record::Attributed). What it
+/// catches is a scalar added without the padding beside it being taken back:
+/// the buffer is
 /// created at this struct's own size, so Rust would ship fewer bytes than the
 /// shader declares and wgpu would refuse the binding with a complaint about
 /// lengths, a long way from the field that caused it.

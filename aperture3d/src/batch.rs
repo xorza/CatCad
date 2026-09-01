@@ -57,11 +57,16 @@ impl<T> Batch<T> {
     /// Consuming rather than peeking, so a second caller cannot be told about an
     /// edit the first has already dealt with. The renderer is the one caller.
     ///
-    /// Three more marks downstream keep this discipline by hand rather than
-    /// sharing a type with it — the flattened records, the triangle list and the
-    /// glyph sheet. A `Dirty(bool)` exposing only `mark` and `take` would add
-    /// lines rather than remove them: each of the four still wants its own name
-    /// and its own doc, and the rule they hold is one line apiece.
+    /// The flattened buffers downstream hold the same discipline through a type
+    /// of their own — see
+    /// [`Marked`](crate::renderer::cpu::marked::Marked) — and this does not
+    /// share it. What that type is for is pairing the mark with the *emptying*,
+    /// which a batch has no equivalent of: a caller writing to one is not
+    /// refilling it, and reaching through `&mut` cannot be told from reading, so
+    /// this marks conservatively where that one knows exactly when it moved.
+    ///
+    /// The glyph sheet is the third mark and shares neither, being one image
+    /// rather than a buffer of anything.
     pub(crate) fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
     }
