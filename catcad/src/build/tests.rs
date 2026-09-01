@@ -309,7 +309,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     assert_eq!(build.bodied(first).built(), Built::Made);
     assert_eq!(
         build.bodied(second).built(),
-        Built::Refused,
+        Built::Unmerged,
         "two blocks sharing nothing but an edge were sewn into one",
     );
 

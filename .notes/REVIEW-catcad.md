@@ -3,26 +3,6 @@
 When you address an item, delete it from this file. This document describes
 findings only. It proposes no fixes.
 
-## Claims the code has outgrown
-
-Comments and signatures state things the code around them no longer does.
-Each reads as authoritative and is wrong.
-
-- [ ] `hud/recipe.rs:78` — the row comment says the two faults "share their
-  words with the status line, so the two say it the same way". They do not:
-  the recipe writes `lost`, `apart`, `refused` (recipe.rs:88–90) where the
-  status line writes `adrift`, `not merged`, `refused` (status.rs:183, 193,
-  203) — one of three matches. `status.rs` chose "adrift" deliberately
-  ("Adrift rather than lost"), and the recipe still says "lost". The same
-  state also runs through four names: `Built::Refused` becomes
-  `Broken::Unmerged`, is listed as "apart" and totalled as "not merged".
-- [ ] `prompt/mod.rs:436` — `Prompt::opening` returns `Option<Self>` and its
-  body is `Some(match …)`: no arm answers `None`. The doc still claims
-  "`None` where what it names has gone", which was true before resolution
-  moved to the pick. The caller carries a `let Some(opened) … else
-  { continue }` for the unreachable case (session.rs:165), and mints the
-  form number before that guard.
-
 ## Doc comments attached to the wrong item
 
 Contiguous `///` blocks fused across deleted blank lines, so one item
@@ -64,9 +44,6 @@ step by hand.
 - [ ] `prompt/mod.rs:664` (`Asking → Option<Operation>` in `doing`) and
   `prompt/mod.rs:1096` (the same match written inline in `beside`, by
   `&mut`) — "which forms carry an operation" is decided twice in one file.
-- [ ] `status.rs:171–248` — the pluralise-and-append clause (`write count;
-  if count != 1 push "s"`) is written out four times in one `Display` impl
-  (steps adrift, solids not merged, blends refused, removed steps).
 
 ## Invariants nothing states, silent when broken
 

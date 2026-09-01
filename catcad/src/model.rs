@@ -566,7 +566,7 @@ impl<'a> Models<'a> {
         // instead of a step that quietly reads as fine.
         match self.came_at(at)? {
             Built::Lost => Some(Broken::Footing),
-            Built::Refused => Some(Broken::Unmerged),
+            Built::Unmerged => Some(Broken::Unmerged),
             Built::Unrounded => Some(Broken::Unrounded),
             Built::Made | Built::Empty => None,
         }
@@ -804,7 +804,7 @@ impl<'a> Models<'a> {
     /// workings rather than the answer.
     ///
     /// More than one only where a step could not be put into the model —
-    /// [`Built::Refused`](crate::build::bodied::Built), which today is most
+    /// [`Built::Unmerged`](crate::build::bodied::Built), which today is most
     /// often a body with a curved face
     /// in it, planar being as far as the boolean goes. Such a step's own solid
     /// stands beside the model instead of in it, and [`Models::lost`] counts
@@ -826,7 +826,7 @@ impl<'a> Models<'a> {
             .filter(move |step| timeline.built(step.at))
             .filter_map(move |step| {
                 let bodied = build.bodied(step.at);
-                let shown = Some(step.at) == model || bodied.built().refused();
+                let shown = Some(step.at) == model || bodied.built().unmerged();
                 (shown && !bodied.shown().is_empty()).then(|| (step.at, bodied.shown()))
             })
     }

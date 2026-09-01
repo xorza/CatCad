@@ -49,7 +49,7 @@ pub(crate) struct Bodied {
     /// its own solid to what the steps before it left standing, or cuts it out
     /// of them, and what it leaves is what the step after it starts from.
     ///
-    /// The other case is [`Built::Refused`], and it is why this is two things
+    /// The other case is [`Built::Unmerged`], and it is why this is two things
     /// rather than one. A body the kernel will not combine has to go somewhere,
     /// and the honest place is beside the model rather than nowhere: the step
     /// is flagged, both solids are on screen, and the step after this one goes
@@ -216,7 +216,7 @@ impl Bodied {
             // costs and is what was on screen before there were booleans at all.
             (false, _) => {
                 std::mem::swap(&mut self.body, raised);
-                Built::Refused
+                Built::Unmerged
             }
             (true, true) => Built::Empty,
             (true, false) => Built::Made,
@@ -317,12 +317,17 @@ pub(crate) enum Built {
     /// for. Handing back something that reads as a solid and is not would be
     /// the worse answer, so the two stand side by side. See
     /// [`Boolean::combine`].
-    Refused,
+    ///
+    /// **Named for what a person is shown rather than for the kernel's
+    /// answer.** A reader meets this word again in the recipe and in the status
+    /// line, where the step reads "not merged" — and "refused" there is the
+    /// *other* state, a blend the kernel would not put in.
+    Unmerged,
     /// The kernel would not put its blend in.
     ///
-    /// A rounding's own refusal, and its own state rather than [`Built::Refused`]
-    /// above: that one leaves a second solid standing beside the model, and this
-    /// leaves nothing at all — a rounding raises no solid of its own. What it
+    /// A rounding's own refusal, and its own state rather than
+    /// [`Built::Unmerged`] above: that one leaves a second solid standing
+    /// beside the model, and this leaves nothing at all — a rounding raises no solid of its own. What it
     /// costs is the step, and the model goes on standing.
     ///
     /// **Told apart from [`Built::Lost`] because they are mended differently.**
@@ -347,8 +352,8 @@ impl Built {
 
     /// Whether the kernel would not put it into the model — so its own solid
     /// stands beside one.
-    pub(crate) fn refused(self) -> bool {
-        self == Self::Refused
+    pub(crate) fn unmerged(self) -> bool {
+        self == Self::Unmerged
     }
 }
 
@@ -563,10 +568,10 @@ mod internals {
         ///
         /// What a test counting the recipe asks — see
         /// [`Models::grown`](crate::model::Models). Production reads
-        /// [`Built::modelled`] and [`Built::refused`], which are about what the
-        /// step did to the model rather than about what it raised.
+        /// [`Built::modelled`] and [`Built::unmerged`], which are about what
+        /// the step did to the model rather than about what it raised.
         pub(crate) fn raised(self) -> bool {
-            matches!(self, Self::Made | Self::Refused)
+            matches!(self, Self::Made | Self::Unmerged)
         }
     }
 

@@ -162,9 +162,7 @@ impl Session {
                     // the session's. What is left here is *which* form is open,
                     // which is session state and nobody else's.
                     self.forms = self.forms.next();
-                    let Some(opened) = Prompt::opening(opening, self.forms) else {
-                        continue;
-                    };
+                    let opened = Prompt::opening(opening, self.forms);
                     // A second open of the form already open would start its
                     // drafts over, which is why the guard is here rather than
                     // left to whoever raises this: a double-click on a field

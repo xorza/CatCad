@@ -259,21 +259,25 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // A cleanup answers the press that asked for it, and answering "nothing"
     // is the half that matters: a command that goes quiet when it finds no work
     // reads as a command that did not run.
+    let quiet = || Status {
+        solved: Some(Solved {
+            converged: true,
+            iterations: 4,
+            degrees_of_freedom: 0,
+            redundant_constraints: 0,
+        }),
+        lost: 0,
+        unmerged: 0,
+        unrounded: 0,
+        hovered: None,
+        reported: None,
+        unsaved: false,
+        filed: None,
+    };
     let after = |reported| {
         Status {
-            solved: Some(Solved {
-                converged: true,
-                iterations: 4,
-                degrees_of_freedom: 0,
-                redundant_constraints: 0,
-            }),
-            lost: 0,
-            unmerged: 0,
-            unrounded: 0,
-            hovered: None,
             reported: Some(reported),
-            unsaved: false,
-            filed: None,
+            ..quiet()
         }
         .to_string()
     };
@@ -314,6 +318,33 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     assert_eq!(
         after(Reported::Took(3)),
         format!("{head} · removed 3 steps")
+    );
+
+    // **The three faults, in the words the recipe writes them in.** A person
+    // reads the same fault in two places — a row of the recipe and this line —
+    // and two words for one state reads as two states. See
+    // [`Built`](crate::build::bodied::Built), where the naming is argued.
+    let faulted = |lost, unmerged, unrounded| {
+        Status {
+            lost,
+            unmerged,
+            unrounded,
+            ..quiet()
+        }
+        .to_string()
+    };
+    assert_eq!(faulted(0, 0, 0), head, "a sound recipe said something");
+    assert_eq!(faulted(1, 0, 0), format!("{head} · 1 step adrift"));
+    assert_eq!(faulted(2, 0, 0), format!("{head} · 2 steps adrift"));
+    assert_eq!(faulted(0, 1, 0), format!("{head} · 1 solid not merged"));
+    assert_eq!(faulted(0, 5, 0), format!("{head} · 5 solids not merged"));
+    assert_eq!(faulted(0, 0, 1), format!("{head} · 1 blend refused"));
+    assert_eq!(faulted(0, 0, 4), format!("{head} · 4 blends refused"));
+    // All three at once, in the order they are read: what the model lost, what
+    // it could not take in, and what it would not round.
+    assert_eq!(
+        faulted(1, 2, 3),
+        format!("{head} · 1 step adrift · 2 solids not merged · 3 blends refused"),
     );
 
     // And the app's own opening state agrees with the demo's solve. It reads

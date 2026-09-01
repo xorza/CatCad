@@ -74,19 +74,20 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents:
             // that step rather than marking the tail below it.
             let mut built = true;
             for (at, feature) in models.chosen() {
-                // **What the step came to, matched whole.** The two faults
-                // share their words with the status line, so the two say it the
-                // same way — see [`Status`](crate::status::Status) — and coming
-                // to nothing is the recipe's alone, the status line reporting
-                // what is *wrong* and this listing what is there.
+                // **What the step came to, matched whole.** The three faults
+                // are worded as the status line words them, so a person meets
+                // one word for one state — see
+                // [`Status`](crate::status::Status) — and coming to nothing is
+                // the recipe's alone, the status line reporting what is *wrong*
+                // and this listing what is there.
                 //
                 // Through what a step came to rather than through the faults
                 // alone, which is what let a row that built nothing read
                 // exactly like one that built: a fifth thing a step can come to
                 // is a compile error here instead.
                 let came = match models.came_at(at) {
-                    Some(Built::Lost) => " · lost",
-                    Some(Built::Refused) => " · apart",
+                    Some(Built::Lost) => " · adrift",
+                    Some(Built::Unmerged) => " · not merged",
                     Some(Built::Unrounded) => " · refused",
                     Some(Built::Empty) => " · empty",
                     Some(Built::Made) | None => "",

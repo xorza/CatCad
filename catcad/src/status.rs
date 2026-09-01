@@ -69,6 +69,20 @@ pub(crate) struct Status<'a> {
     pub(crate) filed: Option<&'a str>,
 }
 
+/// `count` of `what`, with the `s` where there is more than one.
+///
+/// **Written once because every clause here counts something and names it.**
+/// The plural is the part nobody reads twice, and a clause that forgot it says
+/// "1 solids" or "2 solid" to a person who is already being told that something
+/// went wrong.
+fn many(f: &mut fmt::Formatter<'_>, count: usize, what: &str) -> fmt::Result {
+    write!(f, "{count} {what}")?;
+    if count != 1 {
+        f.write_str("s")?;
+    }
+    Ok(())
+}
+
 /// What to call a part of the drawing where a person will read it.
 ///
 /// Here rather than on [`Entity`], which is silverpoint's: what a thing is
@@ -176,30 +190,24 @@ impl fmt::Display for Rest<'_> {
             // read as the step itself having gone — and "profile" is no longer
             // true of all of them, a rounding being built on face names rather
             // than on a region.
-            write!(f, " · {} step", status.lost)?;
-            if status.lost != 1 {
-                f.write_str("s")?;
-            }
+            f.write_str(" · ")?;
+            many(f, status.lost, "step")?;
             f.write_str(" adrift")?;
         }
         if status.unmerged > 0 {
             // Named for the solid rather than for the step, like the clause
             // above: what a person sees is a solid standing apart from the
             // rest, and the step it came from is intact.
-            write!(f, " · {} solid", status.unmerged)?;
-            if status.unmerged != 1 {
-                f.write_str("s")?;
-            }
+            f.write_str(" · ")?;
+            many(f, status.unmerged, "solid")?;
             f.write_str(" not merged")?;
         }
         if status.unrounded > 0 {
             // Named for the blend rather than for the step, like the two
             // clauses above: what a person sees is a corner that stayed sharp,
             // and the step it came from is intact.
-            write!(f, " · {} blend", status.unrounded)?;
-            if status.unrounded != 1 {
-                f.write_str("s")?;
-            }
+            f.write_str(" · ")?;
+            many(f, status.unrounded, "blend")?;
             f.write_str(" refused")?;
         }
         if status.unsaved {
@@ -214,11 +222,8 @@ impl fmt::Display for Rest<'_> {
         match status.reported {
             None => Ok(()),
             Some(Reported::Took(steps)) => {
-                write!(f, " · removed {steps} step")?;
-                if steps != 1 {
-                    f.write_str("s")?;
-                }
-                Ok(())
+                f.write_str(" · removed ")?;
+                many(f, steps, "step")
             }
             Some(Reported::Cleaned(cleaned)) if cleaned.is_empty() => {
                 write!(f, " · nothing to clean up")
@@ -238,10 +243,7 @@ impl fmt::Display for Rest<'_> {
                     if nth > 0 {
                         f.write_str(", ")?;
                     }
-                    write!(f, "{count} {what}")?;
-                    if count != 1 {
-                        f.write_str("s")?;
-                    }
+                    many(f, count, what)?;
                 }
                 Ok(())
             }

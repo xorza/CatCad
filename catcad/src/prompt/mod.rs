@@ -416,7 +416,7 @@ enum Done {
 }
 
 impl Prompt {
-    /// The form `opening` asks for, or `None` where what it names has gone.
+    /// The form `opening` asks for.
     ///
     /// **Where a request becomes a form**, which is what [`Opening`] is a
     /// separate enum for: an intent is [`Copy`] and carries what the form is to
@@ -433,8 +433,8 @@ impl Prompt {
     /// Nothing is resolved here any more. A position among the faces becomes a
     /// name where the regions are *picked*, which is what lets the request
     /// carry the name — see [`Opening::Extrude`].
-    pub(crate) fn opening(opening: Opening, form: Form) -> Option<Self> {
-        Some(match opening {
+    pub(crate) fn opening(opening: Opening, form: Form) -> Self {
+        match opening {
             Opening::Dimension { part, from } => Self::on(
                 form,
                 Asking::Dimension { part },
@@ -500,7 +500,7 @@ impl Prompt {
                     },
                 ],
             ),
-        })
+        }
     }
 
     /// Open a form for `about`, seeded with `values`.
