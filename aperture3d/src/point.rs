@@ -4,7 +4,7 @@ use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
 use crate::precedence::Precedence;
 use crate::primitive::{Flatten, Primitive};
-use crate::renderer::record::PointInstance;
+use crate::renderer::record::point_instance::PointInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::Vec3;

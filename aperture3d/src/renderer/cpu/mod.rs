@@ -8,7 +8,9 @@ pub(crate) mod triangles;
 use crate::renderer::cpu::records::Records;
 use crate::renderer::cpu::text_records::TextRecords;
 use crate::renderer::cpu::triangles::Triangles;
-use crate::renderer::record::{CurveInstance, PointInstance, RingInstance};
+use crate::renderer::record::curve_instance::CurveInstance;
+use crate::renderer::record::point_instance::PointInstance;
+use crate::renderer::record::ring_instance::RingInstance;
 
 /// The whole scene in the shape the GPU takes it.
 ///

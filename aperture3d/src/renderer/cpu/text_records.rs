@@ -2,10 +2,12 @@
 
 use crate::batch::Batch;
 use crate::primitive::Primitive;
-use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
+use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::cpu::records::Records;
+use crate::renderer::glyph_quad::GlyphQuad;
 use crate::renderer::highlights::Highlights;
-use crate::renderer::record::{GlyphInstance, Instance};
+use crate::renderer::record::Instance;
+use crate::renderer::record::glyph_instance::GlyphInstance;
 use crate::text::Text;
 use crate::text::turn::Facing;
 use glam::{Vec2, Vec3};

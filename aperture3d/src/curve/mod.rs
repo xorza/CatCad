@@ -4,7 +4,7 @@ use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
 use crate::precedence::Precedence;
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
-use crate::renderer::record::CurveInstance;
+use crate::renderer::record::curve_instance::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::viewport::{self, Inside};

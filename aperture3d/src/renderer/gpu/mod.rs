@@ -11,9 +11,12 @@ use crate::renderer::gpu::attachments::Attachments;
 use crate::renderer::gpu::sheet::Sheet;
 use crate::renderer::pipelines;
 use crate::renderer::pipelines::{PassSpec, Pipelines};
-use crate::renderer::record::{
-    Attributed, CurveInstance, GlyphInstance, GpuVertex, PointInstance, RingInstance,
-};
+use crate::renderer::record::Attributed;
+use crate::renderer::record::curve_instance::CurveInstance;
+use crate::renderer::record::glyph_instance::GlyphInstance;
+use crate::renderer::record::gpu_vertex::GpuVertex;
+use crate::renderer::record::point_instance::PointInstance;
+use crate::renderer::record::ring_instance::RingInstance;
 use crate::renderer::retained::Retained;
 use glam::{UVec2, Vec3};
 

@@ -4,7 +4,7 @@ use crate::batch::Batch;
 use crate::object::Object;
 use crate::renderer::cpu::marked::Marked;
 use crate::renderer::highlights::Highlights;
-use crate::renderer::record::GpuVertex;
+use crate::renderer::record::gpu_vertex::GpuVertex;
 use glam::{Mat3, Vec3};
 
 /// The objects flattened to one world-space triangle list.

@@ -12,8 +12,8 @@
 //! evict — when the sheet fills, it is thrown away and started again at twice
 //! the side.
 
-use glam::{UVec2, Vec2};
-use palantir::{ContentType, GlyphRasterKey, PlacedGlyph, TextGlyphs};
+use glam::UVec2;
+use palantir::{ContentType, GlyphRasterKey, TextGlyphs};
 use std::collections::HashMap;
 
 /// Side of a fresh sheet, in pixels. A 256² sheet is 64 KB and holds a hundred
@@ -33,16 +33,16 @@ const GUTTER: u32 = 1;
 /// Where one glyph's coverage sits on the sheet, and where the sheet's copy sits
 /// relative to the pen that drew it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Slot {
+pub(crate) struct Slot {
     /// Pixel rect on the sheet.
-    pub(super) x: u32,
-    pub(super) y: u32,
-    pub(super) width: u32,
-    pub(super) height: u32,
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
     /// The glyph's bearing, in the physical pixels it was rasterized at:
     /// rightward from the pen, and *upward* to the top of the ink.
-    pub(super) left: i32,
-    pub(super) top: i32,
+    pub(crate) left: i32,
+    pub(crate) top: i32,
 }
 
 /// The sheet every glyph in the scene is drawn from.
@@ -210,42 +210,6 @@ impl GlyphAtlas {
     }
 }
 
-/// One glyph's quad, worked out from where the shaper put it and where the atlas
-/// keeps it.
-///
-/// In logical pixels, like every other overlay's size: the shaper places and
-/// rasterizes at the raster scale, and dividing back out is what leaves the
-/// record saying what it will be *drawn* at rather than how many device pixels
-/// that happened to be.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct GlyphQuad {
-    /// Top-left of the quad, relative to the run's anchor.
-    pub(super) offset: Vec2,
-    pub(super) size: Vec2,
-    /// Where on the sheet to sample, as a fraction of it.
-    pub(super) uv_min: Vec2,
-    pub(super) uv_size: Vec2,
-}
-
-impl GlyphQuad {
-    /// `placed` drawn from `slot`, with the run's own origin already taken off.
-    ///
-    /// `origin` is where the run's top-left sits relative to its anchor, which
-    /// is what [`Text::anchor`](crate::Text::anchor) decides — folded in here so
-    /// the record names one offset rather than the shader adding two.
-    pub(super) fn of(placed: PlacedGlyph, slot: Slot, origin: Vec2, scale: f32, side: u32) -> Self {
-        // The pen, plus the bearing: rightward, and up to the top of the ink.
-        let ink = Vec2::new((placed.x + slot.left) as f32, (placed.y - slot.top) as f32);
-        let side = side as f32;
-        Self {
-            offset: origin + ink / scale,
-            size: Vec2::new(slot.width as f32, slot.height as f32) / scale,
-            uv_min: Vec2::new(slot.x as f32, slot.y as f32) / side,
-            uv_size: Vec2::new(slot.width as f32, slot.height as f32) / side,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,48 +303,5 @@ mod tests {
         // And the refusal was not remembered, so the glyph is asked for afresh
         // on the sheet that now has room.
         assert!(!atlas.restart_if_full());
-    }
-    /// A glyph's quad is placed where the pen and the bearing put it, and reads
-    /// the sheet where the slot says.
-    ///
-    /// Hand-computed against a slot standing in for the packer, because what
-    /// this checks is the arithmetic between three coordinate systems — the
-    /// shaper's physical pixels, the run's own logical box, and the sheet's
-    /// fractions — and a real glyph would hide a sign error inside plausible
-    /// numbers.
-    #[test]
-    fn a_quad_lands_where_the_pen_and_the_bearing_put_it() {
-        let slot = Slot {
-            x: 8,
-            y: 16,
-            width: 10,
-            height: 20,
-            left: 2,
-            top: 15,
-        };
-        let placed = PlacedGlyph {
-            raster_key: placeholder_key(),
-            x: 100,
-            y: 40,
-        };
-        // Two device pixels to the logical one, and the run hangs half its
-        // width left of the anchor.
-        let quad = GlyphQuad::of(placed, slot, Vec2::new(-30.0, 0.0), 2.0, 64);
-
-        // Ink starts at pen + left = 102 across, and pen − top = 25 down; in
-        // logical pixels that is 51 and 12.5, then the run's own origin.
-        assert_eq!(quad.offset, Vec2::new(-30.0 + 51.0, 12.5));
-        assert_eq!(quad.size, Vec2::new(5.0, 10.0));
-        assert_eq!(quad.uv_min, Vec2::new(8.0 / 64.0, 16.0 / 64.0));
-        assert_eq!(quad.uv_size, Vec2::new(10.0 / 64.0, 20.0 / 64.0));
-    }
-
-    /// A key from a real shaping, for a test that needs one it will not draw.
-    fn placeholder_key() -> GlyphRasterKey {
-        let shaper = TextShaper::new();
-        let mut glyphs = shaper.glyphs();
-        let mut placed = Vec::new();
-        glyphs.line("a", GlyphFont::new(16.0), 1.0, &mut placed);
-        placed[0].raster_key
     }
 }

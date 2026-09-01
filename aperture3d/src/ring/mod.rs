@@ -4,7 +4,7 @@ use crate::aim::{self, Aim};
 use crate::hit::{Hit, HitAt};
 use crate::precedence::Precedence;
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
-use crate::renderer::record::RingInstance;
+use crate::renderer::record::ring_instance::RingInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Vec2, Vec3, Vec4Swizzles};

@@ -11,6 +11,7 @@
 pub(crate) mod atlas;
 pub(crate) mod band;
 pub(crate) mod cpu;
+pub(crate) mod glyph_quad;
 pub(crate) mod gpu;
 pub(crate) mod held;
 pub(crate) mod highlights;
