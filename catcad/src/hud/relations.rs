@@ -1,6 +1,6 @@
 //! What can be asked of what is picked out, along the bottom.
 
-use palantir::{Align, DragValue, Ui, WidgetId};
+use palantir::{Align, Configure, DragValue, Ui, WidgetId};
 use silverpoint::{Bevel, Constraint, ConstraintId, Entity, Named, SegmentId};
 
 use crate::control::chip::Chip;
@@ -106,15 +106,19 @@ pub(super) fn show(
     let dimension = open.and_then(|model| picked.resizable(model));
     let region = open.and_then(|_| picked.growable());
     let spinning = open.and_then(|_| picked.spinnable());
-    if offers.is_empty()
-        && dimension.is_none()
-        && region.is_none()
-        && spinning.is_none()
-        && startable.is_none()
-        && removable.is_none()
-        && roundable.is_none()
-        && blendable.is_none()
-    {
+    // **What the bar holds besides the offers**, asked twice: once to decide
+    // whether it is worth drawing at all, and once to decide whether the offers
+    // want a divider above them. Two lists kept by hand drift the moment an
+    // eighth thing is added, and what drifts is silent — a divider over
+    // nothing, or a bar that does not appear.
+    let besides = startable.is_some()
+        || dimension.is_some()
+        || region.is_some()
+        || spinning.is_some()
+        || removable.is_some()
+        || roundable.is_some()
+        || blendable.is_some();
+    if offers.is_empty() && !besides {
         return;
     }
     // Seeded from the drawing every frame rather than remembered, which is what
@@ -155,7 +159,7 @@ pub(super) fn show(
             // viewport rather than drawn — see
             // [`Change::Round`](crate::intent::change::Change).
             if let Some(along) = roundable {
-                scrub(ui, &mut reach.0);
+                scrub(ui, &mut reach.0, "offered");
                 // **Both kinds, side by side.** They differ in one word and
                 // share the field, the pick and every step of what follows —
                 // see [`Feature::Round`](crate::timeline::feature::Feature) —
@@ -178,7 +182,7 @@ pub(super) fn show(
             // number is read and scrubbed in one place whether the step exists
             // yet or not.
             if let Some(blendable) = blendable {
-                let edited = scrub(ui, &mut reach.0);
+                let edited = scrub(ui, &mut reach.0, "blend");
                 if edited.changed {
                     intents.push(Change::Blend {
                         round: blendable.at,
@@ -195,7 +199,7 @@ pub(super) fn show(
                 return;
             };
             if let Some(resizable) = dimension {
-                let edited = scrub(ui, draft);
+                let edited = scrub(ui, draft, "dimension");
                 if edited.changed {
                     intents.push(Change::Resize {
                         sketch,
@@ -256,15 +260,7 @@ pub(super) fn show(
             {
                 intents.push(Change::DeleteStep { step });
             }
-            if !offers.is_empty()
-                && (startable.is_some()
-                    || dimension.is_some()
-                    || region.is_some()
-                    || spinning.is_some()
-                    || removable.is_some()
-                    || roundable.is_some()
-                    || blendable.is_some())
-            {
+            if !offers.is_empty() && besides {
                 pill::divider(ui, theme, "offers");
             }
             for &constraint in offers.iter() {
@@ -296,8 +292,15 @@ pub(super) fn show(
 /// The widget's own response is read here and not handed back: it borrows both
 /// the number and the surface for as long as it lives, which would leave every
 /// caller unable to read the number it had just been scrubbed.
-fn scrub(ui: &mut Ui, value: &mut f64) -> Scrubbed {
+///
+/// **Salted, and named by the caller**, on the terms
+/// [`pill::rule`](crate::control::pill::rule) states: `auto_id` reads the line
+/// it is written on, which is this one for all three — so unsalted they share
+/// one identity, and a drag begun on one is picked up by another. The salt is
+/// also the only place a reading says which of the three it is.
+fn scrub(ui: &mut Ui, value: &mut f64, salt: &str) -> Scrubbed {
     let edited = DragValue::new(value)
+        .id_salt(salt)
         .speed(SCRUB_SPEED)
         .decimals(DECIMALS)
         .show(ui);

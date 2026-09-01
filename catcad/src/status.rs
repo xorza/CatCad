@@ -108,6 +108,10 @@ fn noun(part: Part) -> &'static str {
             ..
         } => "constraint",
         Part::Region { .. } => "region",
+        // **A fact about the writers rather than about a step.** A step is a
+        // sketch or a sweep as readily as a plane, and only plane squares and
+        // plane names ever carry one — see `paint::gizmos` and `named_planes`
+        // in `paint::write`. A third writer would read a sketch out as a plane.
         Part::Step(_) => "plane",
         // Which face of the solid is not said. It is the one under the cursor,
         // and "the far end of the extrude" is a sentence about the timeline

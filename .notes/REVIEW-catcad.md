@@ -9,12 +9,6 @@ The crate's own comments state that two spellings of one relation drift.
 These rules are spelled more than once, and each pair has to be kept in
 step by hand.
 
-- [ ] `hud/relations.rs:109` and `hud/relations.rs:259` — "does the bar have
-  anything besides the offers" is two hand-maintained lists: the eight-term
-  early return (`offers.is_empty() && dimension.is_none() && …`) and the
-  seven-term divider guard (`startable.is_some() || dimension.is_some() ||
-  …`). A ninth offer added to one list and not the other silently misdraws
-  the divider or hides the bar.
 - [ ] The cumulative-drag-delta idiom (`step = delta - was; was = delta`,
   with `Started` seeding) is spelled three times:
   `scene_view/pointing.rs:178` (orbit travel),
@@ -22,24 +16,6 @@ step by hand.
   `hud/cube/mod.rs:239` (cube drag). Two of the three carry the identical
   "Dragging right turns the model right…" comment and the identical
   `-step.x * ORBIT_RATE, step.y * ORBIT_RATE` inversion.
-
-## Invariants nothing states, silent when broken
-
-Each of these is correct today because of a fact established somewhere
-else, and nothing at the site states or checks it.
-
-- [ ] `status.rs:78` — `noun` answers `"plane"` for every `Part::Step`. A
-  step is also a sketch or a sweep, and the answer holds only because the
-  scene currently tags `Part::Step` on plane squares and plane names alone
-  (`paint/gizmos/mod.rs`, `paint/write/mod.rs::named_planes`). A step of
-  another kind ever tagged would be read out as a plane.
-- [ ] `hud/relations.rs:299` — `scrub` shows a `DragValue` with no stated
-  id, so all three readings that reach it (a dimension, a blend offered, a
-  blend in the recipe) share the one call-site identity. At most one shows
-  per frame only because their pickings — entities only, faces only, one
-  step only — are mutually exclusive through `Picked::only`, which nothing
-  at `scrub` states. The crate names this exact hazard for `auto_id`
-  elsewhere (`control/pill.rs:112`).
 
 ## Per-frame work that re-walks the timeline
 
