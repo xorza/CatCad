@@ -1,6 +1,7 @@
 //! The quartic two cylinders on square axes meet in.
 
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::bending::Bending;
 use glam::DVec3;
 
 /// One loop of the meeting of two cylinders whose axes cross square, written
@@ -93,19 +94,13 @@ impl Saddle {
     /// as exactly this and is given a radius by every other curve because a
     /// circle's is its radius.
     ///
-    /// Worked out rather than sampled. With `q = across/reach` and
-    /// `s = (across + |off|)/reach`, the angle of the wider cylinder moves as
-    /// `asin` of a cosine, so its first two derivatives are held by
-    /// `q/√(1 − s²)` and `q/√(1 − s²) + s·q²/(1 − s²)^{3/2}`; the place is
-    /// `reach` out at that angle and `across·sin t` along the axis, and the two
-    /// halves add. Finite because the cross-sections are nested, which is what
-    /// keeps `s` below one.
+    /// Worked out rather than sampled. The angle of the wider cylinder moves as
+    /// `asin` of a cosine — see [`Bending`], which is that and is shared with
+    /// the cut the same pair of cylinders makes in one's own parameters. The
+    /// place is `reach` out at that angle and `across·sin t` along the axis,
+    /// and the two halves add.
     pub(crate) fn bending(self) -> f64 {
-        let quick = self.across / self.reach;
-        let most = (self.across + self.off.abs()) / self.reach;
-        let leaning = (1.0 - most * most).sqrt();
-        let turn = quick / leaning;
-        let bend = turn + most * quick * quick / (leaning * leaning * leaning);
-        self.reach * (bend + turn * turn) + self.across
+        let of = Bending::of(self.across, self.off, self.reach);
+        self.reach * (of.bend + of.turn * of.turn) + self.across
     }
 }

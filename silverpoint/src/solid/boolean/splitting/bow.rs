@@ -6,6 +6,7 @@ use crate::math::bisect;
 use crate::math::quadratic;
 use crate::math::sinusoid;
 use crate::solid::boolean::splitting::cut::ROUNDED;
+use crate::solid::geometry::bending::Bending;
 use glam::DVec2;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -300,10 +301,10 @@ impl Bow {
     /// **Both regimes are held by the same three quantities**, and neither
     /// bound runs away where the root is shallow.
     ///
-    /// Closed, the angle is `asin` of a cosine, so with `q = across/reach` and
-    /// `s = (across + |off|)/reach` its second derivative is held by
-    /// `q/√(1−s²) + s·q²/(1−s²)^{3/2}`, and the height is `across·sin` of the
-    /// same parameter.
+    /// Closed, the angle is `asin` of a cosine and [`Bending`] holds its second
+    /// derivative — the same one a [`Saddle`](crate::solid::geometry::saddle::Saddle)
+    /// reads, this cut and that curve being the one pair of cylinders seen two
+    /// ways. The height is `across·sin` of the same parameter.
     ///
     /// Open, the height is `√(across² − m²)` against the angle and its second
     /// derivative is three terms over `√U`, `U` being `across² − (reach+|off|)²`
@@ -313,10 +314,7 @@ impl Bow {
     /// it comes to `4√2/(3√3)` of `across·reach`, and three covers all of it.
     fn bending(self) -> f64 {
         if self.closed() {
-            let quick = self.across / self.reach;
-            let most = (self.across + self.off.abs()) / self.reach;
-            let leaning = (1.0 - most * most).sqrt();
-            quick / leaning + most * quick * quick / (leaning * leaning * leaning) + self.across
+            Bending::of(self.across, self.off, self.reach).bend + self.across
         } else {
             let widest = self.reach + self.off.abs();
             let spare = self.across * self.across - widest * widest;

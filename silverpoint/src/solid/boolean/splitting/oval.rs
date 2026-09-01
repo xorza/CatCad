@@ -1,5 +1,7 @@
 //! The closed cut a conic makes in a face's own parameters.
 
+use crate::math::arc;
+use crate::solid::boolean::splitting::cut::ROUNDED;
 use glam::DVec2;
 
 /// A closed cut round an ellipse, the inside kept where `inward`.
@@ -67,6 +69,17 @@ impl Oval {
             return self.half.min_element();
         }
         off.length() * (1.0 / out - 1.0)
+    }
+
+    /// How many chords a stretch of `sweep` of the ellipse is worth.
+    ///
+    /// The longer half is what [`arc::chords`] reads as a radius, and it is
+    /// exactly the bound wanted: `(a·cos t, b·sin t)` moves with a second
+    /// derivative of `a` at most, and a circle's is its radius everywhere.
+    /// Held to [`ROUNDED`] of that half, which is the classification tolerance
+    /// the rest of the cut is chorded at.
+    pub(crate) fn steps(self, sweep: f64) -> usize {
+        arc::chords(self.half.x, sweep, self.half.x * ROUNDED)
     }
 
     /// The place `down` along the cut, which is `Cut::down` read backwards —

@@ -10,6 +10,7 @@
 //! second description of anything existing anywhere.
 
 pub(crate) mod axis;
+pub(crate) mod bending;
 pub(crate) mod carried;
 pub(crate) mod circle;
 pub(crate) mod cone;

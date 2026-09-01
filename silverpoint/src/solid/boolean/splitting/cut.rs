@@ -1,7 +1,6 @@
 //! A cut across a face, and what a region is asked about one.
 
 use crate::loops::Loops;
-use crate::math::arc;
 use crate::math::bisect;
 use crate::math::bounds::Bounds;
 use crate::math::quadratic;
@@ -215,12 +214,10 @@ impl<'a> Cut<'a> {
     /// runs, so ordering by this is ordering along the cut — see
     /// `Splitting::close`, which reassembles by it and by nothing else.
     ///
-    /// Read backwards by [`Oval::at`] and [`Ripple::at`], which is why both are
-    /// written: `down(at(x)) == x` and `at(down(p))` is `p` back on the cut, so
-    /// the walk can measure where it met the cut and the reassembly can put
-    /// corners back along it without either spelling out which way round a
-    /// circle runs. A straight cut has no corners of its own to give and never
-    /// asks, which is why the pair is on the two curved shapes and not here.
+    /// Read backwards by [`Cut::at`], which is why both are written:
+    /// `down(at(x)) == x` and `at(down(p))` is `p` back on the cut, so the walk
+    /// can measure where it met the cut and the reassembly can put corners back
+    /// along it without either spelling out which way round a circle runs.
     pub(super) fn down(self, point: DVec2) -> f64 {
         match self {
             Self::Straight { at, along, .. } => along.dot(point - at),
@@ -462,82 +459,78 @@ impl<'a> Cut<'a> {
         (inside(first) && inside(second)).then(|| [from.lerp(to, first), from.lerp(to, second)])
     }
 
+    /// The place the parameter `along` stands at, which is [`Cut::down`] read
+    /// backwards.
+    ///
+    /// **Not a marched cut**, which has places rather than a formula to read
+    /// them off — see [`Traced::between`]. Both callers answer that shape
+    /// before they reach here, so a marched one arriving is a walk that lost
+    /// its way rather than a state to report.
+    fn at(self, along: f64) -> DVec2 {
+        match self {
+            Self::Straight { at, along: way, .. } => at + way * along,
+            Self::Round(oval) => oval.at(along),
+            Self::Wave(ripple) => ripple.at(along),
+            Self::Bough(bough) => bough.at(along),
+            Self::Flare(flare) => flare.at(along),
+            Self::Bow(bow) => bow.at(along),
+            Self::Traced(_) => unreachable!("a marched cut is read off its own places"),
+        }
+    }
+
+    /// How many chords a stretch of `sweep` parameter is worth.
+    ///
+    /// **One for a straight cut, which lays no corners of its own.** A stretch
+    /// of a line between two points *is* the straight run between them, which
+    /// whatever closes the loop has already got — so one chord is the whole of
+    /// it and [`Cut::between`] writes nothing. A circle's stretch is not, and a
+    /// loop closed without its corners cuts the corner with a chord: a quarter
+    /// disc coming back as the triangle under it.
+    ///
+    /// Not a marched cut, on the terms [`Cut::at`] states.
+    fn steps(self, sweep: f64) -> usize {
+        match self {
+            Self::Round(oval) => oval.steps(sweep),
+            Self::Wave(ripple) => ripple.steps(sweep),
+            Self::Bough(bough) => bough.steps(sweep),
+            Self::Flare(flare) => flare.steps(sweep),
+            Self::Bow(bow) => bow.steps(sweep),
+            Self::Straight { .. } => 1,
+            Self::Traced(_) => unreachable!("a marched cut is chorded as it was walked"),
+        }
+    }
+
     /// The corners of the cut between two places along it, in the direction it
     /// runs, exclusive of both.
     ///
-    /// **Appends nothing for a straight cut**, and that is not an oversight: a
-    /// stretch of a line between two points *is* the straight run between them,
-    /// which whatever closes the loop has already got. A circle's is not, and a
-    /// loop closed without this cuts the corner with a chord — a quarter disc
-    /// coming back as the triangle under it.
+    /// **Round the turn where the cut closes on itself and straight along it
+    /// where it does not** — see [`Cut::closed`], which is that one question
+    /// and is asked here rather than answered a shape at a time. A wave, a
+    /// branch and a flare all run from one edge of the face to the other and
+    /// `down` grows the whole way; a circle and a shut bow come back to where
+    /// they began.
+    ///
+    /// **Nothing for a straight cut**, and that is not an oversight — see
+    /// [`Cut::steps`], which answers one chord for one and says why.
     ///
     /// `false` where there is no such stretch, which only a marched cut has —
     /// see [`Traced::between`].
     pub(super) fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) -> bool {
-        match self {
-            Self::Straight { .. } => {}
-            Self::Round(oval) => {
-                let sweep = (to - from).rem_euclid(TAU);
-                let count = arc::chords(oval.half.x, sweep, oval.half.x * ROUNDED);
-                let came = self.came(oval.at(from));
-                into.extend((1..count).map(|step| Corner {
-                    at: oval.at(from + sweep * step as f64 / count as f64),
-                    came,
-                }));
-            }
-            // Not wrapped, a wave being open: it runs from one edge of the
-            // face to the other and `down` grows the whole way.
-            Self::Wave(ripple) => {
-                let sweep = to - from;
-                let count = ripple.steps(sweep);
-                let came = self.came(ripple.at(from));
-                into.extend((1..count).map(|step| Corner {
-                    at: ripple.at(from + sweep * step as f64 / count as f64),
-                    came,
-                }));
-            }
-            // Not wrapped either, a branch running from one edge of the face
-            // to the other.
-            Self::Bough(bough) => {
-                let sweep = to - from;
-                let count = bough.steps(sweep);
-                let came = self.came(bough.at(from));
-                into.extend((1..count).map(|step| Corner {
-                    at: bough.at(from + sweep * step as f64 / count as f64),
-                    came,
-                }));
-            }
-            // Nor is a flare, which is a graph over an angle a face covers less
-            // than a turn of.
-            Self::Flare(flare) => {
-                let sweep = to - from;
-                let count = flare.steps(sweep);
-                let came = self.came(flare.at(from));
-                into.extend((1..count).map(|step| Corner {
-                    at: flare.at(from + sweep * step as f64 / count as f64),
-                    came,
-                }));
-            }
-            // Wrapped where the loop closes and not where it does not, which
-            // is the two above told apart by the one thing that tells them
-            // apart anywhere.
-            Self::Bow(bow) => {
-                let sweep = if bow.closed() {
-                    (to - from).rem_euclid(TAU)
-                } else {
-                    to - from
-                };
-                let count = bow.steps(sweep);
-                let came = self.came(bow.at(from));
-                into.extend((1..count).map(|step| Corner {
-                    at: bow.at(from + sweep * step as f64 / count as f64),
-                    came,
-                }));
-            }
-            // The piece's own places rather than a shape read at a step, a
-            // marched curve having no formula to read — see [`Traced::lay`].
-            Self::Traced(traced) => return traced.between(from, to, into),
+        // The piece's own places rather than a shape read at a step, a marched
+        // curve having no formula to read — see [`Traced::lay`].
+        if let Self::Traced(traced) = self {
+            return traced.between(from, to, into);
         }
+        let sweep = match self.closed() {
+            true => (to - from).rem_euclid(TAU),
+            false => to - from,
+        };
+        let count = self.steps(sweep);
+        let came = self.came(self.at(from));
+        into.extend((1..count).map(|step| Corner {
+            at: self.at(from + sweep * step as f64 / count as f64),
+            came,
+        }));
         true
     }
 
@@ -552,34 +545,23 @@ impl<'a> Cut<'a> {
     /// meeting that produced the cut and never from here — see
     /// `.notes/KERNEL.md` §7.4.
     pub(super) fn walk(self, into: &mut Loops<Corner>) {
-        match self {
-            Self::Round(oval) => into.add(|write| {
-                let count = arc::chords(oval.half.x, TAU, oval.half.x * ROUNDED);
-                let came = self.came(oval.at(0.0));
-                write.reserve_exact(count);
-                write.extend((0..count).map(|step| Corner {
-                    at: oval.at(TAU * step as f64 / count as f64),
-                    came,
-                }));
-            }),
-            Self::Bow(bow) if bow.closed() => into.add(|write| {
-                let count = bow.steps(TAU);
-                let came = self.came(bow.at(0.0));
-                write.reserve_exact(count);
-                write.extend((0..count).map(|step| Corner {
-                    at: bow.at(TAU * step as f64 / count as f64),
-                    came,
-                }));
-            }),
-            // **Several loops rather than one**, a marched meeting coming in
-            // pieces — see [`Traced`].
-            Self::Traced(traced) => traced.walk(into),
-            Self::Straight { .. }
-            | Self::Wave(_)
-            | Self::Bow(_)
-            | Self::Bough(_)
-            | Self::Flare(_) => {}
+        // **Several loops rather than one**, a marched meeting coming in
+        // pieces — see [`Traced`].
+        if let Self::Traced(traced) = self {
+            return traced.walk(into);
         }
+        if !self.closed() {
+            return;
+        }
+        into.add(|write| {
+            let count = self.steps(TAU);
+            let came = self.came(self.at(0.0));
+            write.reserve_exact(count);
+            write.extend((0..count).map(|step| Corner {
+                at: self.at(TAU * step as f64 / count as f64),
+                came,
+            }));
+        });
     }
 
     /// Where along the run from `from` to `to` the cut is met, in order.

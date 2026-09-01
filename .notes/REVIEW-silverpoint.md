@@ -52,19 +52,10 @@ These rules are spelled more than once.
   only in the trim lookup. `Merging::gather` (`merging/mod.rs:457`) and
   `Rounding::gather` (`rounding/mod.rs:2241`) share the shell-and-lump copy
   skeleton. All four keep the same `made`/`corners`/`kept` slot tables.
-- [ ] `solid/boolean/splitting/cut.rs:477` — five arms of `Cut::between`
-  (`Round`, `Wave`, `Bough`, `Flare`, `Bow`) have the same body: a count, one
-  `came`, and one `extend((1..count).map(...))`. Only the shape's `at` and
-  `steps` differ. The two arms of `Cut::walk` at `cut.rs:555` repeat the same
-  body again.
 - [ ] `solid/boolean/splitting/traced.rs:472` (`Traced::grazes`) and
   `solid/boolean/splitting/flare.rs:180` (`Flare::grazes`) are two spellings
   of one walk: lay chords, intersect a span against each, deduplicate within
   `PLACED`, cap at two, refuse more. Each one's comment points at the other.
-- [ ] `solid/geometry/saddle.rs:100` (`Saddle::bending`) and
-  `solid/boolean/splitting/bow.rs:315` (`Bow::bending`, closed arm) spell the
-  kernel `q/√(1−s²) + s·q²/(1−s²)^{3/2}` twice, with different tails. The two
-  bound the same `asin`-of-cosine parameterization.
 
 ## One name, several meanings
 
@@ -84,13 +75,3 @@ names carry several unrelated meanings across modules.
   (`sketch/solver/elimination/mod.rs:55` against
   `solid/geometry/quartic.rs:52`), `Laid` (`rounding/mod.rs:94` against
   `build/revolving.rs:1076`).
-
-## Code without a caller
-
-Both are documented as deliberate and carry allows. They are listed here so
-the decision stays visible.
-
-- [ ] `number/exact/lazy/mod.rs` — the whole module (`Lazy`, `Lazily`) has no
-  production caller. Its tests are its only load.
-- [ ] `number/exact/expansion/mod.rs:148` — `Expansion::estimate` has no
-  production caller.
