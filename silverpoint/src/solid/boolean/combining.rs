@@ -394,28 +394,23 @@ impl Combining {
                     // *stands* — or grazing at a point, which is a place rather
                     // than a line and divides no face.
                     Meeting::Apart | Meeting::Same | Meeting::Touching(_) => continue,
-                    // They meet along a quartic no row of the reducible table
-                    // writes down. It is written down *here* rather than by
-                    // [`Meeting::of`], on the same division the marched arm
-                    // keeps: what produces one is the caller that knows which
-                    // faces it has to be long enough for.
-                    Meeting::Algebraic => {
-                        let Some(curves) = self.quartics(&on, &other) else {
-                            return false;
-                        };
-                        if !self.trace(&on, &other, curves) {
-                            return false;
-                        }
-                        continue;
-                    }
-                    // They meet along a curve nothing can write down, which is
-                    // walked here rather than by [`Meeting::of`] — see
+                    // They meet along a curve no row of the reducible table
+                    // writes down, and the two tiers differ only in what
+                    // writes one: a quartic the exact route parameterizes, or
+                    // a run walked where nothing writes one at all. Both are
+                    // produced *here* rather than by [`Meeting::of`], on one
+                    // division — what produces a curve is the caller that
+                    // knows which faces it has to be long enough for. See
                     // `.notes/KERNEL.md` §7.3, where that division is argued.
-                    Meeting::Marched => {
-                        let Some(runs) = self.march(&on, &other) else {
+                    laid @ (Meeting::Algebraic | Meeting::Marched) => {
+                        let along = match laid {
+                            Meeting::Algebraic => self.quartics(&on, &other),
+                            _ => self.march(&on, &other),
+                        };
+                        let Some(along) = along else {
                             return false;
                         };
-                        if !self.trace(&on, &other, runs) {
+                        if !self.trace(&on, &other, along) {
                             return false;
                         }
                         continue;

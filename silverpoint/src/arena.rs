@@ -211,6 +211,15 @@ impl<T> Arena<T> {
         self.slots.len()
     }
 
+    /// How many values are in it, which is [`Arena::slot_count`] less the
+    /// positions waiting to be reused.
+    ///
+    /// Counted rather than walked: a freed position is on the free list and
+    /// nowhere else, so the two lengths say it between them.
+    pub(crate) fn held(&self) -> usize {
+        self.slots.len() - self.free.len()
+    }
+
     /// The handle for a position, or `None` where nothing lives.
     pub(crate) fn id_at_slot(&self, slot: usize) -> Option<Id<T>> {
         let entry = self.slots.get(slot)?;

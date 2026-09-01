@@ -274,6 +274,12 @@ impl Topology {
         self.vertices.slot_count()
     }
 
+    /// How many vertices the body stands on, which is not
+    /// [`Topology::vertex_slots`].
+    pub(crate) fn vertices_held(&self) -> usize {
+        self.vertices.held()
+    }
+
     pub(crate) fn edge_slots(&self) -> usize {
         self.edges.slot_count()
     }

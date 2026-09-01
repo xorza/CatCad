@@ -32,12 +32,6 @@ These lookups on the same rebuild path are still linear scans.
 - [ ] `solid/rounding/mod.rs:752` — `plan` matches picks by walking every edge
   of the body once per pick, with two `Named` comparisons per edge. The total
   is `picks × edges` per rebuild.
-- [ ] `silverpoint/src/loops.rs:94` (`Loops::largest_first`) — the sort recomputes
-  `key` for both operands of every comparison. `Cutter::polygon` at
-  `math/triangulate/mod.rs:132` passes a key that scans a whole hole
-  (`rightmost`), so the sort walks each hole `O(log n)` times. `Departures`
-  caches its sort key for exactly this reason
-  (`sketch/arrangement/departures.rs:33`).
 
 ## One rule spelled in several places
 
@@ -67,21 +61,10 @@ These rules are spelled more than once.
   `solid/boolean/splitting/flare.rs:180` (`Flare::grazes`) are two spellings
   of one walk: lay chords, intersect a span against each, deduplicate within
   `PLACED`, cap at two, refuse more. Each one's comment points at the other.
-- [ ] `solid/boolean/combining.rs:402` — the `Meeting::Algebraic` and
-  `Meeting::Marched` arms of `against` are the same four lines around one
-  different call (`quartics` against `march`).
 - [ ] `solid/geometry/saddle.rs:100` (`Saddle::bending`) and
   `solid/boolean/splitting/bow.rs:315` (`Bow::bending`, closed arm) spell the
   kernel `q/√(1−s²) + s·q²/(1−s²)^{3/2}` twice, with different tails. The two
   bound the same `asin`-of-cosine parameterization.
-
-## Refusal and drop paths leave minted state behind
-
-- [ ] `solid/boolean/sewing/mod.rs:704` — `raise` mints vertices into the body
-  (`Sewing::vertex`) before the loop passes the "bounds anything" test. A
-  dropped loop, or a dropped region, truncates the walks and keeps the
-  vertices. The body then holds vertices no edge names. No validity check
-  reads them, so the surplus is silent.
 
 ## One name, several meanings
 

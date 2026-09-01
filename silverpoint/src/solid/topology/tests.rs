@@ -65,6 +65,24 @@ fn an_edge_walked_twice_the_same_way_is_refused() {
     body.check();
 }
 
+/// A vertex no edge names is a place nothing of the body stands at.
+///
+/// **What a refusal leaves behind.** A sew mints a vertex where a walk reaches
+/// a place, then drops the loop for bounding nothing — the walk goes and the
+/// place stays. Every check before this one passes: the loops still close, the
+/// edges are still walked twice, and Euler still reads two, a surplus vertex
+/// being no part of any of those questions.
+#[test]
+#[should_panic(expected = "no edge names")]
+fn a_vertex_no_edge_names_is_refused() {
+    let mut body = block();
+    body.topology_mut().add_vertex(Vertex {
+        at: DVec3::new(9.0, 9.0, 9.0),
+        tolerance: EXACT,
+    });
+    body.check();
+}
+
 /// A loop that does not close bounds nothing, whatever it is a list of.
 #[test]
 #[should_panic(expected = "breaks between")]

@@ -58,6 +58,7 @@ impl<T, By> Loops<T, By> {
             at,
             len: self.items.len() - at,
             by,
+            key: 0.0,
         });
     }
 
@@ -91,11 +92,20 @@ impl<T, By> Loops<T, By> {
     /// Only the order moves; no item is copied anywhere. What a caller that has
     /// to take them in an order of its own asks for, where sorting the loops
     /// themselves would mean shuffling every item behind them.
+    ///
+    /// **Each loop is measured once and not once per comparison.** A sort asks
+    /// its key of an item about `log n` times, and a caller's key may walk the
+    /// whole loop to answer — a triangulator's does, looking for the corner
+    /// that reaches furthest right. Measured in the comparison, a hole is
+    /// walked a dozen times over.
     pub(crate) fn largest_first(&mut self, mut key: impl FnMut(&[T]) -> f64) {
         let Self { items, runs } = self;
+        for run in runs.iter_mut() {
+            run.key = key(run.of(items));
+        }
         runs.sort_by(|a, b| {
-            key(b.of(items))
-                .partial_cmp(&key(a.of(items)))
+            b.key
+                .partial_cmp(&a.key)
                 .expect("a key measured over finite items is finite")
         });
     }
@@ -128,6 +138,12 @@ struct Run<By> {
     at: usize,
     len: usize,
     by: By,
+    /// What [`Loops::largest_first`] last measured this loop by, which nothing
+    /// else reads.
+    ///
+    /// Beside the run rather than in a list of its own, for the reason `By` is
+    /// — two lists sorted apart come to disagree about which loop is which.
+    key: f64,
 }
 
 impl<By> Run<By> {
@@ -191,12 +207,18 @@ mod tests {
         assert!(loops.get(1).is_empty());
     }
 
-    /// Sorting reorders the loops, moves not one item, and carries each loop's
-    /// own record with it.
+    /// Sorting reorders the loops, moves not one item, carries each loop's own
+    /// record with it, and asks its key of each loop once.
     ///
-    /// The last of those is why a record is kept in the run rather than in a
-    /// list beside the loops: a caller keeping one by index would read the
-    /// wrong loop's the moment anything sorted.
+    /// The record is why one is kept in the run rather than in a list beside
+    /// the loops: a caller keeping one by index would read the wrong loop's the
+    /// moment anything sorted.
+    ///
+    /// **Once per loop and not once per comparison**, which is the whole reason
+    /// the key is carried too. Three loops is three readings — a sort of three
+    /// makes two or three comparisons, so measuring inside one would be five or
+    /// six, and a caller whose key walks its loop pays that walk over again
+    /// every time.
     #[test]
     fn the_largest_comes_first_without_the_items_moving() {
         let mut loops: Loops<u8, char> = Loops::default();
@@ -205,7 +227,12 @@ mod tests {
         loops.push_by('c', &[4, 4]);
 
         // By length, which puts the three-item loop first and the single last.
-        loops.largest_first(|of| of.len() as f64);
+        let mut asked = 0;
+        loops.largest_first(|of| {
+            asked += 1;
+            of.len() as f64
+        });
+        assert_eq!(asked, 3, "the key was measured {asked} times for 3 loops");
         assert_eq!((loops.get(0), *loops.by(0)), (&[7, 7, 7][..], 'b'));
         assert_eq!((loops.get(1), *loops.by(1)), (&[4, 4][..], 'c'));
         assert_eq!((loops.get(2), *loops.by(2)), (&[1][..], 'a'));

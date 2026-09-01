@@ -34,7 +34,9 @@ pub(crate) struct Checking {
     shelled: Vec<usize>,
     /// The walk that says what one shell holds — see [`Spreading`].
     spreading: Spreading,
-    /// Which edges and vertices a count of one shell has already taken in.
+    /// Which edges and vertices a walk has already taken in — one shell's for
+    /// [`Checking::characteristic`], and every one an edge names for
+    /// [`Checking::vertices_are_named`].
     counted: Vec<bool>,
     cornered: Vec<bool>,
     /// The room measuring a shell takes — see [`Checking::volumes_are_signed`].
@@ -56,6 +58,7 @@ impl Checking {
         let topology = body.topology();
         self.loops_close(topology);
         self.edges_are_used_twice(topology);
+        self.vertices_are_named(topology);
         self.faces_belong_to_one_shell(topology);
         self.shells_are_connected(topology);
         self.shells_are_closed_surfaces(topology);
@@ -64,6 +67,42 @@ impl Checking {
         self.creases_are_flagged(topology);
         self.tolerances_ladder(topology);
         self.volumes_are_signed(body);
+    }
+
+    /// Every vertex the body holds stands at the end of some edge.
+    ///
+    /// **What a refusal leaves behind, made loud.** A vertex is minted where a
+    /// walk reaches a place — see `Sewing::vertex` — and a loop the sew then
+    /// drops for bounding nothing takes its walk away and leaves the places it
+    /// stood at. Nothing above reads a vertex no edge names, so the surplus
+    /// costs a slot in every side table indexed by one and says nothing at all.
+    ///
+    /// **A count rather than a walk of the vertices**, there being no such walk
+    /// outside a test — a vertex is reached through an edge that ends there and
+    /// through nothing else. So what is marked below is every vertex some edge
+    /// names, and a body holding more than that holds one nothing does.
+    ///
+    /// The last store nothing guarded. An edge no loop walks is caught by
+    /// [`Checking::edges_are_used_twice`], which wants two walks and finds
+    /// none, and a face in no shell by
+    /// [`Checking::faces_belong_to_one_shell`].
+    fn vertices_are_named(&mut self, topology: &Topology) {
+        let cornered = &mut self.cornered;
+        cornered.clear();
+        cornered.resize(topology.vertex_slots(), false);
+        let mut named = 0usize;
+        for (_, edge) in topology.edges() {
+            for end in edge.ends(true) {
+                if !std::mem::replace(&mut cornered[end.slot()], true) {
+                    named += 1;
+                }
+            }
+        }
+        assert_eq!(
+            named,
+            topology.vertices_held(),
+            "the body holds vertices no edge names",
+        );
     }
 
     /// No loop of a face crosses itself in that face's own parameters.
