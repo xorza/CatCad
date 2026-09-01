@@ -1,7 +1,8 @@
 //! A circle drawn as a circle, not as a great many short straight lines.
 
 use crate::aim::{self, Aim};
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
+use crate::precedence::Precedence;
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::RingInstance;
 use crate::styled::Styled;

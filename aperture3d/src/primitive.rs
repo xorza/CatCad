@@ -1,7 +1,8 @@
 //! What everything a scene holds has in common.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, Precedence};
+use crate::hit::Hit;
+use crate::precedence::Precedence;
 use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;

@@ -3,10 +3,10 @@
 
 use crate::camera::Camera;
 use crate::curve::Curve;
-use crate::hit::Precedence;
 use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
+use crate::precedence::Precedence;
 use crate::scene::*;
 use crate::styled::Styled;
 use crate::tag::Tag;

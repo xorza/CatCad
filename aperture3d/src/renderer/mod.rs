@@ -17,6 +17,7 @@ pub(crate) mod highlights;
 pub(crate) mod mirror;
 pub(crate) mod pane;
 pub(crate) mod pass;
+pub(crate) mod pipelines;
 pub(crate) mod record;
 pub(crate) mod retained;
 pub(crate) mod target;

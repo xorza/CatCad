@@ -4,7 +4,7 @@ use crate::camera::Camera;
 use crate::highlight::Lit;
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::cpu::Cpu;
-use crate::renderer::cpu::records::Laying;
+use crate::renderer::cpu::text_records::Laying;
 use crate::renderer::cpu::triangles::Order;
 use crate::renderer::gpu::Gpu;
 use crate::renderer::held::Held;

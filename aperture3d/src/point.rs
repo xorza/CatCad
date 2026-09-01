@@ -1,7 +1,8 @@
 //! A marker at a world position, drawn at a size the zoom cannot change.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
+use crate::precedence::Precedence;
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::record::PointInstance;
 use crate::styled::Styled;

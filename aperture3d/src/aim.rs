@@ -1,7 +1,8 @@
 //! What a pick is aiming with, and what it can answer about a world position.
 
 use crate::camera::Camera;
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
+use crate::precedence::Precedence;
 use crate::ray::Ray;
 use crate::tag::Tag;
 use crate::viewport::{MIN_RUN_PX2, Viewport};

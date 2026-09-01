@@ -1,8 +1,9 @@
 //! A mesh placed in the world.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
 use crate::mesh::Mesh;
+use crate::precedence::Precedence;
 use crate::primitive::Primitive;
 use crate::ray::MIN_FACING;
 use crate::styled::Styled;

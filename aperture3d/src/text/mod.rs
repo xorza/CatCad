@@ -4,7 +4,8 @@
 pub(crate) mod turn;
 
 use crate::aim::{self, Aim};
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
+use crate::precedence::Precedence;
 use crate::primitive::Primitive;
 use crate::styled::Styled;
 use crate::tag::Tag;

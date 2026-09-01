@@ -1,6 +1,6 @@
 //! What every drawable primitive carries, and the setters that follow from it.
 
-use crate::hit::Precedence;
+use crate::precedence::Precedence;
 use crate::tag::Tag;
 use glam::Vec3;
 

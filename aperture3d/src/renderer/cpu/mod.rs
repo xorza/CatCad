@@ -2,9 +2,11 @@
 
 pub(crate) mod marked;
 pub(crate) mod records;
+pub(crate) mod text_records;
 pub(crate) mod triangles;
 
-use crate::renderer::cpu::records::{Records, TextRecords};
+use crate::renderer::cpu::records::Records;
+use crate::renderer::cpu::text_records::TextRecords;
 use crate::renderer::cpu::triangles::Triangles;
 use crate::renderer::record::{CurveInstance, PointInstance, RingInstance};
 

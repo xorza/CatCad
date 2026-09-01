@@ -1,7 +1,8 @@
 //! Stroked polylines in world space.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt, Precedence};
+use crate::hit::{Hit, HitAt};
+use crate::precedence::Precedence;
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;

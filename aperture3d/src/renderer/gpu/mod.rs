@@ -9,8 +9,8 @@ use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
 use crate::renderer::cpu::triangles::Order;
 use crate::renderer::gpu::attachments::Attachments;
 use crate::renderer::gpu::sheet::Sheet;
-use crate::renderer::pass;
-use crate::renderer::pass::{PassSpec, Pipelines};
+use crate::renderer::pipelines;
+use crate::renderer::pipelines::{PassSpec, Pipelines};
 use crate::renderer::record::{
     Attributed, CurveInstance, GlyphInstance, GpuVertex, PointInstance, RingInstance,
 };
@@ -240,7 +240,7 @@ impl Gpu {
     /// than taking one: a caller that named an opacity could name the wrong
     /// one.
     fn mesh_order(opacity: f32, eye: Vec3) -> Order {
-        match pass::translucent(opacity) {
+        match pipelines::translucent(opacity) {
             true => Order::BackToFront(eye),
             false => Order::Given,
         }

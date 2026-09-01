@@ -2,10 +2,11 @@
 
 use crate::camera::Camera;
 use crate::curve::Curve;
-use crate::hit::{HitAt, Precedence};
+use crate::hit::HitAt;
 use crate::mesh::{Mesh, Vertex};
 use crate::object::Object;
 use crate::point::Point;
+use crate::precedence::Precedence;
 use crate::scene::tests::fixtures::{CENTRE, one_of_each, over_the_view};
 use crate::scene::*;
 use crate::styled::Styled;
