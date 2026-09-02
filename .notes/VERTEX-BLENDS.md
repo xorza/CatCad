@@ -205,16 +205,17 @@ notch's step corner the two square faces take `22.6°` where the reflex one take
 and setbacks: the six ends read one distance to the last bit, every spring lies
 on its own face exactly, and each face has a way round that stays on it.
 
-**Written, and held by its own rows.** `solid::geometry::vertexed` carries the
+**Written, and held by its own rows.** `solid::rounding::setback` carries the
 opening: the six places off the rails, the one distance they stand at, and the
 two refusals — a corner whose blends do not agree about that distance, and a
 setback of the rail's own offset, which puts the two places on a face together
-and leaves no spring. It is gated until the patch reads it, and says so.
+and leaves no spring. It hands the six sides to the patch and keeps the rest,
+the setback being the rounding's own choice.
 
 **A corner whose blends do not share a `d` is not this build.** Where the three
 dihedrals differ the six ends stand at three distances, no one sphere holds
 them, and the springs want a rule that interpolates instead — which is the
-refusal `Vertexed::opened` makes. Every corner whose
+refusal `Setback::opened` makes. Every corner whose
 faces meet square shares a `d`, which is the corner in the issue log and every
 corner an extrusion raises.
 
@@ -291,7 +292,7 @@ kernel already writes.
 carries a value and its *whole* gradient along each of the six sides — a height
 field faces `(−h_x, −h_y, 1)` in its own plane's frame, so a normal prescribed
 along a side fixes both readings of the gradient there and not just the one
-across. `Vertexed::heighted` writes that down and `Patched` blends it: each side
+across. `Heighted::of` writes that down and `Vertexed` blends it: each side
 carries its own reading to a place inside, weighed by one over the square of how
 far that side stands from it in the plane. A place *on* a side reads that side's
 own numbers back, the other five weighing nothing against them.
@@ -317,12 +318,17 @@ by halving, which is the counted answer stage 0 admits; and `off`, `nearest`,
 `fills`, `spans`, `wavering`, `straying`, `strides` and the STEP net are read
 over the patch's own extent, as this tier's other arm already reads its own.
 
-**It is a `Fitted` arm and it is small enough to be one.** A `Surface` is copied
-by value on every path a frame walks, so the patch holds three *lines* and three
-normals rather than three cylinders and three planes — the three blends sharing
-one reach and none of them wanting a frame, and all three faces running through
-the corner. That keeps `Surface` inside what the largest arm may stand over the
-rest.
+**It is a `Fitted` arm, and it is the largest one by five.** A `Surface` is
+copied by value on every path a frame walks, and the patch first held three
+*lines* and three normals to stay small — then worked its six sides out again
+at every query, which cost about a reading of the height per reading of the
+height. Now it carries the six sides as its plane sees them, frame, stretch,
+margin and reading apiece, and `Vertexed::new` is the only way one is made: the
+corner and the six sides go in, and the plane, the six frames and the bending
+come out. Where the blends stop stays with the rounding — `Setback` derives the
+opening and hands the sides over. `Surface` is fourteen hundred bytes for it
+where the rest stand under three hundred, and that is the trade: a copy is a
+memcpy where a query was six frames of trigonometry.
 
 ### 4 — the rounding that raises one
 
@@ -331,14 +337,15 @@ carry a corner the picks disagree about instead of refusing it, and the minting
 has to put six corners, six edges and one face where the refusal is now.
 
 **The planning.** `Trihedral::of` already answers for the corner; what follows
-it is `Trihedral::outward` refusing. Where it does, build a `Vertexed` instead:
+it is `Trihedral::outward` refusing. Where it does, build a `Setback` instead:
 the three axes are the blends' own, pointed away from the corner off each edge's
 far end; the three normals are the shared faces' own, out of the material;
 `shared[i]` is the face that `ends[i]` and `ends[i + 1]` both divide, the one
 their two `Spine::between` pairs have in common. The reach is the blends'; the
 setback is *twice* it, one reach being where the springs vanish.
-`Vertexed::opened` is then the refusal for a corner this does not span, and the
-answer is a `Filled::Vertexed` beside the star and the sphere.
+`Setback::spanned` is then the refusal for a corner this does not span, and the
+answer is a `Filled::Vertexed` beside the star and the sphere, carrying the
+patch itself.
 
 **The minting**, on `Rounding::ring`'s own shape. Six corners from
 `Opened::made`; three cross sections, each between one blend's face and the
@@ -452,8 +459,45 @@ patch faces there. A triangle is probed at fifteen places rather than sixty-six,
 the patch being smooth enough that a bowl has one low place. Together those took
 the test from fourteen seconds to under four.
 
-**What is left costs, and both are measured.** The six sides are worked out
-again at every surface query, about once for every ten readings of the height.
-And the patch bends against its own rim some twenty to forty times harder than
-its reach accounts for — which is what sizes the grid, the cells going as the
-curvature. Neither is the corner being wrong; both are in `.notes/ISSUES.md`.
+**Two things were left, and both are closed.** The six sides were worked out
+again at every surface query, about once for every ten readings of the height;
+the surface carries them now, which is argued under stage 3. And the patch bent
+twenty to forty times harder than its reach accounts for, which was three
+things on top of each other, each measured on the notch's step corner over a
+grid of the whole opening.
+
+**The springs were hushed over a third of the radius.** The three springs share
+a centre, the corner's own image, which stands inside the opening; a spring's
+say was `r⁴/(1/81 + r⁴)` in radii out, so it fell silent within a third of the
+way out and spoke fully beyond. Between those the patch bent from what the
+three sections say to what all six say, and that transition read `48` and `59`
+at setbacks of two and three reaches where the rim reads `11`. The hush is
+`r⁴/(½ + r⁴)` now — the same fourth-order zero, and half a spring's say at
+`0.84` of its radius — which reads `15.8` and `12.5`.
+
+**And the patch creased along the line from the corner through every spring's
+end.** A place whose bearing has left a spring is weighed from the end, and one
+whose bearing has not from the bearing's own place on the spring, and the two
+distances joined with a kink: a bearing runs along the ellipse's affine radial,
+which is square to the ellipse only where it is a circle, and the springs
+flatten to ellipses of `1.08` by `0.71`. The slope jumped by `0.4` across that
+line where the slope itself was `2` — a crease the walk never sampled and the
+mesh read as straying. Both distances are read in the ellipse's own basis now,
+where the radial is the normal and the two join with the gradient
+`−∇√(ξ² + η²)` on the line; the jump reads `0.003`, which is the second
+difference over the straddle.
+
+**And a cross section's reading could turn square.** A section is read off its
+cylinder at the bearing's own place, and past the section's ends that place
+runs on round the cylinder to where it faces along the plane; the reading was
+dropped there, which is a side that stops speaking. It follows the bearing for
+half the room to that turn now, then closes on three quarters of it and never
+arrives.
+
+**What it reads now.** Over a grid of the whole opening the patch bends hardest
+at `7.9/r`, `6.2/r`, `9.3/r` and `9.2/r` at setbacks of two, three, one and a
+half and six reaches — where the rim's own reading is `5.2/r`, a circle of the
+reach read as a height over a plane it leans `1/√3` against — and the walk that
+sizes the grid, fanned from the corner's image rather than from a middle that
+flattened outside the opening, reads within a twentieth of the grid. Before, it
+read `24/r` and `29/r` at two and three reaches, and did not converge at six.

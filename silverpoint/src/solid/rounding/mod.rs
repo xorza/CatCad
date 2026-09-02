@@ -2,6 +2,7 @@
 
 mod corner;
 mod planning;
+mod setback;
 
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, PLACED};
@@ -805,8 +806,7 @@ impl Rounding {
             }
             // Where this blend stops on the face its rail runs out onto. The
             // first of the two stands on the face *before* the blend and the
-            // second on the face after — see
-            // [`Opened::made`](crate::solid::geometry::vertexed::Opened).
+            // second on the face after — see [`Vertexing::laid`].
             Ending::Vertexed { at } => {
                 let held = self.planning.vertexed[at];
                 let which = held.held.which(blend);
@@ -1062,9 +1062,8 @@ impl Rounding {
     fn span(&mut self, at: usize, into: &mut Body) -> Spanned {
         let held = self.planning.vertexed[at];
         let face = self.spanned[at];
-        let opened = held.laid.opened().expect(SPANNED);
-        let made = opened.made.map(|pair| {
-            pair.map(|at| {
+        let made = array::from_fn(|which| {
+            held.laid.side(2 * which).ends().map(|at| {
                 into.topology_mut().add_vertex(Vertex {
                     at,
                     tolerance: EXACT,
@@ -1072,7 +1071,7 @@ impl Rounding {
             })
         });
         let crossed = array::from_fn(|which| {
-            let side = held.laid.crossed(&opened, which);
+            let side = held.laid.side(2 * which);
             Self::arc(
                 into,
                 Curve::Circle(side.circle),
@@ -1082,7 +1081,7 @@ impl Rounding {
             )
         });
         let sprung = array::from_fn(|which| {
-            let side = held.laid.sprung(&opened, which);
+            let side = held.laid.side(2 * which + 1);
             let after = (which + 1) % 3;
             Self::arc(
                 into,
@@ -1754,9 +1753,6 @@ const RAISED: &str = "every face of the body was raised";
 /// A blend with no ends is a blend on a run that closes, and every reader of an
 /// end asks only of the others.
 const ENDED: &str = "a run that ends carries the two corners it ends at";
-
-/// What a corner patch planned at a corner no patch spans would be.
-const SPANNED: &str = "a corner patch was planned where none spans";
 
 /// A closed blend lies on a torus or a cone, both of which the arc across it is
 /// written down for — see [`Blend::laid`].

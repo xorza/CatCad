@@ -31,7 +31,7 @@ use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
-use crate::solid::geometry::vertexed::{PATCHED, Patched};
+use crate::solid::geometry::vertexed::Vertexed;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -422,9 +422,7 @@ impl Stepping {
     fn surface(&mut self, of: &Surface, sagitta: f64, into: &mut String) -> u32 {
         match of {
             Surface::Fitted(Fitted::Gusset(gusset)) => self.netted(gusset, sagitta, into),
-            Surface::Fitted(Fitted::Vertexed(vertexed)) => {
-                self.gridded(&vertexed.patched().expect(PATCHED), sagitta, into)
-            }
+            Surface::Fitted(Fitted::Vertexed(vertexed)) => self.gridded(vertexed, sagitta, into),
             Surface::Natural(Natural::Plane(plane)) => {
                 let placed = self.placement(Axis::new(plane.origin, plane.normal(), plane.x), into);
                 let made = self.opened(into);
@@ -529,9 +527,9 @@ impl Stepping {
     /// One corner patch, as the net it goes out as.
     ///
     /// **A grid where a ruled patch is two rulings**, the corner patch bending
-    /// both ways — see [`Patched::netted`], which lays it out to the sagitta
+    /// both ways — see [`Vertexed::netted`], which lays it out to the sagitta
     /// asked for.
-    fn gridded(&mut self, of: &Patched, sagitta: f64, into: &mut String) -> u32 {
+    fn gridded(&mut self, of: &Vertexed, sagitta: f64, into: &mut String) -> u32 {
         let mut across = 0;
         let from = self.walked(
             |net| {

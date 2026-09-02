@@ -7,7 +7,7 @@ use crate::solid::buckets::Key;
 use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::surface::Crossings;
 use crate::solid::geometry::torus::Torus;
-use crate::solid::geometry::vertexed::{PATCHED, Vertexed};
+use crate::solid::geometry::vertexed::Vertexed;
 use glam::{BVec2, DVec2, DVec3};
 
 /// One of the surfaces past the quadrics.
@@ -31,6 +31,11 @@ use glam::{BVec2, DVec2, DVec3};
 /// its second edge, its own box, the nearest place on it, how far a triangle
 /// strays, how fine a grid wants to be and how far a normal read at a place can
 /// turn are every one of them a reading.
+///
+/// **And the corner patch is the largest arm by five**, which is deliberate:
+/// it carries its six sides worked out, and that is the whole of what a
+/// reading of it would otherwise find again — see [`Vertexed`].
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),
@@ -65,7 +70,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.at(uv),
             Self::Gusset(gusset) => gusset.at(uv),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).at(uv),
+            Self::Vertexed(vertexed) => vertexed.at(uv),
         }
     }
 
@@ -75,7 +80,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.uv(at),
             Self::Gusset(gusset) => gusset.uv(at),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).uv(at),
+            Self::Vertexed(vertexed) => vertexed.uv(at),
         }
     }
 
@@ -85,7 +90,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.normal(uv),
             Self::Gusset(gusset) => gusset.normal(uv),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).normal(uv),
+            Self::Vertexed(vertexed) => vertexed.normal(uv),
         }
     }
 
@@ -98,7 +103,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.met_by(from, way).widened(),
             Self::Gusset(gusset) => gusset.met_by(from, way),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).met_by(from, way),
+            Self::Vertexed(vertexed) => vertexed.met_by(from, way),
         }
     }
 
@@ -117,9 +122,7 @@ impl Fitted {
         match self {
             Self::Torus(_) => None,
             Self::Gusset(gusset) => Some(gusset.spans(fills, slack)),
-            Self::Vertexed(vertexed) => {
-                Some(vertexed.patched().expect(PATCHED).spans(fills, slack))
-            }
+            Self::Vertexed(vertexed) => Some(vertexed.spans(fills, slack)),
         }
     }
 
@@ -128,7 +131,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.off(at),
             Self::Gusset(gusset) => gusset.off(at),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).off(at),
+            Self::Vertexed(vertexed) => vertexed.off(at),
         }
     }
 
@@ -146,7 +149,7 @@ impl Fitted {
         match self {
             Self::Torus(_) => self.at(self.uv(at)),
             Self::Gusset(gusset) => gusset.nearest(at),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).nearest(at),
+            Self::Vertexed(vertexed) => vertexed.nearest(at),
         }
     }
 
@@ -221,7 +224,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => off / torus.minor.min(torus.major - torus.minor),
             Self::Gusset(gusset) => gusset.wavering(at, off),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).wavering(at, off),
+            Self::Vertexed(vertexed) => vertexed.wavering(at, off),
         }
     }
 
@@ -249,7 +252,7 @@ impl Fitted {
                     + torus.minor * arc::bulge(arc::spread(corners.map(|uv| uv.y)))
             }
             Self::Gusset(gusset) => gusset.straying(corners),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).straying(corners),
+            Self::Vertexed(vertexed) => vertexed.straying(corners),
         }
     }
 
@@ -281,7 +284,7 @@ impl Fitted {
                 arc::widest(torus.minor, sagitta / 2.0),
             ),
             Self::Gusset(gusset) => gusset.strides(sagitta),
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).strides(sagitta),
+            Self::Vertexed(vertexed) => vertexed.strides(sagitta),
         }
     }
 
@@ -299,7 +302,7 @@ impl Fitted {
             Self::Gusset(_) => boundary,
             // Blended off its own boundary and free to stand off it in the
             // middle, so the patch is walked rather than reasoned about.
-            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).fills(),
+            Self::Vertexed(vertexed) => vertexed.fills(),
         }
     }
 

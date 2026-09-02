@@ -27,6 +27,12 @@ use glam::{BVec2, DVec2, DVec3};
 ///
 /// Everything below is one dispatch and no arithmetic. What each tier makes of
 /// a question is that tier's own business.
+///
+/// **Fourteen hundred bytes wide, which is the fitted tier's corner patch**
+/// carrying its six sides worked out — see [`Fitted`], where that is argued.
+/// The rest stand under three hundred, and a value is what every path here
+/// copies and matches on the spot.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Surface {
     Natural(Natural),

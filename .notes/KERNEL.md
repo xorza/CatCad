@@ -1114,9 +1114,10 @@ by a setback, and spans the six ends that leaves with one face: three cross
 sections and three springs, the springs arcs of one sphere about the corner. The
 face is a height over the plane the three shared faces' normals add to, blended
 from six local expansions — so it is tangent to each blend along its cross
-section and to each face along its spring, and it gives up the closed-form
-inversion and the bounded ray the ruled family buys by being ruled. That is
-§4.7's own contract, paid deliberately. The field calls this a setback vertex
+section and to each face along its spring, and it gives up the bounded ray the
+ruled family buys by being ruled — though not the closed-form inversion, a
+height over a plane inverting by flattening. That is §4.7's own contract, paid
+deliberately. The field calls this a setback vertex
 blend; what it took to write one here is
 [`VERTEX-BLENDS.md`](VERTEX-BLENDS.md).
 

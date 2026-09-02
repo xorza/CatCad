@@ -21,7 +21,6 @@ use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
-use crate::solid::geometry::vertexed::Vertexed;
 use crate::solid::keyed::Keyed;
 use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
@@ -30,6 +29,7 @@ use crate::solid::rounding;
 use crate::solid::rounding::corner::{
     Cornered, Gusseted, Junction, Met, Starred, Trihedral, Vertexing,
 };
+use crate::solid::rounding::setback::Setback;
 use crate::solid::rounding::{
     Bevel, Blend, Crossing, CutBack, Ending, Filled, Picked, Placed, Round, Run, Spine, Swallow,
     Trim,
@@ -1337,7 +1337,7 @@ impl Planning {
             let between = topology.face(face);
             facing[which] = between.normal(between.surface.uv(corner));
         }
-        let laid = Vertexed::new(axes, facing, corner, reach, reach * 2.0)?;
+        let laid = Setback::new(axes, facing, corner, reach, reach * 2.0).spanned()?;
         let mut picks = ends.map(|end| blends[end.blend].pick);
         picks.sort_unstable();
         Some(Vertexing {
