@@ -14,6 +14,8 @@ rfd.workspace = true
 ron.workspace = true
 serde.workspace = true
 silverpoint.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 image.workspace = true
@@ -32,6 +34,9 @@ catcad = { path = ".", features = ["internals"] }
 common = { workspace = true, features = ["internals"] }
 
 [features]
+default = ["quiet"]
+quiet = ["tracing/release_max_level_info"]
+
 # The reach-ins a harness needs and a program running the app does not: the
 # renderer behind the view, the camera without a pointer to turn it with, what
 # the pointer is over, and which tool is in hand. Off by default, so what the

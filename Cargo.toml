@@ -27,6 +27,12 @@ glam = { version = "0.33", default-features = false, features = ["std"] }
 wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
 dashu-base = { version = "0.6", default-features = false, features = ["std"] }
 dashu-ratio = { version = "0.6", default-features = false, features = ["std"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "env-filter",
+] }
 ron = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17"
