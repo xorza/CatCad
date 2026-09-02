@@ -98,16 +98,20 @@ pub(super) struct Refining {
 struct Scratch {
     /// The next pass's triangles, swapped in at the end of it.
     spare: Vec<[u32; 3]>,
-    /// Every side of the current triangles, one entry apiece, sorted by its
-    /// ends so either triangle carrying it finds the same one.
+    /// Every side of the current triangles, one entry apiece, in the order the
+    /// walk over the triangles first met them.
     sides: Vec<Side>,
+    /// The first side leaving each corner for a higher-numbered one, or
+    /// [`NONE`] where the corner has none.
+    heads: Vec<u32>,
+    /// The next side leaving the same corner, one entry per [`Scratch::sides`].
+    next: Vec<u32>,
     /// Where each triangle's own three sides sit in [`Scratch::sides`], in the
     /// order [`Refining::ends`] numbers them.
     ///
     /// Written once a pass rather than searched for wherever a side is wanted:
-    /// the table is sorted by the corners a side runs between, and a pass reads
-    /// each triangle's three twice over — once to mark what wants cutting, once
-    /// to lay the pieces down.
+    /// a pass reads each triangle's three twice over — once to mark what wants
+    /// cutting, once to lay the pieces down.
     slots: Vec<u32>,
     /// The corners put along every side, each side's in the order they stand
     /// along it from its lower-numbered end.
@@ -128,6 +132,9 @@ struct Scratch {
     /// Where the lines cross one side, as [`Lattice::crossings`] answers.
     crossed: Vec<DVec2>,
 }
+
+/// No side at all, which is what a corner with none leaving it holds.
+const NONE: u32 = u32::MAX;
 
 /// One side of the mesh, and what is being done to it this pass.
 #[derive(Debug, Clone, Copy)]
@@ -357,45 +364,46 @@ impl Refining {
         self.params.len() as u32 - 1
     }
 
-    /// Take every side of every triangle, one entry apiece and sorted, and say
-    /// where each triangle's own three ended up.
+    /// Take every side of every triangle, one entry apiece, and say where each
+    /// triangle's own three ended up.
+    ///
+    /// **Chained off the corner a side leaves rather than sorted.** Either
+    /// triangle carrying a side has to find the one entry, and a side is named
+    /// by two corner numbers — so the corners themselves index the table, and
+    /// the handful of sides leaving one corner are walked in a chain. That is
+    /// one pass over the triangles. Sorting every side and then looking each of
+    /// them up again cost a comparison sort and three binary searches per
+    /// triangle, and measured at about two thirds of the whole mesh: a torus at
+    /// a sagitta of a ten-thousandth read in 156 ms that way against 56 ms this
+    /// way.
     fn gather(&mut self) {
+        self.scratch.heads.clear();
+        self.scratch.heads.resize(self.params.len(), NONE);
         self.scratch.sides.clear();
-        self.scratch.sides.reserve(self.triangles.len() * 3);
-        for at in 0..self.triangles.len() {
-            for slot in 0..3 {
-                let ends = self.ends(at, slot);
-                self.scratch.sides.push(Side {
-                    ends,
-                    carried: 1,
-                    wanted: false,
-                });
-            }
-        }
-        let sides = &mut self.scratch.sides;
-        sides.sort_unstable_by_key(|side| side.ends);
-        let mut kept = 0;
-        for at in 0..sides.len() {
-            if kept > 0 && sides[kept - 1].ends == sides[at].ends {
-                sides[kept - 1].carried += 1;
-            } else {
-                sides[kept] = sides[at];
-                kept += 1;
-            }
-        }
-        sides.truncate(kept);
-
+        self.scratch.next.clear();
         self.scratch.slots.clear();
         self.scratch.slots.reserve_exact(self.triangles.len() * 3);
         for at in 0..self.triangles.len() {
             for slot in 0..3 {
                 let ends = self.ends(at, slot);
-                let found = self
-                    .scratch
-                    .sides
-                    .binary_search_by_key(&ends, |side| side.ends)
-                    .expect("every side of every triangle was gathered");
-                self.scratch.slots.push(found as u32);
+                let leaves = ends[0] as usize;
+                let mut side = self.scratch.heads[leaves];
+                while side != NONE && self.scratch.sides[side as usize].ends[1] != ends[1] {
+                    side = self.scratch.next[side as usize];
+                }
+                if side == NONE {
+                    side = self.scratch.sides.len() as u32;
+                    self.scratch.sides.push(Side {
+                        ends,
+                        carried: 1,
+                        wanted: false,
+                    });
+                    self.scratch.next.push(self.scratch.heads[leaves]);
+                    self.scratch.heads[leaves] = side;
+                } else {
+                    self.scratch.sides[side as usize].carried += 1;
+                }
+                self.scratch.slots.push(side);
             }
         }
     }
@@ -408,6 +416,17 @@ impl Refining {
             .reserve(self.triangles.len() + 2 * self.scratch.along.len());
         for at in 0..self.triangles.len() {
             self.scratch.walk.clear();
+            // Nothing was put along any of its sides, so the walk below would
+            // be the triangle itself and lay it down again unchanged. Half the
+            // triangles of a pass are in that position on a face where only
+            // some of the sides wanted cutting.
+            if (0..3).all(|slot| {
+                let found = self.scratch.slots[at * 3 + slot] as usize;
+                self.scratch.starts[found] == self.scratch.starts[found + 1]
+            }) {
+                self.scratch.spare.push(self.triangles[at]);
+                continue;
+            }
             for slot in 0..3 {
                 let corners = self.triangles[at];
                 self.scratch.walk.push(corners[slot]);
@@ -451,18 +470,23 @@ impl Refining {
     /// come out as wide as it is. That is the coarseness the chording already
     /// forces and no cut of this face could mend.
     fn strip(&mut self, axis: usize) {
+        let len = self.scratch.walk.len();
+        let first = self.sits(self.scratch.walk[0], axis);
         let (mut low, mut high) = (0, 0);
-        for at in 1..self.scratch.walk.len() {
-            if self.sits(self.scratch.walk[at], axis) < self.sits(self.scratch.walk[low], axis) {
-                low = at;
+        let (mut under, mut over) = (first, first);
+        for at in 1..len {
+            let sits = self.sits(self.scratch.walk[at], axis);
+            if sits < under {
+                (low, under) = (at, sits);
             }
-            if self.sits(self.scratch.walk[at], axis) > self.sits(self.scratch.walk[high], axis) {
-                high = at;
+            if sits > over {
+                (high, over) = (at, sits);
             }
         }
-        // The second chain runs back the way the first came, which is a step of
-        // one short of the whole once the walk is read round.
-        for (chain, step) in [(0, 1), (1, self.scratch.walk.len() - 1)] {
+        // The second chain runs back the way the first came. Stepped rather
+        // than taken round with a remainder, a division in this loop being the
+        // innermost one the mesher has.
+        for (chain, forward) in [(0, true), (1, false)] {
             self.scratch.chains[chain].clear();
             let mut at = low;
             loop {
@@ -470,7 +494,13 @@ impl Refining {
                 if at == high {
                     break;
                 }
-                at = (at + step) % self.scratch.walk.len();
+                at = if forward {
+                    if at + 1 == len { 0 } else { at + 1 }
+                } else if at == 0 {
+                    len - 1
+                } else {
+                    at - 1
+                };
             }
         }
 
