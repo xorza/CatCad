@@ -228,6 +228,15 @@ and the face's disagree by nought.
 So the opening is a G1 boundary the field's own constructions take: six curves,
 six normal fields, and no corner to reconcile.
 
+**And it crosses each face rather than touching it.** A face shared by the fill
+and a cut is reached by the fill's tube from one side and the cut's from the
+other: measured on the notch's step corner, the fill's cross section runs `w`
+from `−0.5` to `0` and the cut's from `0` to `+0.5` of the very same plane. So
+the patch joins a curve under that face to one over it and is tangent to the
+face between — an inflection along the spring, not a touch. Every one-sided
+family is out with it: a torus meets a plane along a circle from one side only,
+and so does anything else that merely rests on one.
+
 **The split is three quads and not six.** Join every other corner of the hexagon
 to a middle — the three where a spring ends and a cross arc begins — and what
 falls out is three four-sided pieces, each carrying one whole spring, one whole
