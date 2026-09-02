@@ -178,33 +178,38 @@ and never asked; a surface nothing constructs is a variant that warns; an
 opening with no face to raise is a body the checking refuses. So what is left is
 one build, and its pieces run in dependency order rather than the order they
 were first written down: the opening, then the patch that spans it, then the
-topology that mints it, then what reads it.
+topology that mints it, then what reads it. The opening is worked out and held
+below; the patch is what is left.
 
 ### 2 — the opening
 
-Each blend stops on a cross section of itself a setback from the vertex, and the
-two ends of that cross section stand on the two faces the blend divides. Two
-blends reaching one face are joined across it by a spring curve. On the notch's
-step corner at a reach of a half and a setback of one, the six places close into
-a loop and the nearest two of them stand `0.707` apart.
+Each blend stops on a cross section of itself a setback `t` from the vertex,
+square to its own spine, and the two ends of that section stand on the two rails
+the blend has on the two faces it divides. A rail stands `d` off the edge along
+its face — one reach where the two faces meet square — so a stopped end stands
+`√(t² + d²)` from the vertex.
 
-**But the opening is no hexagon at a corner the picks disagree about.** A face
-the concave edge does not touch turns past a *half* at the vertex — three
-quarters of one on the notch, the notch's own void being the quarter it is
-missing — so a straight spring across it leaves the face. Measured at a reach of
-a half and a setback of one, the spring between the two stopped ends on that
-face runs from `(−1, 0, 0.5)` to `(0.5, 0, −1)` and stands in the void over the
-middle three eighths of its run, where there is no face at all.
+**Where the three blends share a `d`, all six ends stand at one distance**, and
+that is what makes the springs write themselves: each is the arc of the sphere
+of radius `ρ = √(t² + d²)` about the vertex, cut by the face it lies on, taken
+the way round that stays on that face. So the opening is three plane arcs on the
+blends and three sphere arcs on the faces, six sides and six corners.
 
-**So the spring on that face has to follow the face**, and the region the patch
-replaces holds the face's own reflex corner and the three sharp stubs the
-setback left behind. That is the piece of this stage that is not yet worked out,
-and it is the piece the shape of the patch turns on: an opening that is convex
-in every face is a hole to be filled, and one that is not is a hole with a
-corner of the body still standing in it.
+**The way round is where the reflex face is answered.** A face the concave edge
+does not touch turns past a half at the vertex, so a straight spring across it
+leaves the face — measured at a reach of a half and a setback of one, such a
+spring stands in the notch's own void over the middle three eighths of its run.
+The sphere arc has two ways round and one of them stays on the face: on the
+notch's step corner the two square faces take `22.6°` where the reflex one takes
+`157.4°`, the long way round the corner the face keeps. Held over four reaches
+and setbacks: the six ends read one distance to the last bit, every spring lies
+on its own face exactly, and each face has a way round that stays on it.
 
-The corner where the picks *agree* has no such face, which is why the sphere
-never met this.
+**A corner whose blends do not share a `d` is not this build.** Where the three
+dihedrals differ the six ends stand at three distances, no one sphere holds
+them, and the springs want a rule that interpolates instead. Every corner whose
+faces meet square shares a `d`, which is the corner in the issue log and every
+corner an extrusion raises.
 
 ### 3 — the patch
 
