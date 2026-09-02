@@ -59,6 +59,15 @@ pub enum Grown {
     /// picks meet share this name and are one face of the body, which is §5's
     /// own rule and not a case of its own.
     Cornered([u32; 3]),
+    /// The patch put in at a corner where two picked edges met that do not
+    /// agree about it.
+    ///
+    /// **Numbered by the two picks, the filled one first**, on
+    /// [`Grown::Cornered`]'s own argument. Two of them cross in an ellipse and
+    /// leave no face where they agree; where one is cut into the material and
+    /// the other filled into the void they touch at a point and leave a ruled
+    /// patch — see `.notes/KERNEL.md` §9.6.
+    Gusseted([u32; 2]),
 }
 
 impl Grown {
@@ -76,6 +85,12 @@ impl Grown {
             Self::Cornered(picks) => picks
                 .iter()
                 .fold(Key::default().word(4), |key, &pick| {
+                    key.word(u64::from(pick))
+                })
+                .done(),
+            Self::Gusseted(picks) => picks
+                .iter()
+                .fold(Key::default().word(5), |key, &pick| {
                     key.word(u64::from(pick))
                 })
                 .done(),

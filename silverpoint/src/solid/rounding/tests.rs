@@ -16,7 +16,6 @@ use crate::solid::build::builder::Extrusion;
 use crate::solid::build::revolving::{MOST, Revolution};
 use crate::solid::build::sector::Sector;
 use crate::solid::mesh::Mesher;
-use crate::solid::rounding::corner::Gusseted;
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -1970,7 +1969,8 @@ fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
             .expect("the blend runs to the step's corner");
         Swallow { blend, end }
     });
-    let gusseted = Gusseted::of(notched.topology(), &planning.blends, &planning.runs, ends)
+    let gusseted = planning
+        .gusseting(notched.topology(), ends)
         .expect("the pair leaves a patch");
 
     assert!(
@@ -2047,4 +2047,23 @@ fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
     assert!(gusseted.side.origin.abs_diff_eq(wanted[1], 1e-12));
     let reach = wanted[1].distance(wanted[2]);
     assert!(gusseted.side.at(reach).abs_diff_eq(wanted[2], 1e-12));
+
+    // The edge on the cut blend is walked and filed as a run with *two ends*,
+    // which is what tells it from every other run the kernel files: it leaves
+    // the third corner, runs round the round, and stops at the tip.
+    let Curve::Marched(marched) = gusseted.second else {
+        panic!("the second edge was not filed as a run");
+    };
+    let runs = &planning.carried.marched;
+    assert!(!runs.strayed(marched.run).shut, "the second edge closes");
+    for (t, want) in [(0.0, wanted[2]), (TAU, wanted[0])] {
+        let at = runs.at(marched.run, t);
+        assert!(at.abs_diff_eq(want, 1e-9), "{at} at {t} is not {want}");
+    }
+    for (_, at) in runs.sampled(marched.run) {
+        assert!(
+            (patch.cut.axis.off(at) - 0.5).abs() < 1e-9,
+            "{at} is off the round",
+        );
+    }
 }

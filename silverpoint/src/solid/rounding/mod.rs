@@ -1477,6 +1477,22 @@ fn tubed(laid: &Surface, made: [DVec3; 2]) -> Option<Curve> {
 /// Where two lines of one plane cross, in the first one's own parameter.
 ///
 /// `None` where they run alongside each other, which two edges of one face
+/// Where the line `rail` crosses the plane of `over`, or `None` where it
+/// runs along it.
+#[allow(
+    dead_code,
+    reason = "the route in `Rounding` that raises the patch lands next"
+)]
+pub(super) fn reaching(rail: Line, over: Surface) -> Option<DVec3> {
+    let Surface::Natural(Natural::Plane(plane)) = over else {
+        return None;
+    };
+    let normal = plane.normal();
+    let leaning = rail.direction.dot(normal);
+    (!predicate::touching(leaning.abs(), ALIGNED))
+        .then(|| rail.at((plane.origin - rail.origin).dot(normal) / leaning))
+}
+
 /// meeting at a corner never do.
 pub(super) fn crossed(run: Line, rail: Line, normal: DVec3) -> Option<f64> {
     let under = run.direction.cross(rail.direction).dot(normal);

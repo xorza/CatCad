@@ -1405,6 +1405,11 @@ on the far corner. Held on the notch's step at a reach of a half, where the
 three corners come to `(1.5, 0.5, −2)`, `(2, 0, −2.5)` and `(2, 0, −1.5)`, and
 the patch joins both cylinders to the last bit.
 
+**Its walked side is filed, and it is the first open run the kernel holds.**
+`Planning::gusseting` builds the record and hands the walk to `Marchings::add`,
+which reads off the places that the run does not come back. The edge leaves the
+third corner, runs round the cut blend and stops at the tip.
+
 **Two of its three sides are written down.** The edge on the filled blend is
 the fillet's own section by the plane the first edge is cut by — an exact
 ellipse `Meeting::of` gives, off `Gusset::sectioning` — and the arc of the two
@@ -1420,7 +1425,10 @@ of the body's own corner, on no edge at all — is the patch's straight side, wi
 the cut blend's unshared face across it. **And the two blends' end closures go
 away**: each closes against the patch along one of its curved sides rather than
 across the face beyond the corner. That is the whole of the topology the route
-still owes.
+still owes, and what it wants is `Filled` and `Ending` arms of their own, a face
+named `Grown::Gusseted`, its three corners and three edges minted, and the side
+put into that face's loop between the cut blend's rail and the edge cut back
+beside it.
 
 **The export is done.** A ruled patch has no analytic entity, so it goes out as
 a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.

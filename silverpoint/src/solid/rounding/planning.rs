@@ -1,8 +1,10 @@
 //! Working out what a rounding takes away, before anything is written down.
 
 use crate::inline::Inline;
+use crate::math::branch;
 use crate::math::plane::Plane;
 use crate::number::predicate;
+use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::{ALIGNED, CHORDED, PLACED};
 use crate::solid::buckets::Key;
 use crate::solid::geometry::axis::Axis;
@@ -12,6 +14,7 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::fitted::Fitted;
+use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
 use crate::solid::geometry::natural::Natural;
@@ -23,7 +26,7 @@ use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
 use crate::solid::named::Named;
 use crate::solid::rounding;
-use crate::solid::rounding::corner::{Cornered, Junction, Met, Starred, Trihedral};
+use crate::solid::rounding::corner::{Cornered, Gusseted, Junction, Met, Starred, Trihedral};
 use crate::solid::rounding::{
     Bevel, Blend, Crossing, CutBack, Ending, Filled, Picked, Placed, Round, Run, Spine, Swallow,
     Trim,
@@ -33,7 +36,7 @@ use crate::solid::topology::body::Body;
 use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::vertex::VertexId;
-use glam::DVec3;
+use glam::{DVec2, DVec3};
 use std::array;
 use std::f64::consts::{PI, TAU};
 
@@ -71,6 +74,13 @@ pub(super) struct Planning {
     pub(super) junctions: Vec<Junction>,
     /// Every corner three of them meet at, and the patch that fills it.
     pub(super) cornered: Vec<Cornered>,
+    /// Every corner two of them meet at that they do not agree about, and the
+    /// ruled patch that fills it.
+    #[allow(
+        dead_code,
+        reason = "the route in `Rounding` that raises the patch lands next"
+    )]
+    pub(super) gusseted: Vec<Gusseted>,
     /// What fills each corner of the body more than one blend lands on, by
     /// slot — see [`Filled`].
     filled: Vec<Option<Filled>>,
@@ -91,6 +101,13 @@ pub(super) struct Planning {
     ends_at: Vec<Inline<u32, 3>>,
     /// One run on its way into [`Planning::runs`], in the order it walks.
     chained: Vec<u32>,
+    /// One patch's walked edge on its way into [`Planning::carried`] — see
+    /// [`Planning::walked`], which is the one thing here that lays one down.
+    #[allow(
+        dead_code,
+        reason = "the route in `Rounding` that raises the patch lands next"
+    )]
+    laying: Vec<DVec3>,
     taken: Vec<bool>,
     /// Which blend each edge of the body is a spine of, by slot.
     pub(super) spined: Vec<Option<Placed>>,
@@ -350,6 +367,7 @@ impl Planning {
         }
         self.junctions.clear();
         self.cornered.clear();
+        self.gusseted.clear();
         self.starred.clear();
         self.filled.clear();
         self.filled.resize(topology.vertex_slots(), None);
@@ -793,6 +811,149 @@ impl Planning {
         }))
     }
 
+    /// What the pair `ends` leaves, or `None` where they leave nothing a body
+    /// can hold.
+    ///
+    /// **The filled blend goes first**, which decides the whole construction:
+    /// the patch's first edge lies on it, and the ruling from that edge's own
+    /// start lands on the cut blend. `Blend::outward` is the pick's own
+    /// convexity, so a pair that does not agree has one of each.
+    ///
+    /// **The other two corners stand on one line** — the one the planes of the
+    /// two faces neither blend shares cross in, which is the third edge's own.
+    /// Each blend's rail on the face it does not share reaches it, and reading
+    /// that rail against the *other* blend's unshared face is one division
+    /// apiece.
+    ///
+    /// **The branch is settled at the far end and carried.** A place on the
+    /// fillet carries two tangent lines to the round and they close on each
+    /// other at the touch point, so nothing read there tells them apart. Only
+    /// one of the two puts the first edge's own ruling on the far corner, and
+    /// that is the reading taken.
+    #[allow(
+        dead_code,
+        reason = "the route in `Rounding` that raises the patch lands next"
+    )]
+    pub(super) fn gusseting(
+        &mut self,
+        topology: &Topology,
+        ends: [Swallow; 2],
+    ) -> Option<Gusseted> {
+        let (blends, runs) = (&self.blends, &self.runs);
+        let order = [false, true].map(|convex| {
+            ends.iter()
+                .position(|end| blends[end.blend].outward == convex)
+        });
+        let [Some(filling), Some(cutting)] = order else {
+            return None;
+        };
+        let ends = [ends[filling], ends[cutting]];
+        let whole = ends.map(|end| blends[end.blend]);
+        let pair = [0, 1].map(|which| whole[which].tip(runs, ends[which].end));
+        let at = whole[0].at?[ends[0].end];
+        let Met { sides, at: met, .. } = Met::of(topology, whole, pair, topology.vertex(at).at)?;
+        let [
+            Surface::Natural(Natural::Cylinder(filled)),
+            Surface::Natural(Natural::Cylinder(round)),
+        ] = whole.map(|blend| blend.laid)
+        else {
+            return None;
+        };
+        // **Both straight**, as [`Met::of`] already argues of the rails on the
+        // face the two share: a run that closes lands on no corner at all.
+        let [Curve::Line(one), Curve::Line(two)] =
+            [0, 1].map(|which| whole[which].rails[1 - sides[which]])
+        else {
+            return None;
+        };
+        // The face the filled blend runs out onto that the cut one does not.
+        // Its plane and the cut blend's own cross in the third edge's line,
+        // which both rails reach.
+        let over = pair[0].between[1 - sides[0]];
+        // The filled blend's corner is where that edge is cut back to, so it
+        // comes off the reading every other cut back already takes.
+        let along = rounding::neighbour(topology, over, pair[0].edge, at)?;
+        let CutBack {
+            at: cut,
+            made: from,
+        } = rounding::cut_back(topology, along, Curve::Line(one), over, at)?;
+        // The cut blend's corner stands on that same line a reach the other
+        // side of the body's own corner, where no edge holds it — so it is read
+        // off its rail against the filled blend's unshared face instead.
+        let onto = rounding::reaching(two, topology.face(over).surface)?;
+        let patch = [false, true].into_iter().find_map(|turning| {
+            let patch = Gusset::new(filled, round, from, turning);
+            let landed = patch.at(DVec2::new(patch.bounds()[0], 1.0));
+            landed.approx_eq(onto, PLACED).then_some(patch)
+        })?;
+        let carried = topology.carried();
+        let Meeting::Along(curves) = Meeting::of(
+            &Surface::Natural(Natural::Cylinder(filled)),
+            &Surface::Natural(Natural::Plane(patch.sectioning())),
+        ) else {
+            return None;
+        };
+        let first = rounding::through(curves.all(), [met, from], carried)?;
+        let ends_along = [met, from].map(|place| first.along(place, carried));
+        // **Which of the two arcs is the patch's is its own stretch of the
+        // fillet's angle**, read rather than held against a tolerance: the
+        // patch covers the near way round — see [`Gusset::bounds`] — so the
+        // middle of its arc stands between the two angles those bounds name and
+        // the other arc's middle does not. How far a place stands off the patch
+        // would not do here, that reading being sought rather than solved.
+        let [start, tip] = patch.bounds();
+        let bounds = rounding::arced(&first, ends_along, carried, |middle| {
+            let angle = branch::nearest(filled.axis.angle_of(middle), start);
+            (0.0..=1.0).contains(&((angle - start) / (tip - start)))
+        });
+        let second = self.walked(&patch, whole);
+        Some(Gusseted {
+            picks: whole.map(|blend| blend.pick),
+            ends,
+            at,
+            patch,
+            made: [met, from, onto],
+            along,
+            cut,
+            first,
+            bounds,
+            second,
+            side: Line {
+                origin: from,
+                direction: (onto - from).normalize(),
+            },
+        })
+    }
+
+    /// File the patch's edge on the cut blend as a run of the answer's own.
+    ///
+    /// **Walked because nothing writes it down** — see [`Gusset::chorded`], and
+    /// `.notes/KERNEL.md` §9.6. It leaves the first edge's own start, runs
+    /// round to the tip and stops, so what is filed is a run with two ends
+    /// where every other run this store holds comes back to where it began.
+    ///
+    /// Walked at [`CHORDED`], as a blend's own marched arc is, and trimmed
+    /// afterwards by the bounds the edge takes.
+    #[allow(
+        dead_code,
+        reason = "the route in `Rounding` that raises the patch lands next"
+    )]
+    fn walked(&mut self, patch: &Gusset, whole: [Blend; 2]) -> Curve {
+        // **Neither end of a blend**, which is the point: a blend's two closing
+        // arcs take nought and one, and this edge belongs to the pair rather
+        // than to either of them — see [`keyed`].
+        const PATCHED: usize = 2;
+        let strayed = patch.chorded(CHORDED, &mut self.laying);
+        let run = self.carried.marched.add(&self.laying, strayed);
+        let filed = self.carried.marched.strayed(run);
+        Curve::Marched(Marched {
+            run,
+            key: keyed(&whole[0].laid, &whole[1].laid, whole[0].pick, PATCHED),
+            reach: filed.reach,
+            shut: filed.shut,
+        })
+    }
+
     /// What the two blends `ends` names leave where they meet, or `None` where
     /// they leave nothing a body can hold.
     ///
@@ -813,7 +974,8 @@ impl Planning {
         // **A pair that do not agree about the corner cannot close against each
         // other.** Both cylinders stand a radius off the face they share, and
         // one cut into a convex edge stands off it on the other side from one
-        // filled into a concave one — so the two never cross there at all.
+        // filled into a concave one — so the two never cross there at all, and
+        // what fills the gap is [`Gusseted`]'s patch rather than an arc.
         if whole[0].outward != whole[1].outward {
             return None;
         }
