@@ -112,10 +112,12 @@ the field does not make.
 
 ## 5. The plan
 
-Staged, and each stage is worth doing on its own. Nothing here changes a case
-that works today: the sphere, the star, the junction and the ruled patch stay
-exactly as they are, and the setback route is what a corner falls to when they
-do not answer.
+Nothing here changes a case that works today: the sphere, the star, the junction
+and the ruled patch stay exactly as they are, and the setback route is what a
+corner falls to when they do not answer.
+
+**Stage 0 stands on its own and is done.** What follows it does not — see below,
+where the rest comes back together as one build.
 
 ### Stage 0 — the contract, decided
 
@@ -169,29 +171,54 @@ the patch wants more.
 **Its code lands with stage 2.** A setback nothing acts on is a number carried
 and never read, and where a blend stops is stage 2's own work.
 
-### Stage 2 — the corner's own topology
+### Stages 2 to 5 are one change
 
-`Ending` and `Filled` enumerate what a blend closes on. A setback corner is one
-more of each: every blend closes on a cross section of itself, the cross
-sections are joined by spring curves on the faces between, and one patch spans
-the lot. The loop walking is the star's shape — a blend closing there bounds
-more than one edge — which §7.5 already met once.
+**None of them lands on its own.** A setback nothing reads is a number carried
+and never asked; a surface nothing constructs is a variant that warns; an
+opening with no face to raise is a body the checking refuses. So what is left is
+one build, and its pieces run in dependency order rather than the order they
+were first written down: the opening, then the patch that spans it, then the
+topology that mints it, then what reads it.
 
-This stage is where a corner of other than three edges stops being refused, so
-it pays for itself beyond the corner it was written for.
+### 2 — the opening
 
-### Stage 3 — the patch
+Each blend stops on a cross section of itself a setback from the vertex, and the
+two ends of that cross section stand on the two faces the blend divides. Two
+blends reaching one face are joined across it by a spring curve. On the notch's
+step corner at a reach of a half and a setback of one, the six places close into
+a loop and the nearest two of them stand `0.707` apart.
 
-A bounded n-sided surface in `Fitted`, tangent to each blend along its own side.
-Take the field's construction rather than inventing one: the setback split gives
-the sides, and the patch is assembled from polynomial pieces joined with tangent
-continuity across them.
+**But the opening is no hexagon at a corner the picks disagree about.** A face
+the concave edge does not touch turns past a *half* at the vertex — three
+quarters of one on the notch, the notch's own void being the quarter it is
+missing — so a straight spring across it leaves the face. Measured at a reach of
+a half and a setback of one, the spring between the two stopped ends on that
+face runs from `(−1, 0, 0.5)` to `(0.5, 0, −1)` and stands in the void over the
+middle three eighths of its run, where there is no face at all.
+
+**So the spring on that face has to follow the face**, and the region the patch
+replaces holds the face's own reflex corner and the three sharp stubs the
+setback left behind. That is the piece of this stage that is not yet worked out,
+and it is the piece the shape of the patch turns on: an opening that is convex
+in every face is a hole to be filled, and one that is not is a hole with a
+corner of the body still standing in it.
+
+The corner where the picks *agree* has no such face, which is why the sphere
+never met this.
+
+### 3 — the patch
+
+A bounded n-sided surface in `Fitted`, tangent to each blend along its own cross
+section and to each face along its own spring. Take the field's construction
+rather than inventing one: the setback split gives the sides, and the patch is
+assembled from polynomial pieces joined with tangent continuity across them.
 
 What it owes: `at` and `normal` in closed form; tangency along the boundary
-exactly, which the construction gives rather than fits; and `uv`, `met_by` and
-`straying` measured over its own extent with a bound each carries.
+exactly, which the construction gives rather than fits; `uv` by the Newton solve
+§4.7 already pays for; and `met_by` and `straying` measured over its own extent
+with a bound each carries.
 
-### Stage 4 — what reads it
+### 4 — what reads it
 
 `Checking` holds every loop as a boundary of its own face in that face's
 parameters, and the smooth flag at every edge the rounding mints — so the patch
@@ -199,7 +226,7 @@ is held to its own tangency by the checker that already exists. `Stepping`
 writes a `Gusset` as a chorded net, and an n-sided patch goes out the same way.
 The mesher reads `strides` and `straying`, which the patch supplies.
 
-### Stage 5 — what it retires
+### 5 — what it retires
 
 A setback vertex blend answers more than the corner it was built for: unequal
 reaches meeting at a vertex, a corner of four edges, and the pinch a large reach
