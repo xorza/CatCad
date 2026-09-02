@@ -5,6 +5,7 @@ use crate::demo;
 use crate::document::Document;
 use crate::lens::Lens;
 use crate::look::Theme;
+use crate::notation::Notation;
 use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
 use crate::part::Part;
@@ -28,6 +29,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let mut layout = Layout::default();
     redraw(
         one.models(),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -57,6 +59,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     // and what is being checked here is the refill, not the skip.
     redraw(
         one.models(),
+        Notation::default(),
         &Theme::default(),
         &mut Layout::default(),
         Showing::default(),
@@ -86,6 +89,7 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     let document = demo::document(&mut build);
     let picture = scene(
         document.models(&build, Some(document.first_sketch())),
+        Notation::default(),
         &Theme::default(),
         &mut Layout::default(),
     );
@@ -196,6 +200,7 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let document = demo::document(&mut build);
     let scene = scene(
         document.models(&build, Some(document.first_sketch())),
+        Notation::default(),
         &Theme::default(),
         &mut Layout::default(),
     );
@@ -341,6 +346,7 @@ fn only_the_open_sketch_shows_its_constraints() {
 
     redraw(
         document.models(&build, Some(here)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -359,6 +365,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // open — and the marks have to follow it.
     redraw(
         document.models(&build, Some(there)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -435,6 +442,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // the field standing over it is drawn in its place.
     redraw(
         document.models(&build, Some(there)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing {
@@ -488,6 +496,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
 
     redraw(
         document.models(&build, Some(here)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -510,6 +519,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     // open — and it is enough to make the picture stale.
     redraw(
         document.models(&build, Some(there)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -573,6 +583,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     let models = document.models(&build, None);
     redraw(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut idle,
         Showing::default(),
@@ -581,6 +592,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     );
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut idle,
         Showing::default(),
@@ -676,6 +688,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     let models = document.models(&build, Some(document.first_sketch()));
     redraw(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut drawn,
         Showing::default(),
@@ -684,6 +697,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     );
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut drawn,
         Showing::default(),

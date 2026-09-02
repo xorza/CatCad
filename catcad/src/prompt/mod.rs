@@ -21,7 +21,6 @@ use palantir::{
     TextEdit, TextRun, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 use silverpoint::{Entity, Operation, Sector, SegmentId};
-use std::fmt::Write;
 
 use crate::control::chip::Chip;
 use crate::control::pill::{self, Pill};
@@ -33,8 +32,10 @@ use crate::look::icons::Icons;
 use crate::marked::{self, Marked};
 use crate::model::Model;
 use crate::model::models::Models;
+use crate::notation::Notation;
+use crate::notation::quantity::Quantity;
+use crate::paint::MARK_FONT;
 use crate::paint::growing::Growing;
-use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
 use crate::timeline::axle::Axle;
@@ -220,13 +221,20 @@ pub(crate) enum Stands {
 /// underneath it.
 const STANDS_CLEAR: f32 = 14.0;
 
-/// What an angle a form asks for is stated in.
+/// What a form writes beside a field holding a `quantity`.
 ///
-/// Degrees, which is what a person types. [`Prompt::sector`] is the one place
-/// they become the radians the kernel takes, and this is the one place the form
-/// says so — stated once, so what is shown and what is converted cannot come to
-/// mean two things.
-const DEGREES: &str = "\u{b0}";
+/// **Degrees carry a mark and lengths carry none.** An angle is stated in
+/// degrees, which is what a person types, and [`Prompt::sector`] is the one
+/// place they become the radians the kernel takes — so the mark is written once
+/// here and what is shown and what is converted cannot come to mean two things.
+/// A length is said in the document's own unit and every number in the document
+/// is said in it, so writing it beside each of them says one thing many times.
+fn suffix(quantity: Quantity) -> &'static str {
+    match quantity {
+        Quantity::Length => "",
+        Quantity::Angle => "\u{b0}",
+    }
+}
 
 /// How tall the row naming the form is, and how far across the mark on it
 /// reaches, in logical pixels.
@@ -269,7 +277,7 @@ enum Seed {
 #[derive(Debug, Clone, Copy)]
 struct Asks {
     label: &'static str,
-    unit: &'static str,
+    quantity: Quantity,
     seed: Seed,
 }
 
@@ -308,15 +316,15 @@ struct Field {
     /// — a dimension's field is the number, and a word beside it would be a
     /// word the drawing never had.
     label: &'static str,
-    /// What the number is in, set after the box in the size the overlay captions
-    /// with.
+    /// What kind of number it holds.
     ///
-    /// **The one thing on a form nothing else could say.** Both of a revolve's
-    /// fields are degrees — [`Prompt::sector`] is where they become the radians
-    /// the kernel takes — and a box reading `360.00` over a solid says nothing
-    /// about which. Empty where the value is a length, because the document has
-    /// no unit for one yet and a guess would be worse than the silence.
-    unit: &'static str,
+    /// **Two things at once, and they cannot come apart because they are one
+    /// answer.** It says what a suffix means about the draft — a length takes
+    /// one and an angle takes none — and it says what caption stands after the
+    /// box, which is the one thing on a form nothing else could tell: both of a
+    /// revolve's fields are degrees, and a box reading `360.00` over a solid
+    /// says nothing about which. See [`suffix`].
+    quantity: Quantity,
     /// The buffer [`TextEdit`] borrows, so the widget writes it and this reads
     /// it. Never re-seeded from the drawing: a draft is what the *user* has
     /// made of the value, and geometry that moved under it says nothing about
@@ -355,13 +363,15 @@ impl Field {
 
     /// The number the pointer is offering, where it is offering one.
     ///
-    /// Read straight rather than through [`Prompt::value`], which reads a
-    /// *draft*. The two look alike today and are not the same question: a draft
-    /// is what somebody typed and is where a formula will one day be evaluated,
-    /// where this is what [`Prompt::suggest`] wrote with `{:.*}` and is a
-    /// literal by construction.
-    fn offered(&self) -> Option<f64> {
-        self.suggested.trim().parse().ok()
+    /// Read through the same notation the offer was written with, which is what
+    /// keeps the pair honest: [`Prompt::suggest`] writes a length in the
+    /// document's own unit, so reading it back as a bare number would be
+    /// reading inches as millimetres in a document drawn in inches.
+    ///
+    /// Apart from [`Prompt::value`], which reads a *draft*: this is a literal
+    /// by construction and that is whatever somebody typed.
+    fn offered(&self, notation: Notation) -> Option<f64> {
+        notation.read(self.quantity, &self.suggested)
     }
 }
 
@@ -387,6 +397,15 @@ pub(crate) struct Prompt {
     /// never the frame it was opened on, and nothing outside it is in a
     /// position to say which one that was.
     shown: bool,
+    /// What a number in this form means — the document's own, copied at the
+    /// open.
+    ///
+    /// **Copied rather than borrowed.** A form owns its drafts and outlives the
+    /// frame that made it, and the notation is two small numbers; a borrow
+    /// would tie every reading of a field to the document it was opened
+    /// against. A unit changed while a form stands open leaves that form saying
+    /// what it was opened saying, which is the answer a half-typed draft wants.
+    notation: Notation,
 }
 
 /// What a field made of the frame.
@@ -457,16 +476,17 @@ impl Prompt {
     /// Nothing is resolved here any more. A position among the faces becomes a
     /// name where the regions are *picked*, which is what lets the request
     /// carry the name — see [`Opening::Extrude`].
-    pub(crate) fn opening(opening: Opening, form: Form) -> Self {
+    pub(crate) fn opening(opening: Opening, form: Form, notation: Notation) -> Self {
         match opening {
             Opening::Dimension { part, from } => Self::on(
                 form,
                 Asking::Dimension { part },
                 [Asks {
                     label: "",
-                    unit: "",
+                    quantity: Quantity::Length,
                     seed: Seed::Stated(from),
                 }],
+                notation,
             ),
             // Offered rather than stated, like every form that *makes*
             // something: the pointer has the value until somebody types one,
@@ -476,9 +496,10 @@ impl Prompt {
                 Asking::Circle { sketch, center },
                 [Asks {
                     label: "Radius",
-                    unit: "",
+                    quantity: Quantity::Length,
                     seed: Seed::Offered(0.0),
                 }],
+                notation,
             ),
             // At no depth at all, which is where the ask starts: the solid is on
             // screen from the moment the form opens, and a zero-depth prism is a
@@ -491,9 +512,10 @@ impl Prompt {
                 },
                 [Asks {
                     label: "Depth",
-                    unit: "",
+                    quantity: Quantity::Length,
                     seed: Seed::Offered(0.0),
                 }],
+                notation,
             ),
             // A whole turn from the drawing's own place, which is where the
             // ask starts: the ring is on screen whole from the moment the form
@@ -514,15 +536,16 @@ impl Prompt {
                 [
                     Asks {
                         label: "Start",
-                        unit: DEGREES,
+                        quantity: Quantity::Angle,
                         seed: Seed::Offered(0.0),
                     },
                     Asks {
                         label: "Turn",
-                        unit: DEGREES,
+                        quantity: Quantity::Angle,
                         seed: Seed::Offered(Sector::WHOLE.sweep.to_degrees()),
                     },
                 ],
+                notation,
             ),
         }
     }
@@ -543,31 +566,47 @@ impl Prompt {
     /// And such a form stands *beside* what it is about, never over it:
     /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
     /// carry an `Option` for a state a dimension cannot be in.
-    fn on<const N: usize>(form: Form, about: Asking, values: [Asks; N]) -> Self {
+    fn on<const N: usize>(
+        form: Form,
+        about: Asking,
+        values: [Asks; N],
+        notation: Notation,
+    ) -> Self {
         let made = Self {
             form,
             about,
             fields: values
                 .iter()
-                .map(|&Asks { label, unit, seed }| {
-                    let said = |value: f64| format!("{value:.*}", DECIMALS);
-                    match seed {
-                        Seed::Stated(value) => Field {
-                            label,
-                            unit,
-                            draft: said(value),
-                            suggested: String::new(),
-                        },
-                        Seed::Offered(value) => Field {
-                            label,
-                            unit,
-                            draft: String::new(),
-                            suggested: said(value),
-                        },
-                    }
-                })
+                .map(
+                    |&Asks {
+                         label,
+                         quantity,
+                         seed,
+                     }| {
+                        let said = |value: f64| {
+                            let mut into = String::new();
+                            notation.write(quantity, value, &mut into);
+                            into
+                        };
+                        match seed {
+                            Seed::Stated(value) => Field {
+                                label,
+                                quantity,
+                                draft: said(value),
+                                suggested: String::new(),
+                            },
+                            Seed::Offered(value) => Field {
+                                label,
+                                quantity,
+                                draft: String::new(),
+                                suggested: said(value),
+                            },
+                        }
+                    },
+                )
                 .collect(),
             shown: false,
+            notation,
         };
         debug_assert!(
             N > 0 || !made.blurs(),
@@ -705,7 +744,8 @@ impl Prompt {
     /// after a radius was typed would be showing one number while the form
     /// showed another.
     pub(crate) fn value(&self, nth: usize) -> Option<f64> {
-        self.fields.get(nth)?.draft.trim().parse().ok()
+        let field = self.fields.get(nth)?;
+        self.notation.read(field.quantity, &field.draft)
     }
 
     /// Put `to` in the `nth` field, as the drawing's own handle for it moved.
@@ -725,7 +765,7 @@ impl Prompt {
             return;
         };
         field.draft.clear();
-        let _ = write!(field.draft, "{to:.*}", DECIMALS);
+        self.notation.write(field.quantity, to, &mut field.draft);
     }
 
     /// Show `to` in the `nth` field while nobody has typed into it.
@@ -738,7 +778,8 @@ impl Prompt {
             return;
         };
         field.suggested.clear();
-        let _ = write!(field.suggested, "{to:.*}", DECIMALS);
+        self.notation
+            .write(field.quantity, to, &mut field.suggested);
     }
 
     /// What the `nth` field currently means, whoever put it there.
@@ -762,7 +803,7 @@ impl Prompt {
         if field.driving() {
             return self.value(nth);
         }
-        field.offered()
+        field.offered(self.notation)
     }
 
     /// What the drawing shows for the `nth` field while the form is open.
@@ -773,7 +814,8 @@ impl Prompt {
     /// to *commit*; a solid that blinked out between the two keystrokes of `-2`
     /// would be worse than one that waits where the pointer left it.
     pub(crate) fn shows(&self, nth: usize) -> Option<f64> {
-        self.says(nth).or_else(|| self.fields.get(nth)?.offered())
+        self.says(nth)
+            .or_else(|| self.fields.get(nth)?.offered(self.notation))
     }
 
     /// Show the form, and put what it asked for in `intents`.
@@ -1232,8 +1274,8 @@ impl Prompt {
                                             .size((Sizing::FILL, Sizing::HUG))
                                             .show(ui),
                                     ));
-                                    if !field.unit.is_empty() {
-                                        Text::new(field.unit)
+                                    if !suffix(field.quantity).is_empty() {
+                                        Text::new(suffix(field.quantity))
                                             .id_salt("unit")
                                             .style(&label)
                                             .align(Align::new(HAlign::Left, VAlign::Center))

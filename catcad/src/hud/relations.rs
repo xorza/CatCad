@@ -13,7 +13,8 @@ use crate::look::icons::{Glyph, Icons};
 use crate::marked::{self, Marked};
 use crate::model::Model;
 use crate::model::models::Models;
-use crate::paint::DECIMALS;
+use crate::notation::Notation;
+use crate::notation::quantity::Quantity;
 use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -89,7 +90,10 @@ pub(super) fn show(
     intents: &mut Intents,
 ) {
     let Shown {
-        models, selection, ..
+        models,
+        selection,
+        notation,
+        ..
     } = shown;
     let startable = picked.plane(models);
     let removable = picked.removable(models);
@@ -160,7 +164,7 @@ pub(super) fn show(
             // viewport rather than drawn — see
             // [`Change::Round`](crate::intent::change::Change).
             if let Some(along) = roundable {
-                scrub(ui, &mut reach.0, "offered");
+                scrub(ui, &mut reach.0, "offered", notation);
                 // **Both kinds, side by side.** They differ in one word and
                 // share the field, the pick and every step of what follows —
                 // see [`Feature::Round`](crate::timeline::feature::Feature) —
@@ -183,7 +187,7 @@ pub(super) fn show(
             // number is read and scrubbed in one place whether the step exists
             // yet or not.
             if let Some(blendable) = blendable {
-                let edited = scrub(ui, &mut reach.0, "blend");
+                let edited = scrub(ui, &mut reach.0, "blend", notation);
                 if edited.changed {
                     intents.push(Change::Blend {
                         round: blendable.at,
@@ -200,7 +204,7 @@ pub(super) fn show(
                 return;
             };
             if let Some(resizable) = dimension {
-                let edited = scrub(ui, draft, "dimension");
+                let edited = scrub(ui, draft, "dimension", notation);
                 if edited.changed {
                     intents.push(Change::Resize {
                         sketch,
@@ -299,12 +303,19 @@ pub(super) fn show(
 /// it is written on, which is this one for all three — so unsalted they share
 /// one identity, and a drag begun on one is picked up by another. The salt is
 /// also the only place a reading says which of the three it is.
-fn scrub(ui: &mut Ui, value: &mut f64, salt: &str) -> Scrubbed {
-    let edited = DragValue::new(value)
+fn scrub(ui: &mut Ui, value: &mut f64, salt: &str, notation: Notation) -> Scrubbed {
+    // **Scrubbed in the unit it is shown in and stored in millimetres**, which
+    // is the whole of what a notation costs a control that holds a raw number:
+    // handed the stored one a widget would read out millimetres in a document
+    // drawn in inches, and travel by them as the pointer moved.
+    let across = notation.across(Quantity::Length);
+    let mut said = *value / across;
+    let edited = DragValue::new(&mut said)
         .id_salt(salt)
         .speed(SCRUB_SPEED)
-        .decimals(DECIMALS)
+        .decimals(notation.decimals())
         .show(ui);
+    *value = said * across;
     Scrubbed {
         changed: edited.changed,
         committed: edited.committed,

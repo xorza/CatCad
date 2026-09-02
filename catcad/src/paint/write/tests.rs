@@ -2,6 +2,7 @@ use aperture::{Batch, Facing, Text};
 use silverpoint::Sketch;
 
 use crate::look::Theme;
+use crate::notation::Notation;
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::names::Names;
 use crate::paint::tests::fixtures::drawn;
@@ -313,11 +314,11 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut placed = Vec::new();
     texts::write(
         one.models(),
+        Notation::default(),
         &Theme::default(),
         &mut names,
         &mut placed,
-        None,
-        None,
+        texts::Marking::default(),
         &mut figures,
     );
     assert_eq!(
@@ -399,11 +400,14 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
         texts::write(
             one.models(),
+            Notation::default(),
             &Theme::default(),
             names,
             placed,
-            None,
-            typed,
+            texts::Marking {
+                proposed: None,
+                typed,
+            },
             figures,
         );
         figures

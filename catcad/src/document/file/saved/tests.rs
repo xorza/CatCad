@@ -1,4 +1,6 @@
 use super::*;
+use crate::notation::Notation;
+use crate::notation::unit::Unit;
 
 use crate::build::Build;
 use crate::demo;
@@ -15,7 +17,7 @@ use silverpoint::{Bevel, Constraint, Dimension, Grown, Operation, Sector};
 /// writer and a reader that agree with each other and with nothing else would
 /// pass every round trip and save nothing anyone could open.
 fn written(timeline: &Timeline) -> String {
-    Saved::of(timeline, aperture::Camera::default())
+    Saved::of(timeline, aperture::Camera::default(), Notation::default())
         .text()
         .expect("a document encodes")
 }
@@ -29,7 +31,14 @@ fn written(timeline: &Timeline) -> String {
 /// [`Document::open`](crate::document::Document) — this is that call without a
 /// disk under it.
 fn opened(text: &str) -> Result<Timeline, LoadError> {
-    Saved::parse(text)?.timeline().map_err(LoadError::Fault)
+    // Both readings a document has to get through, in the order
+    // [`Document::open`](crate::document::Document) takes them — so a file that
+    // is wrong twice over is refused here for what it would be refused for
+    // there.
+    let saved = Saved::parse(text)?;
+    let timeline = saved.timeline().map_err(LoadError::Fault)?;
+    saved.notation().map_err(LoadError::Fault)?;
+    Ok(timeline)
 }
 
 /// The timeline `text` says, which has to be a document that parses and makes
@@ -45,9 +54,16 @@ fn read(text: &str) -> Timeline {
 /// the format is a grammar rather than the exact shape
 /// [`pretty`] happens to lay out.
 fn document(version: u32, steps: &str) -> String {
+    document_read_to(2, version, steps)
+}
+
+/// The same, read out to `places`, for the one row that is about how a document
+/// says its numbers rather than about its steps.
+fn document_read_to(places: u8, version: u32, steps: &str) -> String {
     format!(
         "(version: {version}, camera: (projection: Perspective, target: (0.0, 0.0, 0.0), \
-         distance: 6.0, yaw: 0.0, pitch: 0.0, fov_y: 0.8, near_ratio: 0.01), steps: [{steps}])"
+         distance: 6.0, yaw: 0.0, pitch: 0.0, fov_y: 0.8, near_ratio: 0.01), \
+         notation: (unit: Millimetre, decimals: {places}), steps: [{steps}])"
     )
 }
 
@@ -63,6 +79,36 @@ const A_LINE: &str = "sketch: (points: [(at: (0.0, 0.0)), (at: (0.0, 1.0))], \
 /// The demo comes back exactly as it went in — both sketches, both planes, and
 /// the camera.
 ///
+/// **A document's own notation comes back with it**, which is content and not a
+/// viewpoint: two documents may be drawn in different units, and one read back
+/// as the other's is a document whose every number has changed.
+///
+/// Every unit and a precision that is not the default, so a file that wrote a
+/// constant instead of what it was handed fails here rather than agreeing by
+/// coincidence.
+#[test]
+fn a_document_says_what_its_numbers_are_in() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    for unit in [
+        Unit::Millimetre,
+        Unit::Centimetre,
+        Unit::Metre,
+        Unit::Inch,
+        Unit::Foot,
+    ] {
+        let notation = Notation::drawn_in(unit, 4);
+        let text = Saved::of(&document.timeline, document.camera, notation)
+            .text()
+            .expect("a document encodes");
+        let read = Saved::parse(&text).expect("the text is a document");
+        let read = read
+            .notation()
+            .expect("a notation a document wrote reads back");
+        assert_eq!(read, notation, "{unit:?} did not come back");
+    }
+}
+
 /// Exactly, down to `PartialEq` on the timeline, which is a stronger claim than
 /// it looks: a sketch compares equal only if every arena position and every
 /// generation matches, so this says the reloaded drawing is the same drawing and
@@ -276,7 +322,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 8,
+    version: 9,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -285,6 +331,10 @@ fn a_document_is_written_exactly_like_this() {
         pitch: 0.4,
         fov_y: 0.7853982,
         near_ratio: 0.0078125,
+    ),
+    notation: (
+        unit: Millimetre,
+        decimals: 2,
     ),
     steps: [
         Ground,
@@ -541,7 +591,7 @@ fn saving_compacts_the_holes_an_edit_left() {
 /// two pieces of this program; a file is neither piece.
 #[test]
 fn a_document_that_says_something_impossible_is_refused() {
-    let refused: [(String, Fault); 17] = [
+    let refused: [(String, Fault); 18] = [
         // A version this cannot claim to understand, whatever it goes on to
         // say — here the one that came before, which is the way a stamp is
         // actually met in the wild.
@@ -718,6 +768,13 @@ fn a_document_that_says_something_impossible_is_refused() {
                  circles: [], relations: []))",
             ),
             Fault::NotFinite { at: 1 },
+        ),
+        // More decimal places than a number has. It parses and would draw, to
+        // a string of two hundred digits on every mark of every frame — most of
+        // them digits the machine never had.
+        (
+            document_read_to(200, VERSION, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
+            Fault::Precision { places: 200 },
         ),
     ];
 

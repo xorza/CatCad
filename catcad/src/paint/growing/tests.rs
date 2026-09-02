@@ -4,6 +4,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::look::Theme;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::paint::growing::*;
 use crate::paint::{Layout, Showing, redraw};
 use crate::profile::Profile;
@@ -271,6 +272,7 @@ fn a_preview_beside_the_model_is_ghosted_and_an_answer_is_not() {
         let mut scene = Scene::default();
         redraw(
             staged.document.models(&staged.build, Some(staged.tool)),
+            Notation::default(),
             &Theme::default(),
             &mut Layout::default(),
             Showing {

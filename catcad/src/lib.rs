@@ -19,6 +19,7 @@ mod lens;
 mod look;
 mod marked;
 mod model;
+mod notation;
 mod paint;
 mod part;
 mod preview;

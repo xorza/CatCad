@@ -6,6 +6,7 @@ use crate::build::Revision;
 use crate::build::putting::Putting;
 use crate::lens::Lens;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
@@ -294,6 +295,14 @@ pub(crate) struct Made<'a> {
     pub(crate) editing: Option<FeatureId>,
     pub(crate) showing: Showing<'a>,
     pub(crate) chorded: Chorded,
+    /// What a number in the document means — beside the chording rather than in
+    /// the gesture, both being what the *document* and the camera say about the
+    /// picture rather than what a hand is doing to it.
+    ///
+    /// Here because every dimension mark is written through it: a document read
+    /// out in another unit is a different picture of the same drawing, and a
+    /// stamp that left it out would leave the old numbers on screen.
+    pub(crate) notation: Notation,
 }
 
 impl Made<'_> {
@@ -302,12 +311,18 @@ impl Made<'_> {
     /// One place rather than at each of the two calls that stamp one — the
     /// drawing's and the controls' — so that the two cannot come to disagree
     /// about what a picture is made from and gate on different things.
-    pub(super) fn of<'a>(models: Models<'_>, showing: Showing<'a>, chorded: Chorded) -> Made<'a> {
+    pub(super) fn of<'a>(
+        models: Models<'_>,
+        showing: Showing<'a>,
+        chorded: Chorded,
+        notation: Notation,
+    ) -> Made<'a> {
         Made {
             revision: models.revision(),
             editing: models.editing(),
             showing,
             chorded,
+            notation,
         }
     }
 
@@ -322,6 +337,7 @@ impl Made<'_> {
             editing: self.editing,
             showing: Stamped::of(self.showing),
             chorded: self.chorded,
+            notation: self.notation,
         }
     }
 }
@@ -339,6 +355,7 @@ pub(super) struct Kept {
     editing: Option<FeatureId>,
     showing: Stamped,
     chorded: Chorded,
+    notation: Notation,
 }
 
 /// What a gesture is showing, as a picture keeps it.

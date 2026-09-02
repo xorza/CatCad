@@ -2,6 +2,7 @@ use super::*;
 use crate::build::Build;
 use crate::demo;
 use crate::look::Theme;
+use crate::notation::Notation;
 use crate::paint::growing::Growing;
 use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
@@ -33,6 +34,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     let mut scene = Scene::default();
     redraw(
         document.models(&build, Some(document.first_sketch())),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -41,6 +43,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     );
     write(
         document.models(&build, Some(document.first_sketch())),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -110,6 +113,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         let models = document.models(&build, Some(document.first_sketch()));
         redraw(
             models,
+            Notation::default(),
             &Theme::default(),
             &mut layout,
             Showing::default(),
@@ -118,6 +122,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         );
         write(
             models,
+            Notation::default(),
             &Theme::default(),
             &mut layout,
             Showing::default(),
@@ -207,6 +212,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
         let models = document.models(&build, Some(document.first_sketch()));
         write(
             models,
+            Notation::default(),
             &Theme::default(),
             &mut layout,
             showing,
@@ -279,6 +285,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     let models = document.models(&build, Some(document.first_sketch()));
     redraw(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -296,6 +303,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
             };
             write(
                 models,
+                Notation::default(),
                 &Theme::default(),
                 &mut layout,
                 Showing::default(),
@@ -388,6 +396,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     let mut scene = Scene::default();
     redraw(
         one.models(),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         showing,
@@ -396,6 +405,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     );
     write(
         one.models(),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         showing,

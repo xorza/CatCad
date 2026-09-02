@@ -4,6 +4,7 @@ use crate::build::Build;
 use crate::drawing::tests::fixtures::{Linkage, on};
 use crate::drawing::*;
 use crate::look::Theme;
+use crate::notation::Notation;
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::paint::showing::Showing;
@@ -197,6 +198,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut layout = Layout::default();
     paint::redraw(
         linkage.models(),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -216,6 +218,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
     paint::redraw(
         linkage.models(),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),

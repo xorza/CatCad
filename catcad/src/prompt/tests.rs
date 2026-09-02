@@ -1,4 +1,7 @@
 use super::*;
+use crate::notation::Notation;
+use crate::notation::quantity::Quantity;
+use crate::notation::unit::Unit;
 use crate::prompt::Form;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
@@ -51,9 +54,10 @@ fn grown() -> Prompt {
         },
         [Asks {
             label: "Depth",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Offered(0.0),
         }],
+        Notation::default(),
     )
 }
 
@@ -73,9 +77,10 @@ fn a_form_opens_on_the_value_the_dimension_states() {
         Asking::Dimension { part },
         [Asks {
             label: "",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Stated(125.4),
         }],
+        Notation::default(),
     );
     assert_eq!(prompt.marks(), Some(part));
     assert_eq!(
@@ -99,9 +104,10 @@ fn a_draft_that_is_not_a_number_has_no_value() {
         Asking::Dimension { part: dimension() },
         [Asks {
             label: "",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Stated(12.0),
         }],
+        Notation::default(),
     );
     for (draft, value) in [
         ("40", Some(40.0)),
@@ -111,7 +117,12 @@ fn a_draft_that_is_not_a_number_has_no_value() {
         ("", None),
         (".", None),
         ("4 0", None),
-        ("40mm", None),
+        // A unit and an expression are numbers, which is what a field read
+        // through the document's own notation admits — see
+        // [`Notation`](crate::notation::Notation).
+        ("40mm", Some(40.0)),
+        ("80/2", Some(40.0)),
+        ("40 apples", None),
     ] {
         prompt.fields[0].draft.clear();
         prompt.fields[0].draft.push_str(draft);
@@ -150,7 +161,10 @@ fn what_a_form_means_and_what_it_draws_come_apart_on_a_draft_mid_word() {
         ("1.", Some(1.0), Some(1.0)),
         ("-", None, Some(0.0)),
         (".", None, Some(0.0)),
-        ("40mm", None, Some(0.0)),
+        // A unit is a number, so it speaks to both. What does not is a word,
+        // which is the draft mid-word this row is about.
+        ("40mm", Some(40.0), Some(40.0)),
+        ("40mmx", None, Some(0.0)),
     ] {
         grown.fields[0].draft.clear();
         grown.fields[0].draft.push_str(draft);
@@ -192,9 +206,10 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         Asking::Dimension { part: dimension() },
         [Asks {
             label: "",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Stated(1.0),
         }],
+        Notation::default(),
     );
     assert!(typed.blurs(), "a dimension form has no other way out");
     assert_eq!(
@@ -254,9 +269,10 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
         Asking::Dimension { part },
         [Asks {
             label: "",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Stated(1.0),
         }],
+        Notation::default(),
     );
     assert_eq!(typed.marks(), Some(part));
 
@@ -270,9 +286,51 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
         },
         [Asks {
             label: "Radius",
-            unit: "",
+            quantity: Quantity::Length,
             seed: Seed::Offered(0.0),
         }],
+        Notation::default(),
     );
     assert_eq!(drawing.marks(), None);
+}
+
+/// **A form opened on a document drawn in inches says inches**, both ways.
+///
+/// The one end-to-end claim the notation owes a form: the store is millimetres
+/// and the field is the document's own unit, so a dimension of 25.4 opens
+/// reading `1.00` and a draft of `2` commits 50.8. Hand-computed, an inch being
+/// 25.4 millimetres by definition.
+///
+/// **And a suffix overrides the document**, which is what lets somebody working
+/// in inches type a metric part number without changing the drawing.
+#[test]
+fn a_form_says_the_unit_the_document_is_drawn_in() {
+    let notation = Notation::drawn_in(Unit::Inch, 2);
+    let mut prompt = Prompt::on(
+        Form::default(),
+        Asking::Dimension { part: dimension() },
+        [Asks {
+            label: "",
+            quantity: Quantity::Length,
+            seed: Seed::Stated(25.4),
+        }],
+        notation,
+    );
+    assert_eq!(prompt.fields[0].draft, "1.00", "opened in the wrong unit");
+    assert_eq!(prompt.value(0), Some(25.4));
+
+    for (draft, want) in [("2", 50.8), ("1/2", 12.7), ("25.4mm", 25.4), ("1'", 304.8)] {
+        prompt.fields[0].draft.clear();
+        prompt.fields[0].draft.push_str(draft);
+        let read = prompt.value(0).unwrap_or_else(|| panic!("{draft:?}"));
+        assert!(
+            (read - want).abs() < 1e-12,
+            "{draft:?} read {read}, not {want}"
+        );
+    }
+
+    // The other half of the same pair: a drag seeds the field, and what it
+    // seeds is the document's own unit rather than the store's.
+    prompt.write(0, 76.2);
+    assert_eq!(prompt.fields[0].draft, "3.00");
 }

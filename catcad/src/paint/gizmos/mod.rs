@@ -29,6 +29,7 @@ use silverpoint::{Constraint, Measurement, Plane};
 use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};
@@ -65,6 +66,7 @@ mod shape;
 /// you are working in — see [`texts`](crate::paint::write::texts).
 pub(crate) fn write(
     models: Models<'_>,
+    notation: Notation,
     theme: &Theme,
     layout: &mut Layout,
     showing: Showing,
@@ -78,7 +80,7 @@ pub(crate) fn write(
     // still, which on a sketch of two hundred dimensions was the entire cost of
     // a frame that had nothing to draw.
     let framed = Framed {
-        made: Made::of(models, showing, layout.chorded(Some(lens))).kept(),
+        made: Made::of(models, showing, layout.chorded(Some(lens)), notation).kept(),
         lens,
     };
     if !layout.recontrol(framed) {

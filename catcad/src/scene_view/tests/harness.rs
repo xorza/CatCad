@@ -113,7 +113,11 @@ impl RaisedView {
             view.poll(ui, document, session, intents);
             // The app's own apply, minus the bar it has no toolbar for: what
             // the session owns comes off the inbox before the history reads it.
-            session.apply(document.models(build, session.editing()), intents);
+            session.apply(
+                document.models(build, session.editing()),
+                document.notation(),
+                intents,
+            );
             history.apply(document, build, intents);
             // Last, because an undo can take geometry the session was still
             // holding on to — see `CatCad::apply`.
@@ -173,6 +177,7 @@ impl RaisedView {
         intents.push(choice);
         self.session.apply(
             self.document.models(&self.build, self.session.editing()),
+            self.document.notation(),
             &intents,
         );
     }

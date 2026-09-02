@@ -378,6 +378,7 @@ impl CatCad {
             Shown {
                 icons: &icons,
                 theme: &self.theme,
+                notation: self.document.notation(),
                 tool: self.session.tool(),
                 rest,
                 solved,
@@ -442,6 +443,7 @@ impl CatCad {
         // writes, for the same reason.
         self.session.apply(
             self.document.models(&self.build, self.session.editing()),
+            self.document.notation(),
             &self.intents,
         );
         let made = self
@@ -943,7 +945,7 @@ pub(crate) mod internals {
                 .expect("a harness asks for a depth off a sketch it opened")
                 .profile(&[region]);
             intents.push(Choice::Ask(Some(Opening::Extrude { profile })));
-            session.apply(models, &intents);
+            session.apply(models, document.notation(), &intents);
         }
 
         /// Put `to` in the open form's depth field, the way a drag on the
@@ -963,7 +965,11 @@ pub(crate) mod internals {
                 build,
                 ..
             } = self;
-            session.apply(document.models(build, session.editing()), &intents);
+            session.apply(
+                document.models(build, session.editing()),
+                document.notation(),
+                &intents,
+            );
         }
 
         /// What the open form's depth field reads as, or `None` where no form
@@ -993,7 +999,11 @@ pub(crate) mod internals {
                 build,
                 ..
             } = self;
-            session.apply(document.models(build, session.editing()), &intents);
+            session.apply(
+                document.models(build, session.editing()),
+                document.notation(),
+                &intents,
+            );
         }
 
         /// The far end of the demo's arm, which is the freest thing it draws

@@ -5,6 +5,7 @@ use crate::demo;
 use crate::intent::change::Change;
 use crate::lens::Lens;
 use crate::look::Theme;
+use crate::notation::Notation;
 use crate::paint::growing::Growing;
 use crate::paint::tests::fixtures::{controls_untouched, stamp, stamp_controls, untouched};
 use crate::paint::*;
@@ -42,6 +43,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     let mut scene = Scene::default();
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -74,6 +76,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         banding(1.0),
@@ -89,6 +92,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         banding(2.0),
@@ -106,6 +110,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         banding(2.0),
@@ -130,6 +135,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing {
@@ -157,6 +163,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     document.apply(&mut build, Change::Tidy { sketch: editing });
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -198,6 +205,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
 
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -232,6 +240,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     ] {
         redraw(
             document.models(&build, Some(editing)),
+            Notation::default(),
             &Theme::default(),
             &mut layout,
             showing,
@@ -280,6 +289,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     );
     redraw(
         document.models(&build, Some(editing)),
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing {
@@ -328,6 +338,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
 
     redraw(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -336,6 +347,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     );
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -350,6 +362,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     stamp_controls(&mut scene);
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -367,6 +380,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     // against a viewport that is not.
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing::default(),
@@ -384,6 +398,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     stamp_controls(&mut scene);
     gizmos::write(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut layout,
         Showing {
@@ -427,6 +442,7 @@ fn a_camera_remakes_the_solids_only_where_it_crosses_a_step() {
     let draw = |layout: &mut Layout, scene: &mut Scene, camera| {
         redraw(
             document.models(&build, Some(editing)),
+            Notation::default(),
             &Theme::default(),
             layout,
             Showing::default(),
@@ -521,6 +537,7 @@ fn a_frame_with_no_camera_leaves_the_solids_where_the_camera_left_them() {
     let draw = |layout: &mut Layout, scene: &mut Scene, lens| {
         redraw(
             document.models(&build, Some(editing)),
+            Notation::default(),
             &Theme::default(),
             layout,
             Showing::default(),

@@ -27,6 +27,7 @@ use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::Model;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 use crate::preview::Preview;
@@ -265,11 +266,24 @@ pub(crate) const MARK_FONT: GlyphFont = GlyphFont {
 ///
 /// The controls are the one thing not here, because they are built against a
 /// camera rather than against the document. See [`gizmos::write()`].
-pub(crate) fn scene(models: Models<'_>, theme: &Theme, layout: &mut Layout) -> Scene {
+pub(crate) fn scene(
+    models: Models<'_>,
+    notation: Notation,
+    theme: &Theme,
+    layout: &mut Layout,
+) -> Scene {
     let mut scene = Scene::default();
     // Nothing half-done: no band, nothing being retyped and nothing being grown
     // in a document nobody has looked at yet.
-    redraw(models, theme, layout, Showing::default(), None, &mut scene);
+    redraw(
+        models,
+        notation,
+        theme,
+        layout,
+        Showing::default(),
+        None,
+        &mut scene,
+    );
     scene
 }
 
@@ -317,6 +331,7 @@ pub(crate) fn scene(models: Models<'_>, theme: &Theme, layout: &mut Layout) -> S
 /// move to what it moves every frame.
 pub(crate) fn redraw(
     models: Models<'_>,
+    notation: Notation,
     theme: &Theme,
     layout: &mut Layout,
     showing: Showing,
@@ -327,7 +342,7 @@ pub(crate) fn redraw(
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
     // forgot to stamp would redraw for ever.
-    let made = Made::of(models, showing, layout.chorded(lens));
+    let made = Made::of(models, showing, layout.chorded(lens), notation);
     let Some(from) = layout.resume(made) else {
         return;
     };
@@ -380,11 +395,14 @@ pub(crate) fn redraw(
             .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
         texts::write(
             models,
+            notation,
             theme,
             names,
             placed,
-            *proposed,
-            showing.typed,
+            texts::Marking {
+                proposed: *proposed,
+                typed: showing.typed,
+            },
             &mut into.texts,
         );
     }
@@ -413,13 +431,6 @@ pub(crate) fn redraw(
     names.drew();
     layout.drawn(made);
 }
-
-/// Decimal places a dimension is read out to.
-///
-/// Two, which is a hundredth of a sketch unit — fine enough to draw with and
-/// coarse enough that a solve's own drift never shows. What a *unit* is remains
-/// the document's to decide; until it decides, a number is a number.
-pub(crate) const DECIMALS: usize = 2;
 
 /// The mark a relation is drawn as.
 ///
@@ -453,6 +464,7 @@ pub(crate) fn markers(models: crate::model::models::Models<'_>) -> Vec<glam::Vec
     let mut scene = Scene::default();
     redraw(
         models,
+        Notation::default(),
         &Theme::default(),
         &mut Layout::default(),
         Showing::default(),

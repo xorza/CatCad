@@ -16,6 +16,7 @@ use silverpoint::ConstraintId;
 use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::paint;
 use crate::paint::cut::Cut;
 use crate::paint::layout::Layout;
@@ -110,9 +111,9 @@ impl Picture {
     /// see [`paint::scene`], which is the only place a scene comes from. There
     /// is no second source for a picture to reconcile, so what it holds is
     /// described by one revision rather than by a revision and a provenance.
-    pub(super) fn new(models: Models<'_>, theme: &Theme) -> Self {
+    pub(super) fn new(models: Models<'_>, notation: Notation, theme: &Theme) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(models, theme, &mut layout);
+        let scene = paint::scene(models, notation, theme, &mut layout);
         let mut renderer = Renderer::new(Pane::new(scene, Placement::Fill));
         renderer.set_ground(theme.geometry.ground);
         // The gizmo over the drawing, with nowhere to stand until the overlay
@@ -162,6 +163,7 @@ impl Picture {
     pub(super) fn redraw(
         &mut self,
         models: Models<'_>,
+        notation: Notation,
         theme: &Theme,
         showing: Showing,
         lens: Option<Lens>,
@@ -169,6 +171,7 @@ impl Picture {
         let mut renderer = self.renderer.borrow_mut();
         paint::redraw(
             models,
+            notation,
             theme,
             &mut self.layout,
             showing,
@@ -178,6 +181,7 @@ impl Picture {
         if let Some(lens) = lens {
             paint::gizmos::write(
                 models,
+                notation,
                 theme,
                 &mut self.layout,
                 showing,

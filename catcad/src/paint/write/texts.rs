@@ -2,13 +2,14 @@
 
 use aperture::{Batch, Facing, Precedence, Text, Turn};
 use glam::Vec2;
-use std::fmt::Write;
 
 use crate::look::Theme;
 use crate::model::models::Models;
+use crate::notation::Notation;
+use crate::notation::quantity::Quantity;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
-use crate::paint::{DECIMALS, MARK_FONT, SHEET_NAME_LIFT, marks, shade, standing, symbol};
+use crate::paint::{MARK_FONT, SHEET_NAME_LIFT, marks, shade, standing, symbol};
 use crate::part::Part;
 use crate::wording;
 
@@ -35,15 +36,32 @@ use crate::paint::write::Marked;
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
+/// What a gesture is doing to the marks: the one being placed, and the one
+/// being retyped.
+///
+/// **A pair rather than two parameters**, because they are one answer about one
+/// dimension at a time and both come off the same gesture — a mark half-placed
+/// is drawn where a field says it would land, and the mark being retyped is
+/// left out because the field stands over it. Named here rather than folded
+/// into [`Showing`](crate::paint::showing::Showing): what is proposed is worked
+/// out by the caller against the open sketch rather than carried in by the
+/// gesture.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Marking {
+    pub(crate) proposed: Option<Proposed>,
+    pub(crate) typed: Option<Part>,
+}
+
 pub(crate) fn write(
     models: Models<'_>,
+    notation: Notation,
     theme: &Theme,
     names: &mut Names,
     placed: &mut Vec<Placed>,
-    proposed: Option<Proposed>,
-    typed: Option<Part>,
+    marking: Marking,
     into: &mut Batch<Text>,
 ) {
+    let Marking { proposed, typed } = marking;
     let geometry = &theme.geometry;
     // **The open sketch alone.** A constraint is a statement *about* a drawing,
     // and one you are not in is not a drawing you can argue with: its marks can
@@ -93,9 +111,8 @@ pub(crate) fn write(
                 // what it is stated as, where a symbol would say only the first and
                 // leave the drawing unreadable.
                 Some(value) => {
-                    let prefix = wording::of(constraint).prefix;
-                    write!(mark.content, "{prefix}{value:.*}", DECIMALS)
-                        .expect("writing to a string cannot fail");
+                    mark.content.push_str(wording::of(constraint).prefix);
+                    notation.write(Quantity::Length, value, &mut mark.content);
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }

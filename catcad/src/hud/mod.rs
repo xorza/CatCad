@@ -9,6 +9,7 @@ use crate::intent::Intents;
 use crate::look::Theme;
 use crate::look::icons::Icons;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::selection::Selection;
 use crate::status::Solved;
 use crate::timeline::FeatureId;
@@ -173,6 +174,12 @@ pub(crate) struct Shown<'a> {
     /// owned differently: a theme is data the application decides, and an icon
     /// set owns what the *host* has parsed and rasterized.
     pub(crate) theme: &'a Theme,
+    /// What a number in the document means — see [`Notation`].
+    ///
+    /// Beside the theme rather than read off the models: how a drawing is
+    /// *drawn* and how its numbers are *said* are both things the surfaces are
+    /// handed, and neither is anything a sketch holds.
+    pub(crate) notation: Notation,
     pub(crate) tool: Tool,
     /// Whatever the drawing has to say beyond how the solve went — see
     /// [`Status::rest`](crate::status::Status::rest).

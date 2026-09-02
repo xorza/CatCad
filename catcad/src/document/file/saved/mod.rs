@@ -19,6 +19,7 @@ use crate::document::file::saved::camera::Camera;
 use crate::document::file::saved::handles::{Handles, SKETCH_DEPTH};
 use crate::document::file::saved::numbering::Numbering;
 use crate::document::file::saved::step::Step;
+use crate::notation::Notation;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
 use silverpoint::{Bound, Entity};
@@ -29,7 +30,7 @@ use silverpoint::{Bound, Entity};
 /// anything else outright rather than guessing at it: a format that changes
 /// shape and keeps its number is one where a wrong answer looks like a right
 /// one, and the whole point of the stamp is to make the mismatch loud.
-const VERSION: u32 = 8;
+const VERSION: u32 = 9;
 
 /// A document as it is written down: what was done, and where it is being
 /// looked at from.
@@ -50,6 +51,13 @@ const VERSION: u32 = 8;
 pub(crate) struct Saved {
     version: u32,
     camera: Camera,
+    /// What a number in it means — see [`Notation`], which is where the unit
+    /// and the places it is read to are argued.
+    ///
+    /// Content, unlike the camera beside it: two documents may be drawn in
+    /// different units, and one read back as the other's is a document whose
+    /// every number has changed.
+    notation: Notation,
     /// Every step, in the order they were taken.
     ///
     /// Position *is* identity here: a step is named by where it stands in this
@@ -69,7 +77,7 @@ pub(crate) struct Saved {
 
 impl Saved {
     /// `timeline` and `camera` as a file would hold them.
-    pub(crate) fn of(timeline: &Timeline, camera: aperture::Camera) -> Self {
+    pub(crate) fn of(timeline: &Timeline, camera: aperture::Camera, notation: Notation) -> Self {
         // The order steps are written in is the order they are numbered in, so
         // a step's position in this is the number every reference to it uses.
         let steps: Numbering<FeatureId> = timeline.steps().map(|(id, _)| id).collect();
@@ -91,6 +99,7 @@ impl Saved {
         Self {
             version: VERSION,
             camera: Camera::of(camera),
+            notation,
             rolled: timeline.rolled().map(|at| steps.of(at)),
             steps: timeline
                 .steps()
@@ -126,6 +135,19 @@ impl Saved {
     /// where they happened to be standing to look at it does not.
     pub(crate) fn camera(&self) -> aperture::Camera {
         self.camera.camera().sane()
+    }
+
+    /// What a number in the document means, or the first thing wrong with it.
+    ///
+    /// One refusal, and it is not the unit: every unit the file can name is one
+    /// of five, and a file naming another is one RON refused before this was
+    /// reached. What is left is how many places a number is read out to, which
+    /// is a count with no upper end in the format — see [`Notation::readable`].
+    pub(crate) fn notation(&self) -> Result<Notation, Fault> {
+        self.notation
+            .readable()
+            .map_err(|places| Fault::Precision { places })?;
+        Ok(self.notation)
     }
 
     /// The steps as a timeline, or the first thing wrong with them.

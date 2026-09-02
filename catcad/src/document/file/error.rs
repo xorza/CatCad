@@ -87,6 +87,15 @@ pub(crate) enum Fault {
     /// solve, which has no way to report that it was handed one — so they are
     /// refused here, where there is still someone to tell.
     NotFinite { at: usize },
+    /// It asks for more decimal places than a number has.
+    ///
+    /// Refused rather than clamped, on the terms the camera beside it states:
+    /// how a document says its numbers is content, and content has to be
+    /// reported wrong rather than repaired. Past what a `f64` carries a reading
+    /// is writing digits the machine does not have, and every one of them is
+    /// laid out on every mark of every frame — see
+    /// [`Notation`](crate::notation::Notation).
+    Precision { places: u8 },
 }
 
 /// Which of a sketch's three kinds a reference missed, and which one it was.
@@ -155,6 +164,12 @@ impl fmt::Display for Fault {
             }
             Fault::Unknown { at, what } => write!(f, "step {at} names {what}"),
             Fault::NotFinite { at } => write!(f, "step {at} states a number that is not one"),
+            Fault::Precision { places } => {
+                write!(
+                    f,
+                    "numbers are read out to {places} places, which is more than one has"
+                )
+            }
         }
     }
 }

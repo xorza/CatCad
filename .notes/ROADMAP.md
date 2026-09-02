@@ -48,42 +48,30 @@ is settled and written up in [`KERNEL.md`](KERNEL.md), and what a number *is*
   being raised only by a press. Five tools, a constraint bar offering only what
   the selection admits, forms that stand against the drawing, picking and
   painting through a retained 3D scene with tags.
+- **What a number means.** A `Notation` on the document says what unit a bare
+  number is in and how many places one is read out to, and it is saved beside
+  the camera. Every field a person types into reads a whole expression through
+  it — `1/2in`, `3*4`, `(1 + 2) * 5` — where each used to read a literal, and
+  every number the drawing writes out goes back through the same pair. The store
+  is a millimetre, so choosing another unit converts no geometry.
 
 What follows is what is not there.
 
-## 1. A timeline the user can edit
+## 1. A timeline the user can edit — **done**
 
-Today the timeline only grows, and only the *newest* step comes off — which is
-all an undo of a creation needs. Three things are missing, and they are one
-piece of work because they share a failure mode.
+A step is deleted, reordered and rolled past. `Change::DeleteStep`,
+`Change::Reorder` and `Change::RollTo` are the three, and `Timeline::doomed`,
+`Timeline::moves_within` and `Timeline::rolled` are what each is held to.
 
-- **Delete and reorder.** `Edit` already has `Wrote` and `Added`, and
-  `Timeline` has `drop_newest` and `append`; what is missing is a `Change` that
-  removes a named step, and an arm to record it. A deleted handle has to stay
-  dead, which is why `add` never reuses one.
-- **Cascade a deleted plane** to the sketches drawn on it, and a deleted sketch
-  to the extrudes grown from it, matching `Sketch::remove_point`. The first
-  edit touching more than one feature.
-- **Rollback.** Build only the first N steps. Replaying is `Document::new`
-  walking `Timeline::sketches` and showing is `Models::iter`; a bound read by
-  both is the whole of it, because no step depends on a later one.
+**The shape this settled was failure.** A `Built` per step, filled by the replay
+that fills `settled` and `bodied`, replaced the `Option<usize>` that used to be
+the only way a step could say it did not build — and deleting and reordering
+added arms to it rather than inventing an answer.
 
-**The shape this settles was failure, and it is settled.** A `Built` per step,
-filled by the replay that fills `settled` and `bodied`, replaced the
-`Option<usize>` that used to be the only way a step could say it did not build.
-It already tells apart the two states that look alike from outside — a profile
-drawn across, and a depth of nothing — and the feature tree reads it to draw a
-step as broken. Deleting and reordering will add arms to it rather than
-inventing an answer: a sketch on a plane that is gone, a step moved above what
-it is built on.
-
-**A step that goes away while you are standing in it** is already reachable —
-undoing a sketch you have just started is exactly that — and `Session::prune`
-drops `editing` when the model no longer holds it. What that guard answers for
-is one step at a time, taken off the end. Deleting a named step in the middle,
-and cascading it to what was built on it, takes away several at once and takes
-them away from a document nobody was undoing, so it is worth re-reading rather
-than assuming covered.
+**A step that goes away while you are standing in it** is `Session::prune`,
+which drops `editing` when the model no longer holds it. Deleting a named step
+in the middle takes several away at once and takes them from a document nobody
+was undoing, which is why the guard is asserted rather than assumed.
 
 ## 2. What a solid is: bodies, and taking material away
 
@@ -165,34 +153,43 @@ forward into this one.
 
 ## 3. What a number is: parameters, expressions and units
 
-`Dimension` holds a bare `f64`, and every number the user types is one: the
-`DragValue` in the constraint bar, `Change::Resize`, `Choice::Set`, every field
-of a `Prompt`. A modeller whose dimensions cannot name each other is
-parametric in the geometry and not in the design — the whole point of naming a
-wall thickness once is that the six places it appears change together.
+`Dimension` holds a bare `f64`. A modeller whose dimensions cannot name each
+other is parametric in the geometry and not in the design — the whole point of
+naming a wall thickness once is that the six places it appears change together.
 
-**Where it lives is the decision.** An expression naming a document-level
-parameter is catcad's vocabulary, and silverpoint should not learn a language.
-So: a parameter table on the `Document` beside the `Timeline` — it is content,
-it is saved, it is undone — and a side table keyed by `ConstraintId` holding
-what each dimension *says*. The replay that already walks the timeline
-evaluates it and writes the resolved `f64` into the sketch before the solve.
-That is the same shape as `Profile`: a durable name catcad keeps for something
-silverpoint holds, resolved once per rebuild.
+**The units half is in.** `Notation` on the `Document` says what a bare number
+means and how many places one is read out to; it is content, it is saved, and it
+travels to every field a person types into and every number the drawing writes
+back. One reader answers `10`, `1/2in`, `3*4` and `(1 + 2) * 5`, and `Quantity`
+is what says a turn takes the arithmetic and none of the units. `paint::DECIMALS`
+is gone.
 
-Units come through the same field and want landing together, because one parser
-answers "10mm", "1/2in" and "w/2" and three would disagree. A document unit and
-a display precision replace `paint::DECIMALS`, and `Prompt`'s fields parse
-rather than read a number.
+**The store is a millimetre and the notation is how it is said**, which is what
+makes choosing another unit convert no geometry: a length typed in inches is
+kept in millimetres and read back in inches, exactly, every conversion here
+being a product of whole numbers and a tenth.
+
+**What is left is the naming.** A parameter table on the `Document` beside the
+`Timeline` — content, saved, undone — and a side table keyed by `ConstraintId`
+holding what each dimension *says*, so `w/2` survives a reopen where a resolved
+number would not. The replay that already walks the timeline evaluates it and
+writes the resolved `f64` into the sketch before the solve. That is the same
+shape as `Profile`: a durable name catcad keeps for something silverpoint holds,
+resolved once per rebuild. `Reading` gains one production for a name, and
+`Notation::read` gains the table to look one up in.
+
+**And a chooser**, which is the one thing that makes the unit visible: nothing
+changes a `Notation` today, so every document is drawn in millimetres to two
+places until something can set it.
 
 Two things fall out of this change and are worth taking while it is open: a
 **reference dimension** that measures without driving (a `Dimension` the solver
 is not given a row for), and the cycle and typo errors an expression can have,
-which want the same per-step status item 1 introduces.
+which want the same per-step status item 1 introduced.
 
-Independent of item 2, and can go first if that one stalls. Its cost grows with
-every new number a feature introduces — a revolve angle, a pattern count, a
-fillet radius — which is the argument for not leaving it much longer.
+Independent of item 2. Its cost grows with every new number a feature introduces
+— a revolve angle, a pattern count, a fillet radius — which is the argument for
+not leaving the rest of it much longer.
 
 ## 4. Arcs, and construction geometry
 

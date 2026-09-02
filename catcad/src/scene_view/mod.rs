@@ -137,7 +137,7 @@ impl SceneView {
         editing: Option<FeatureId>,
     ) -> Self {
         Self {
-            picture: Picture::new(document.models(build, editing), theme),
+            picture: Picture::new(document.models(build, editing), document.notation(), theme),
             pointing: Pointing::default(),
         }
     }
@@ -250,7 +250,8 @@ impl SceneView {
             typed: open.and_then(Prompt::marks),
             growing: open.and_then(|open| open.growing(models)),
         };
-        self.picture.redraw(models, theme, showing, lens);
+        self.picture
+            .redraw(models, document.notation(), theme, showing, lens);
         // What the pointer is over, resolved against the picture that was just
         // written and lit on it — the two halves meeting in the one question
         // they share. What is *named* is the pointer's own answer and stays

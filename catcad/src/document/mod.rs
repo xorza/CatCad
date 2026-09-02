@@ -14,6 +14,7 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::change::{About, Change};
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline, Uprooted};
 use silverpoint::Sketch;
@@ -39,6 +40,13 @@ pub(crate) struct Document {
     /// Every step taken to build it, which is the whole of what it says.
     timeline: Timeline,
     camera: Camera,
+    /// What a number in it means — see [`Notation`].
+    ///
+    /// Content, and beside the camera rather than in the timeline: no step
+    /// holds one, every step's numbers are said in it, and a document that
+    /// could not say which unit it was drawn in would be reading somebody
+    /// else's numbers as its own.
+    notation: Notation,
     /// How many times it has been changed, so a caller can tell whether what it
     /// last wrote down still describes this.
     edits: Edits,
@@ -68,6 +76,7 @@ impl Document {
         let mut document = Self {
             timeline,
             camera: Camera::default(),
+            notation: Notation::default(),
             edits: Edits::default(),
         };
         // Every sketch, not only the one a session starts in. A sketch arrives
@@ -253,7 +262,7 @@ impl Document {
     /// keeps a document that fails to encode from having half-overwritten the
     /// one that was already there.
     pub(crate) fn save_to(&self, path: &Path) -> Result<(), SaveError> {
-        let text = Saved::of(&self.timeline, self.camera).text()?;
+        let text = Saved::of(&self.timeline, self.camera, self.notation).text()?;
         fs::write(path, text).map_err(SaveError::Write)
     }
 
@@ -280,14 +289,16 @@ impl Document {
         let saved = Saved::parse(&text)?;
         let timeline = saved.timeline().map_err(LoadError::Fault)?;
         let camera = saved.camera();
+        let notation = saved.notation().map_err(LoadError::Fault)?;
         // Through `new`, so a document read from a file is raised exactly as
         // any other is: the build forgets what the last one left, and every
         // sketch is solved — coordinates arrive as something the constraints
         // have not been checked against however they were come by. The camera
-        // is written after, being the one thing here that `new` has an opinion
-        // about.
+        // and the notation are written after, being the two things here that
+        // `new` starts at a default of its own.
         let mut document = Self::new(build, timeline);
         document.camera = camera;
+        document.notation = notation;
         Ok(document)
     }
 
@@ -368,6 +379,16 @@ impl Document {
     /// Where the document is being looked at from.
     pub(crate) fn camera(&self) -> Camera {
         self.camera
+    }
+
+    /// What a number in this document means — see [`Notation`].
+    ///
+    /// Handed out by value rather than by reference: it is two small numbers,
+    /// and every reader of it — a form being opened, a mark being laid out —
+    /// wants a copy it can carry rather than a borrow of the document it came
+    /// from.
+    pub(crate) fn notation(&self) -> Notation {
+        self.notation
     }
 
     /// How many times this has been changed.

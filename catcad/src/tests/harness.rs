@@ -333,6 +333,7 @@ impl Raised {
             self.app
                 .document
                 .models(&self.app.build, self.app.session.editing()),
+            self.app.document.notation(),
             &intents,
         );
     }

@@ -3,6 +3,7 @@
 use crate::intent::{Choice, Intent, Intents};
 use crate::model::Model;
 use crate::model::models::Models;
+use crate::notation::Notation;
 use crate::prompt::{Form, Prompt};
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -111,7 +112,7 @@ impl Session {
     /// which is [`Models::opens`](crate::model::models::Models)' to answer. So this is
     /// called before the history writes — afterwards a pick would be resolved
     /// against a timeline it was never read from.
-    pub(crate) fn apply(&mut self, models: Models<'_>, intents: &Intents) {
+    pub(crate) fn apply(&mut self, models: Models<'_>, notation: Notation, intents: &Intents) {
         for intent in intents.iter() {
             match intent {
                 // A tool put down or taken up abandons whatever the last one
@@ -163,7 +164,7 @@ impl Session {
                     // the session's. What is left here is *which* form is open,
                     // which is session state and nobody else's.
                     self.forms = self.forms.next();
-                    let opened = Prompt::opening(opening, self.forms);
+                    let opened = Prompt::opening(opening, self.forms, notation);
                     // A second open of the form already open would start its
                     // drafts over, which is why the guard is here rather than
                     // left to whoever raises this: a double-click on a field
@@ -373,7 +374,11 @@ mod internals {
             let mut intents = Intents::default();
             intents.push(Choice::Select(Some(part)));
             intents.push(Choice::Select(None));
-            self.apply(document.models(build, self.editing), &intents);
+            self.apply(
+                document.models(build, self.editing),
+                document.notation(),
+                &intents,
+            );
         }
     }
 }
@@ -425,7 +430,11 @@ mod tests {
 
         let mut intents = Intents::default();
         intents.push(Choice::Select(Some(second.part(other))));
-        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        session.apply(
+            Models::new(&timeline, &build, session.editing()),
+            Notation::default(),
+            &intents,
+        );
         assert_eq!(
             session.editing(),
             Some(there),
@@ -436,7 +445,11 @@ mod tests {
         // sketch, so the one that was open stays open.
         intents.clear();
         intents.push(Choice::Select(None));
-        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        session.apply(
+            Models::new(&timeline, &build, session.editing()),
+            Notation::default(),
+            &intents,
+        );
         assert_eq!(
             session.editing(),
             Some(there),
@@ -448,7 +461,11 @@ mod tests {
         // thing and so names a sketch.
         intents.clear();
         intents.push(Choice::Include(first.part(Entity::Point(one))));
-        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        session.apply(
+            Models::new(&timeline, &build, session.editing()),
+            Notation::default(),
+            &intents,
+        );
         assert_eq!(session.editing(), Some(here));
 
         // A datum plane is the other click that names no sketch: it is what
@@ -456,7 +473,11 @@ mod tests {
         // and it stays picked out, because the document still holds it.
         intents.clear();
         intents.push(Choice::Select(Some(Part::Step(ground))));
-        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        session.apply(
+            Models::new(&timeline, &build, session.editing()),
+            Notation::default(),
+            &intents,
+        );
         assert_eq!(
             session.editing(),
             Some(here),
@@ -477,7 +498,11 @@ mod tests {
         // apart is the timeline's, and [`Models::opens`] is where it is asked.
         intents.clear();
         intents.push(Choice::Select(Some(Part::Step(there))));
-        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        session.apply(
+            Models::new(&timeline, &build, session.editing()),
+            Notation::default(),
+            &intents,
+        );
         assert_eq!(
             session.editing(),
             Some(there),
@@ -528,7 +553,11 @@ mod tests {
         let mut session = Session::new(Some(at));
         let mut intents = Intents::default();
         intents.push(Choice::Hold(placing));
-        session.apply(Models::new(&timeline, &build, Some(at)), &intents);
+        session.apply(
+            Models::new(&timeline, &build, Some(at)),
+            Notation::default(),
+            &intents,
+        );
 
         // Three-four-five apart, so the gesture still has a distance to state
         // and the prune has nothing to say about it.
@@ -548,7 +577,11 @@ mod tests {
         // it would have meant — which is a panic rather than a `false`, so the
         // whole of the claim is that this line returns.
         let (mut timeline, mut build, at, _) = raised(DVec2::new(3.0, 4.0));
-        session.apply(Models::new(&timeline, &build, Some(at)), &intents);
+        session.apply(
+            Models::new(&timeline, &build, Some(at)),
+            Notation::default(),
+            &intents,
+        );
         timeline.edit(at).remove(&mut build, Entity::Point(there));
         session.prune(Models::new(&timeline, &build, Some(at)));
         assert_eq!(
