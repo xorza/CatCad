@@ -10,6 +10,7 @@
 //! a blend is is one surface down one run; what is here is what happens where
 //! two of them meet.
 
+use crate::math::branch;
 use crate::number::predicate::{self, ApproxEq};
 use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::solid::geometry::curve::Curve;
@@ -18,7 +19,8 @@ use crate::solid::geometry::line::Line;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
-use crate::solid::rounding::{Blend, PAIRED, SEATED, Spine, Swallow, crossed};
+use crate::solid::meeting::Meeting;
+use crate::solid::rounding::{self, Blend, CutBack, PAIRED, SEATED, Spine, Swallow, crossed};
 use crate::solid::topology::Topology;
 use crate::solid::topology::edge::EdgeId;
 use crate::solid::topology::face::FaceId;
@@ -84,6 +86,21 @@ pub(super) struct Gusseted {
     /// rail on the face it does not share reaches the third edge's own line,
     /// and where the cut blend's reaches the same line.
     pub(super) made: [DVec3; 3],
+    /// The edge neither blend replaces, and how far along it the cut lands —
+    /// which is the second of [`Gusseted::made`].
+    pub(super) along: EdgeId,
+    pub(super) cut: f64,
+    /// The patch's edge on the filled blend, from the touch point out to that
+    /// far corner, and the stretch of it the patch wants.
+    ///
+    /// **An exact ellipse**, the fillet's own section by the plane the first
+    /// edge is cut by — see [`Gusset::sectioning`]. The edge on the *cut*
+    /// blend is not here: nothing writes it down, so it is walked and filed as
+    /// a run, which wants a store this record has no reach into.
+    pub(super) first: Curve,
+    pub(super) bounds: [f64; 2],
+    /// Its straight side, laid down from the far corner towards the third.
+    pub(super) side: Line,
 }
 
 #[allow(
@@ -120,17 +137,17 @@ impl Gusseted {
             ends.iter()
                 .position(|end| blends[end.blend].outward == convex)
         });
-        let [Some(first), Some(second)] = order else {
+        let [Some(filling), Some(cutting)] = order else {
             return None;
         };
-        let ends = [ends[first], ends[second]];
+        let ends = [ends[filling], ends[cutting]];
         let whole = ends.map(|end| blends[end.blend]);
         let pair = [0, 1].map(|which| whole[which].tip(runs, ends[which].end));
         let at = whole[0].at?[ends[0].end];
         let Met { sides, at: met, .. } = Met::of(topology, whole, pair, topology.vertex(at).at)?;
         let [
             Surface::Natural(Natural::Cylinder(filled)),
-            Surface::Natural(Natural::Cylinder(cut)),
+            Surface::Natural(Natural::Cylinder(round)),
         ] = whole.map(|blend| blend.laid)
         else {
             return None;
@@ -142,27 +159,59 @@ impl Gusseted {
         else {
             return None;
         };
-        // Each rail against the *other* blend's unshared face, the two planes
-        // crossing in the third edge's own line.
-        let across = [0, 1].map(|which| {
-            let other = 1 - which;
-            topology.face(pair[other].between[1 - sides[other]]).surface
-        });
-        let [Some(from), Some(onto)] =
-            [(one, across[0]), (two, across[1])].map(|(rail, over)| Self::reaching(rail, over))
-        else {
-            return None;
-        };
+        // The face the filled blend runs out onto that the cut one does not.
+        // Its plane and the cut blend's own cross in the third edge's line,
+        // which both rails reach.
+        let over = pair[0].between[1 - sides[0]];
+        // The filled blend's corner is where that edge is cut back to, so it
+        // comes off the reading every other cut back already takes.
+        let along = rounding::neighbour(topology, over, pair[0].edge, at)?;
+        let CutBack {
+            at: cut,
+            made: from,
+        } = rounding::cut_back(topology, along, Curve::Line(one), over, at)?;
+        // The cut blend's corner stands on that same line a reach the other
+        // side of the body's own corner, where no edge holds it — so it is read
+        // off its rail against the filled blend's unshared face instead.
+        let onto = Self::reaching(two, topology.face(over).surface)?;
         let patch = [false, true].into_iter().find_map(|turning| {
-            let patch = Gusset::new(filled, cut, from, turning);
+            let patch = Gusset::new(filled, round, from, turning);
             let landed = patch.at(DVec2::new(patch.bounds()[0], 1.0));
             landed.approx_eq(onto, PLACED).then_some(patch)
         })?;
+        let carried = topology.carried();
+        let Meeting::Along(curves) = Meeting::of(
+            &Surface::Natural(Natural::Cylinder(filled)),
+            &Surface::Natural(Natural::Plane(patch.sectioning())),
+        ) else {
+            return None;
+        };
+        let first = rounding::through(curves.all(), [met, from], carried)?;
+        let ends_along = [met, from].map(|at| first.along(at, carried));
+        // **Which of the two arcs is the patch's is its own stretch of the
+        // fillet's angle**, read rather than held against a tolerance: the
+        // patch covers the near way round — see [`Gusset::bounds`] — so the
+        // middle of its arc stands between the two angles those bounds name and
+        // the other arc's middle does not. How far a place stands off the patch
+        // would not do here, that reading being sought rather than solved.
+        let [start, tip] = patch.bounds();
+        let bounds = rounding::arced(&first, ends_along, carried, |middle| {
+            let angle = branch::nearest(filled.axis.angle_of(middle), start);
+            (0.0..=1.0).contains(&((angle - start) / (tip - start)))
+        });
         Some(Self {
             ends,
             at,
             patch,
             made: [met, from, onto],
+            along,
+            cut,
+            first,
+            bounds,
+            side: Line {
+                origin: from,
+                direction: (onto - from).normalize(),
+            },
         })
     }
 

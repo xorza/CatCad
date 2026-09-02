@@ -1262,6 +1262,51 @@ impl Rounding {
     }
 }
 
+/// Where one edge of the body is cut back to, and where that lands.
+#[derive(Debug, Clone, Copy)]
+struct CutBack {
+    at: f64,
+    made: DVec3,
+}
+
+/// Where `rail` crosses the edge `along` on the face `on`, or `None` where the
+/// cut would not land on that edge at all.
+///
+/// **Strictly inside the edge it runs out onto.** A radius that put the corner
+/// past the far end would be a blend reaching further than the face it is cut
+/// into, which is the next edge's business and not this one's.
+fn cut_back(
+    topology: &Topology,
+    along: EdgeId,
+    rail: Curve,
+    on: FaceId,
+    at: VertexId,
+) -> Option<CutBack> {
+    let run = topology.edge(along);
+    let surface = topology.face(on).surface;
+    let corner = topology.vertex(at).at;
+    let cut = cut_at(run, &rail, surface.normal(surface.uv(corner)), corner)?;
+    let [first, last] = run.bounds;
+    let (near, far) = match run.from == at {
+        true => (first, last),
+        false => (last, first),
+    };
+    let reached = (cut - near) / (far - near);
+    (reached > 0.0 && reached < 1.0).then(|| CutBack {
+        at: cut,
+        made: run.curve.at(cut, topology.carried()),
+    })
+}
+
+/// The edge of `face` other than `edge` that ends at `at`.
+fn neighbour(topology: &Topology, face: FaceId, edge: EdgeId, at: VertexId) -> Option<EdgeId> {
+    topology
+        .loops_of(topology.face(face))
+        .flatten()
+        .map(|coedge| coedge.edge)
+        .find(|&other| other != edge && topology.edge(other).ends(true).contains(&at))
+}
+
 /// How far along `edge`'s own curve the ruling `rail` crosses it, on a face
 /// facing `normal` there.
 ///

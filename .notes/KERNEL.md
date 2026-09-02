@@ -1405,15 +1405,22 @@ on the far corner. Held on the notch's step at a reach of a half, where the
 three corners come to `(1.5, 0.5, −2)`, `(2, 0, −2.5)` and `(2, 0, −1.5)`, and
 the patch joins both cylinders to the last bit.
 
-**And the straight side crosses the body's own corner**, which is the piece of
-topology the route still owes. The third edge there runs from `(2, 0, −2)`
-*down*, so the filled blend's corner at `z = −2.5` lies on it and the cut
-blend's at `z = −1.5` stands a reach the other side of it. Part of that side
-cuts the third edge back and part of it runs across the face beyond — which is
-not the single trim `Planning::trimmed` holds for two agreeing picks, where both
-rails cross the one edge together. **And the two blends' own end closures go
+**Two of its three sides are written down.** The edge on the filled blend is
+the fillet's own section by the plane the first edge is cut by — an exact
+ellipse `Meeting::of` gives, off `Gusset::sectioning` — and the arc of the two
+that is the patch's own is the one whose middle the patch holds. The straight
+side is a line between the second corner and the third. The edge on the *cut*
+blend is the one nothing writes down: it is walked and filed as an open run.
+
+**And that straight side is one new edge rather than a split.** The third edge
+of the body is cut back to the filled blend's corner by the reading every other
+cut back already takes, held to landing strictly inside the edge. What is left
+between that corner and the cut blend's — which stands a reach the *other* side
+of the body's own corner, on no edge at all — is the patch's straight side, with
+the cut blend's unshared face across it. **And the two blends' end closures go
 away**: each closes against the patch along one of its curved sides rather than
-across the face beyond the corner.
+across the face beyond the corner. That is the whole of the topology the route
+still owes.
 
 **The export is done.** A ruled patch has no analytic entity, so it goes out as
 a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.

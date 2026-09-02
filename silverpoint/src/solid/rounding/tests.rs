@@ -2011,4 +2011,40 @@ fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
             "{foot} is off the round",
         );
     }
+
+    // The edge neither blend replaces is cut back to that far corner.
+    let carried = notched.topology().carried();
+    let edge = notched.topology().edge(gusseted.along);
+    let landed = edge.curve.at(gusseted.cut, carried);
+    assert!(
+        landed.abs_diff_eq(wanted[1], 1e-12),
+        "the third edge is cut back to {landed} rather than the far corner",
+    );
+
+    // The patch's edge on the filled blend runs from the tip out to that same
+    // corner, and lies on the fillet and on the patch the whole way. Its own
+    // reading of how far off the patch a place stands is sought rather than
+    // solved, so a millionth of the arc is what it can promise.
+    for share in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let t = gusseted.bounds[0] + (gusseted.bounds[1] - gusseted.bounds[0]) * share;
+        let at = gusseted.first.at(t, carried);
+        assert!(
+            (patch.filled.axis.off(at) - 0.5).abs() < 1e-9,
+            "{at} is off the fillet",
+        );
+        assert!(
+            patch.off(at) < 1e-5,
+            "{at} is off the patch by {}",
+            patch.off(at)
+        );
+    }
+    for (bound, want) in gusseted.bounds.into_iter().zip([wanted[0], wanted[1]]) {
+        let at = gusseted.first.at(bound, carried);
+        assert!(at.abs_diff_eq(want, 1e-9), "{at} is not {want}");
+    }
+
+    // And the straight side is laid down from the far corner to the third.
+    assert!(gusseted.side.origin.abs_diff_eq(wanted[1], 1e-12));
+    let reach = wanted[1].distance(wanted[2]);
+    assert!(gusseted.side.at(reach).abs_diff_eq(wanted[2], 1e-12));
 }

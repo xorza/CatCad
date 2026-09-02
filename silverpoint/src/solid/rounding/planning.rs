@@ -25,7 +25,8 @@ use crate::solid::named::Named;
 use crate::solid::rounding;
 use crate::solid::rounding::corner::{Cornered, Junction, Met, Starred, Trihedral};
 use crate::solid::rounding::{
-    Bevel, Blend, Crossing, Ending, Filled, Picked, Placed, Round, Run, Spine, Swallow, Trim,
+    Bevel, Blend, Crossing, CutBack, Ending, Filled, Picked, Placed, Round, Run, Spine, Swallow,
+    Trim,
 };
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
@@ -687,7 +688,7 @@ impl Planning {
         let mut cut = [0.0; 2];
         let mut made = [DVec3::ZERO; 2];
         for side in 0..2 {
-            let beside = neighbour(topology, before.between[side], before.edge, corner)
+            let beside = rounding::neighbour(topology, before.between[side], before.edge, corner)
                 .filter(|&edge| edge != after.edge);
             let Some(edge) = beside else {
                 made[side] = rails[side].at(rails[side].along(at, carried), carried);
@@ -696,7 +697,7 @@ impl Planning {
             let CutBack {
                 at: bound,
                 made: to,
-            } = cut_back(topology, edge, rails[side], before.between[side], corner)?;
+            } = rounding::cut_back(topology, edge, rails[side], before.between[side], corner)?;
             along[side] = Some(edge);
             cut[side] = bound;
             made[side] = to;
@@ -727,11 +728,11 @@ impl Planning {
         let mut cut = [0.0; 2];
         let mut made = [DVec3::ZERO; 2];
         for side in 0..2 {
-            along[side] = neighbour(topology, between[side], spine, at)?;
+            along[side] = rounding::neighbour(topology, between[side], spine, at)?;
             let CutBack {
                 at: bound,
                 made: to,
-            } = cut_back(topology, along[side], rails[side], between[side], at)?;
+            } = rounding::cut_back(topology, along[side], rails[side], between[side], at)?;
             cut[side] = bound;
             made[side] = to;
         }
@@ -830,11 +831,11 @@ impl Planning {
         // The edge neither of them replaces, cut back to where the first
         // one's rail crosses it. The second one's crosses it at the same place,
         // both rails standing a radius off the face they share.
-        let along = neighbour(topology, pair[0].between[1 - one], pair[0].edge, at)?;
+        let along = rounding::neighbour(topology, pair[0].between[1 - one], pair[0].edge, at)?;
         let CutBack {
             at: cut,
             made: back,
-        } = cut_back(
+        } = rounding::cut_back(
             topology,
             along,
             whole[0].rails[1 - one],
@@ -1034,42 +1035,6 @@ impl Planning {
     }
 }
 
-/// Where one edge of the body is cut back to, and where that lands.
-#[derive(Debug, Clone, Copy)]
-struct CutBack {
-    at: f64,
-    made: DVec3,
-}
-
-/// Where `rail` crosses the edge `along` on the face `on`, or `None` where the
-/// cut would not land on that edge at all.
-///
-/// **Strictly inside the edge it runs out onto.** A radius that put the corner
-/// past the far end would be a blend reaching further than the face it is cut
-/// into, which is the next edge's business and not this one's.
-fn cut_back(
-    topology: &Topology,
-    along: EdgeId,
-    rail: Curve,
-    on: FaceId,
-    at: VertexId,
-) -> Option<CutBack> {
-    let run = topology.edge(along);
-    let surface = topology.face(on).surface;
-    let corner = topology.vertex(at).at;
-    let cut = rounding::cut_at(run, &rail, surface.normal(surface.uv(corner)), corner)?;
-    let [first, last] = run.bounds;
-    let (near, far) = match run.from == at {
-        true => (first, last),
-        false => (last, first),
-    };
-    let reached = (cut - near) / (far - near);
-    (reached > 0.0 && reached < 1.0).then(|| CutBack {
-        at: cut,
-        made: run.curve.at(cut, topology.carried()),
-    })
-}
-
 /// Which way `curve` runs where it passes through `at`, as a unit direction.
 ///
 /// The two shapes a run of picked edges can be and no others — see
@@ -1217,15 +1182,6 @@ fn walked(topology: &Topology, face: FaceId, edge: EdgeId) -> Option<bool> {
         .flatten()
         .find(|coedge| coedge.edge == edge)
         .map(|coedge| coedge.forward)
-}
-
-/// The edge of `face` other than `edge` that ends at `at`.
-fn neighbour(topology: &Topology, face: FaceId, edge: EdgeId, at: VertexId) -> Option<EdgeId> {
-    topology
-        .loops_of(topology.face(face))
-        .flatten()
-        .map(|coedge| coedge.edge)
-        .find(|&other| other != edge && topology.edge(other).ends(true).contains(&at))
 }
 
 /// The one face both of `along` lie on that is neither of `between`.

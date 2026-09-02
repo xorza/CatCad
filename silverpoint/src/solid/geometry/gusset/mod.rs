@@ -17,6 +17,7 @@ use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::branch;
 use crate::math::harmonic;
+use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::{EXACT, PLACED};
@@ -349,6 +350,28 @@ impl Gusset {
         Bounds {
             low: fills.low - strayed,
             high: fills.high + strayed,
+        }
+    }
+
+    /// The plane the patch's first edge is the fillet's section by.
+    ///
+    /// **What a caller wanting that edge as a curve asks with.** The section of
+    /// a cylinder by a plane is an exact ellipse, which the exact tier already
+    /// writes down — so the edge is `Meeting::of`'s to give rather than
+    /// anything this has to spell. See [`Gusset::cutting`], which is where the
+    /// plane's own normal is argued.
+    pub(crate) fn sectioning(&self) -> Plane {
+        let framing = self.framing();
+        let normal = framing.cutting.normalize();
+        let (x, y) = normal.any_orthonormal_pair();
+        debug_assert!(
+            x.cross(y).dot(normal) > 0.0,
+            "the section's frame faces the other way from its own normal",
+        );
+        Plane {
+            origin: framing.met,
+            x,
+            y,
         }
     }
 
