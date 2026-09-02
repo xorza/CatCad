@@ -126,6 +126,18 @@ entity and pointer identity: an allocation and a lock each, no serializable
 identity, no O(1) side tables, no back-references. For a kernel whose inner loop
 is adjacency traversal, the wrong shape.
 
+**And the two cheaper answers were weighed and refused.** Evaluating on a
+tessellation — a mesh arrangement decided by exact predicates, the Manifold line
+of work — is robust, general and quick to reach, and it buys none of what the
+roadmap is for: there is no edge for a fillet to run along, no curve for a
+projection to bring into a sketch, and no exact face for STEP to carry. It also
+makes the sagitta part of the *model* rather than of the drawing, so two
+tolerances give two different bodies. Taking `truck` keeps the edge at the cost
+of a vocabulary that is not this one: its topology handles are not persistent
+across a rebuild, so `Grown` would have to be re-matched onto its faces after
+every regeneration — the persistent-naming problem solved once here and then
+solved again against a foreign type.
+
 ## 4. The decisions
 
 Each is a one-way door. Everything after §5 is written against them.

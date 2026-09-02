@@ -26,18 +26,21 @@ is settled and written up in [`KERNEL.md`](KERNEL.md), and what a number *is*
   bounds it — the sketch's own curve handles plus a side — so a name survives
   the geometry moving and being cut into pieces. `Shape::Arc` is already in the
   arrangement, the filler and the mesher.
-- **Solids.** One kind: `Feature::Extrude`, a region carried a signed distance,
-  whose faces are named `Grown::{Base, Far, Side(Bound)}` in the same vocabulary
-  the region was. A `Body` out of the kernel in `silverpoint/src/solid/`: exact
-  planes and cylinders, edges with curves of their own, a validity check after
-  every build, and an exact answer for where two of its surfaces meet wherever
-  that answer is a line, a circle or an ellipse. Nothing combines yet.
-- **The document.** A `Timeline` of `Plane | Sketch | Extrude` steps, replayed
-  by `Build` into `Settled` per sketch and `Bodied` per extrude, saved as RON
-  and reopened onto the same drawing. Snapshot undo/redo, with a drag
-  coalescing into one step. Every document starts on the three world planes —
-  `Ground`, `Front` and `Side`, labelled by the axes they span — and holds them
-  as ordinary steps rather than as a header.
+- **Solids.** Two ways to carry a region — `Feature::Extrude` and
+  `Feature::Revolve` — joined into one body or cut out of it, and
+  `Feature::Round` blending or chamfering its edges. Faces are named
+  `Grown::{Base, Far, Side(Bound), Rounded, Cornered, Gusseted}`, in the same
+  vocabulary the region was. The body is an exact boundary representation out of
+  `silverpoint/src/solid/`, checked for validity after every build, exact over
+  the natural quadrics and saying where it stops being so. Ctrl+E writes one out
+  as STEP.
+- **The document.** A `Timeline` of `Plane | Sketch | Extrude | Revolve | Round`
+  steps, replayed by `Build` into `Settled` per sketch and `Bodied` per solid,
+  saved as RON and reopened onto the same drawing. A step is deleted, reordered
+  or rolled past, and what was built on a deleted one goes with it. Snapshot
+  undo/redo, with a drag coalescing into one step. Every document starts on the
+  three world planes — `Ground`, `Front` and `Side`, labelled by the axes they
+  span — and holds them as ordinary steps rather than as a header.
 - **Where you are.** A session is in a sketch or in none, and none is how a
   document opens: `Session::editing` is an `Option`, and every reading of the
   drawing answers for it. You leave a sketch by the door or by Escape, start one
@@ -55,101 +58,20 @@ is settled and written up in [`KERNEL.md`](KERNEL.md), and what a number *is*
   every number the drawing writes out goes back through the same pair. The store
   is a millimetre, so choosing another unit converts no geometry.
 
-What follows is what is not there.
+What follows is the rest, in the order it is worth taking. What is already
+there is marked **DONE** and kept to a line, so the list stays a list of what is
+left rather than a history.
 
-## 1. A timeline the user can edit — **done**
+## 1. A timeline the user can edit — **DONE**
 
-A step is deleted, reordered and rolled past. `Change::DeleteStep`,
-`Change::Reorder` and `Change::RollTo` are the three, and `Timeline::doomed`,
-`Timeline::moves_within` and `Timeline::rolled` are what each is held to.
+A step is deleted, reordered and rolled past — `Change::{DeleteStep, Reorder,
+RollTo}`, with the cascade to what was built on it.
 
-**The shape this settled was failure.** A `Built` per step, filled by the replay
-that fills `settled` and `bodied`, replaced the `Option<usize>` that used to be
-the only way a step could say it did not build — and deleting and reordering
-added arms to it rather than inventing an answer.
+## 2. What a solid is: bodies, and taking material away — **DONE**
 
-**A step that goes away while you are standing in it** is `Session::prune`,
-which drops `editing` when the model no longer holds it. Deleting a named step
-in the middle takes several away at once and takes them from a document nobody
-was undoing, which is why the guard is asserted rather than assumed.
-
-## 2. What a solid is: bodies, and taking material away
-
-**The decision everything after it is written against, and it is made.** A part
-with a hole in it cannot be said today, and saying it is not a new feature — it
-is a different answer to what a solid *is*.
-
-Right now one extrude is one independent prism, computed fresh from a region, a
-plane and a distance, and stored nowhere. Nothing combines with anything. A
-pocket, a hole, a boss on an existing face — all of them are one solid *and*
-another, so the timeline's result stops being a solid per extrude and becomes a
-body built by a sequence of operations.
-
-**An exact boundary representation, written here**, in `silverpoint/src/solid/`
-beside the sketch it is grown from. The design, and where it currently stands,
-are in [`KERNEL.md`](KERNEL.md); what follows is only why it is that and not one
-of the two cheaper answers.
-
-**Under way.** The kernel's geometry, topology, validity checker, extrusion,
-mesher and the reducible half of its quadric intersection are in the tree, and
-CatCad draws and picks bodies rather than prisms. What is left for *this item*
-is the exact arithmetic, the general intersection it runs, and the booleans they
-are both for.
-
-Evaluating on a tessellation — a mesh arrangement decided by exact predicates,
-the Manifold line of work — is robust, general and quick to reach, and it buys
-none of items 8, 9 and 10. There is no edge for a fillet to run along, no curve
-for a projection to bring into a sketch, and no exact face for STEP to carry. It
-also makes the sagitta part of the model rather than of the drawing, so two
-tolerances give two different bodies. Taking someone else's kernel — `truck` is
-the live Rust one — keeps the edge at the cost of a vocabulary that is not this
-one: their topology handles are not persistent across a rebuild, so `Grown`
-would have to be re-matched onto their faces after every regeneration, which is
-the persistent-naming problem solved once here and then solved again against a
-foreign type.
-
-**What makes the third answer affordable is that our surfaces are quadrics.**
-Plane, cylinder, cone and sphere — the *natural* quadrics — are precisely what
-extruding and revolving a sketch of segments and arcs produces, and precisely
-the class for which the intersection of any two has a complete, published, exact
-parameterization. So the kernel is exact where it matters and says where it
-stops: torus and NURBS arrive later, are marked fitted, and make a body report
-itself no longer exact. That report is a checkable claim, which is the whole
-reason for the route.
-
-The other thing that makes it affordable is particular to a parametric
-modeller and worth stating because no general kernel can lean on it: **a boolean
-never creates a surface, it only trims one.** New surfaces arrive from features,
-re-derived from the solver on every rebuild — so exact constructions cannot
-compound across a history, and the coefficient blowup that defeats exact
-arithmetic elsewhere does not happen.
-
-**`Profile` and `Grown` came through unchanged**, which is the measure of how
-well the naming was chosen — and is now a fact rather than a hope. `Bound` still
-names a curve of the sketch; `Part::Solid { of, face }` still names a face of a
-solid; a name resolves to several disjoint patches where a wall comes in
-strips, and a split cylinder is two faces under one name that nothing above can
-tell apart. Around them: `Build` holds a body per step, cached against a digest
-so an edit to one drawing costs the solids grown off another nothing; painting
-draws one object per named face of a body; and `Prism`, `Skinner` and `Patch`
-are gone. Still to come there: `Feature::Extrude` gains an operation when there
-is a boolean for it to name.
-
-**What it costs is time, stated plainly.** The arithmetic foundation is the
-largest single piece and shows nothing on screen; the quadric parameterization
-is research-grade, though published and complete rather than open-ended; and
-performance will be poor before it is good. Against that, the milestones are
-arranged so the project is never worse off than it is today — which the first
-two have now shown, having swapped the kernel in underneath the current feature
-set and changed nothing visible but a fraction of a per cent of one silhouette
-— and roadmap item 2 is delivered two milestones before the only unbounded one.
-
-One thing the swap turned up that the design had not: **a body cannot be more
-exact than the drawing it was raised from.** The arrangement folds crossings
-within a nanometre, so every vertex and edge an extrusion raises carries that,
-however exact the surfaces are. Making the *body* exact therefore reaches down
-into the sketch as well, which moves a little of item 3's arithmetic work
-forward into this one.
+An exact b-rep kernel in `silverpoint/src/solid/`, its bodies joined and cut by a
+boolean — [`KERNEL.md`](KERNEL.md) is the whole of it, and `Profile`, `Bound` and
+`Grown` came through unchanged.
 
 ## 3. What a number is: parameters, expressions and units
 
@@ -234,26 +156,11 @@ a sketch on that plane — and the timeline's existing "a step is only ever buil
 on an earlier one" assert is already what forbids it. Worth stating at the new
 site rather than rediscovering.
 
-## 6. Revolve
+## 6. Revolve — **DONE**
 
-The second way to carry a region, and what proves item 2's abstraction is real
-rather than an extrude with extra fields.
-
-An extrude is a region and a signed distance; a revolve is a region, an axis and
-an angle, and `Grown::{Base, Far, Side}` still describes its topology exactly —
-a full revolve is the case that has no `Base` and no `Far`. `Feature::Extrude`
-and `Feature::Revolve` share a `Profile` and an operation, and differ only in
-the carry.
-
-**Cheaper than it looks, because the surfaces are already there.** Revolving a
-segment gives a cone, a plane or a cylinder depending on how it lies to the
-axis, and revolving an arc centred on the axis gives a sphere — all four natural
-quadrics, all inside item 2's exact tier from its first milestone. Only an arc
-*off* the axis makes a torus, which is the one case that lands a revolve in the
-fitted tier.
-
-If the carry costs more than a day once the kernel is there, the abstraction was
-wrong and it is worth knowing before four more features are written against it.
+`Feature::Revolve` carries a region about a picked axis through a sector, and it
+cost what the abstraction promised: a `Profile`, an operation and a different
+carry.
 
 ## 7. Mirror and pattern
 
@@ -264,10 +171,6 @@ carry it. Cheap once bodies exist and inexpressible before them.
 
 ## 8. Export
 
-STL and OBJ are nearly free — the kernel's tessellator already answers in world
-triangles — and they are worth landing early as the honest check on item 2: a
-body that cannot be written out is a body that is not really there.
-
 **STEP is in**, and it cost less than this said it would. A face carries an
 exact surface and a boundary of exact curves, which is what STEP asks for, so
 the export writes the analytic surfaces directly — the torus included, that
@@ -276,8 +179,10 @@ polyline: through the very places a march laid down, or chorded at a sagitta the
 caller names, and the file's own accuracy declares whatever that cost. Ctrl+E,
 and `silverpoint::Stepping` is the writer.
 
-STL and OBJ are still worth having for the readers that want triangles, and are
-still nearly free.
+**STL and OBJ are what is left**, and they are nearly free: the kernel's
+tessellator already answers in world triangles, and neither format asks for
+anything else. Worth having for the readers that want triangles rather than
+surfaces.
 
 ## 9. Projected geometry
 
@@ -304,16 +209,15 @@ geometry silverpoint can be handed. One is placement, the other is content.
 
 ## 10. Fillet and chamfer
 
-On sketch corners: a sketch edit rather than a feature, and cheap once arcs
-exist.
+**On solid edges: done.** `Feature::Round` blends or chamfers every picked edge
+at one reach, including the corners where two and three picks meet — `KERNEL.md`
+§7.5 is the routine. A blend between two planes is a cylinder and stays exact,
+one against a rim is a torus, and the corner two picks disagree about is the
+ruled patch of §9.6. So the fitted tier exists because this item forced it, and
+a body says when it is no longer exact.
 
-On solid edges: needs an edge to be a first-class thing a body has, which item 2
-gives it, and a surface to blend with, which it mostly does. A fillet between
-two planes is a cylinder and stays exact; one between a plane and a cylinder
-whose axis meets it is a torus; a general blend and every vertex blend is a
-NURBS patch. So this is the item that forces the fitted tier into existence, and
-it is last because it wants the kernel finished rather than because it is
-impossible.
+**On sketch corners: not yet.** A sketch edit rather than a feature, and it
+wants an arc to put in the corner — item 4.
 
 ## 11. More than one document
 
@@ -334,20 +238,21 @@ cheaper against a settled design than beside one.
   systems](https://www.sciencedirect.com/science/article/pii/S1110016818300814)
   and [FreeCAD's element map](https://github.com/realthunder/FreeCAD_assembly3/wiki/Topological-Naming-Algorithm)
   — the problem `Bound` and `Grown` are this crate's answer to, and the reason
-  item 2 is judged by whether they survive it.
+  item 2 was judged by whether they survive it. They did.
 - [`KERNEL.md`](KERNEL.md) — item 2 in full: the decisions, the crate, the
   algorithms, the milestones and their tests. Everything below that touches a
   solid is written in its vocabulary, and its own reading list is the one to
   follow for anything about b-reps.
 - [Shutting Down Fornjot](https://archive.hannobraun.com/fornjot/blog/shutting-down-fornjot/)
   — six years on a Rust b-rep kernel with no usable output, and the author's own
-  list of why. Read before starting item 2, not during it.
+  list of why. §10 of `KERNEL.md` turns them into rules.
 - [truck](https://github.com/ricosjp/truck), the live Rust NURBS b-rep kernel,
   and [Manifold](https://github.com/larsbrubaker/manifold-rust) for the mesh
-  route — the two answers item 2 weighed and did not take.
+  route — the two answers item 2 weighed and did not take. Why is in
+  `KERNEL.md` §3.
 - [SolveSpace's groups](https://solvespace.readthedocs.io/en/latest/groups/) —
   one sketch, one operation, one boolean per group, and a sketch hierarchy its
-  maintainers say wants reworking. The shape item 1 is choosing against.
+  maintainers say wants reworking. The shape item 1 chose against.
 - FreeCAD's guidance that [sketches should attach to origin planes rather than
   to faces where possible](https://github.com/FreeCAD/FreeCAD-documentation/blob/main/wiki/Topological_naming_problem.md)
   — worth knowing before item 5 makes attaching to a face easy.
