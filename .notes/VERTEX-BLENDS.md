@@ -213,15 +213,39 @@ corner an extrusion raises.
 
 ### 3 — the patch
 
-A bounded n-sided surface in `Fitted`, tangent to each blend along its own cross
-section and to each face along its own spring. Take the field's construction
-rather than inventing one: the setback split gives the sides, and the patch is
-assembled from polynomial pieces joined with tangent continuity across them.
+A bounded six-sided surface in `Fitted`, spanning the opening and tangent along
+every one of its sides: to a blend's cylinder along each cross arc, and to a
+face's plane along each spring.
 
-What it owes: `at` and `normal` in closed form; tangency along the boundary
-exactly, which the construction gives rather than fits; `uv` by the Newton solve
-§4.7 already pays for; and `met_by` and `straying` measured over its own extent
-with a bound each carries.
+**Its boundary data is complete and it agrees at every corner.** Along a cross
+arc the patch's normal is the blend cylinder's own; along a spring it is the
+face's, which is one direction for the whole side. Where the two meet, they are
+the *same* direction — and by a proof rather than a tolerance: a corner of the
+opening is a place on the blend's own rail, and a blend is tangent to the face
+along its rail. Read over the six on the notch's step corner, the blend's normal
+and the face's disagree by nought.
+
+So the opening is a G1 boundary the field's own constructions take: six curves,
+six normal fields, and no corner to reconcile.
+
+**The split is three quads and not six.** Join every other corner of the hexagon
+to a middle — the three where a spring ends and a cross arc begins — and what
+falls out is three four-sided pieces, each carrying one whole spring, one whole
+cross arc, and two curves in to the middle. Each piece then takes the tangency
+of one blend and one face and nothing else, and the three meet across the
+internal curves. That is the setback split the literature builds a vertex blend
+over, at `n = 3`.
+
+**What it owes the tier**: `at` and `normal` in closed form off the pieces;
+tangency along the boundary exactly, which the construction gives rather than
+fits; `uv` by the Newton solve §4.7 already pays for; `met_by` and `straying`
+measured over its own extent, each carrying its bound.
+
+**And it is the whole of the work left.** `Gusset` is eleven hundred lines of
+surface and a thousand of tests for a patch with *two* sides of tangency; this
+one has six and a split besides. Nothing before it is worth writing until it
+stands, because a setback nothing reads and an opening with no face to raise are
+both dead.
 
 ### 4 — what reads it
 
