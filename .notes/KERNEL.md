@@ -1059,38 +1059,34 @@ each cut blend does not, its two corners standing a reach either way. So the
 sphere's own family ends at the corner three picks agree about, and what fills
 this one is swept by no ball at all.
 
-**Which leaves §7.7's ruled family**, whose rulings already lie in one blend's
-tangent planes and run tangent to another. A ruled patch is tangent to two where
-the hole wants three, so the rulings sweep one side and their feet walk the
-other two — and the ruling where the feet change blend runs to the corner those
-two share. Every corner of the hole is a place two blends both reach one face
-at, so both stand tangent to that face there: the switch ruling has a plane to
-lie in and a pair to be tangent to. Which side the rulings sweep is the whole of
-the choice, and there are three of it.
+**Nor §7.7's ruled family, and that is the one that looked as though it would.**
+Its rulings lie in one blend's tangent planes and run tangent to another, so a
+ruled patch is tangent to two where the hole wants three: the rulings sweep one
+side and their feet walk the other two, and the ruling where the feet change
+blend runs to the corner those two share. Which side is swept is the whole of
+the choice, and there are three of it — and every one of the three puts a half
+of the patch between the two blends that *agree*, there being three pairs and
+only two that disagree.
 
-**Two of the three land and one does not.** Sweeping the *fill* puts the switch
-ruling in the cap through the corner there, tangent to the fill — and measured
-on the notch's step corner the two such lines leave the fill's axis at
-`(−0.411, 0.911)` and `(0.911, −0.411)`, where the blend's own quarter is the
-one both readings are positive over. Neither touches the face the fill raises.
-Sweeping either *cut* lands: the switch ruling runs through the corner the fill
-shares with the other cut, in the face they both reach, and touches the swept
-blend at `(−0.866, −0.5)` off its axis, which is on its own quarter.
+**And no ruled patch goes between two that agree.** §7.7's rulings are tangent
+lines to the far cylinder, so it wants a place outside that cylinder to leave
+from — which a disagreeing pair gives, its two axes standing `2r` apart so the
+two blends touch and no more. Two that agree both stand a reach off the face
+they share on the *same* side, so their axes are coplanar and cross, and the two
+cylinders run through each other. Measured on the notch's step corner: the two
+cut blends' axes read nought apart, and over the middle of the side the hole
+wants — from a little past a third of the way round to nearly the end — the wall
+cut's own surface stands between `0.897` and `0.982` off the floor cut's axis
+where the reach is `1`. A place inside a cylinder has no tangent line to it, so
+those rulings do not exist.
 
-**So a patch is buildable out of what is already written, and it costs two
-things.** It is two ruled halves sharing that ruling, each half tangent to the
-two blends it joins and closing at a tip on the corner where those two touch.
-The halves agree at both ends of the shared ruling — with the swept blend at one
-end, with the pair that meet at that corner at the other — and turn away from
-each other between, which is a crease along a straight edge, the one a gusset
-already carries on its third side. And the two that land are mirror images, so a
-corner that is its own mirror comes out filled by a patch that is not.
-
-**The other answer is a three-sided patch**, symmetric and tangent along all
-three of its sides at once. Nothing rules one out. What it gives up is the
-closed-form inversion and the bounded ray that §7.7 was careful to keep, both of
-which the ruled family buys by being ruled — so it is the surface contract of
-§4.7 that decides between the two, rather than the corner.
+**So the corner is not a job for anything already written.** A patch through the
+three corners, tangent along all three sides, is a surface of its own — and one
+that gives up the closed-form inversion and the bounded ray the ruled family
+buys by being ruled. That is §4.7's own contract, so what it costs is a decision
+about the tier rather than about the corner. What the field puts there instead,
+and what it would take to write one here, is
+[`VERTEX-BLENDS.md`](VERTEX-BLENDS.md).
 
 **That argument is the ball's and not the chamfer's**: three planes cross at a
 point however each of them was cut, so the flat triple is a star like any other
