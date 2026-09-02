@@ -442,7 +442,18 @@ notch's eight faces and a blend apiece is eleven, the same count the chamfered
 answer has, and the patch is the twelfth — where three chamfers leave a point on
 three legs.
 
-**What it costs.** The patch's whole frame is worked out again at every surface
-query, the six sides and their flattened circles included, and the curvature
-walk runs once for each stride the mesher asks for. That is what holds the one
-test to ten seconds a reach in a debug build.
+**What it costs, and where that went.** The curvature walk is thousands of
+readings of the height, and it used to run once for every stride a mesher asked
+for — so it is now worked out where the surface is made and carried on it, which
+is what makes [`Vertexed::new`] the only way one exists. A reading of the height
+does no flattening and no normalising: a side's bearing hands back one turn, and
+one sine and cosine of it give the place, its image in the plane and the way the
+patch faces there. A triangle is probed at fifteen places rather than sixty-six,
+the patch being smooth enough that a bowl has one low place. Together those took
+the test from fourteen seconds to under four.
+
+**What is left costs, and both are measured.** The six sides are worked out
+again at every surface query, about once for every ten readings of the height.
+And the patch bends against its own rim some twenty to forty times harder than
+its reach accounts for — which is what sizes the grid, the cells going as the
+curvature. Neither is the corner being wrong; both are in `.notes/ISSUES.md`.

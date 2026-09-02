@@ -1,4 +1,6 @@
 # Issues
 
-- Every surface query on a setback corner patch rebuilds the patch's whole
-  frame, and the curvature walk that sizes its grid runs once for each of them.
+- A setback corner patch works its six sides out again on every surface query,
+  about once for every ten readings of its height.
+- A setback corner patch bends tens of times harder against its own rim than
+  its reach accounts for, and the grid a mesh lays over it is sized by that.

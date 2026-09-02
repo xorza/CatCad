@@ -230,12 +230,9 @@ pub(super) struct Vertexing {
     /// The face each neighbouring pair of ends shares: `shared[i]` is the one
     /// both [`Trihedral::ends`]`[i]` and `[i + 1]` run out onto.
     pub(super) shared: [FaceId; 3],
-    /// What the patch lies on.
+    /// What the patch lies on, and what says where each blend stops — see
+    /// [`Opened::made`](crate::solid::geometry::vertexed::Opened).
     pub(super) laid: Vertexed,
-    /// Where each blend stops, on each of the two faces it divides — see
-    /// [`Opened::made`](crate::solid::geometry::vertexed::Opened), whose order
-    /// this keeps.
-    pub(super) made: [[DVec3; 2]; 3],
     /// The three picks that met there, in order — see
     /// [`Grown::Cornered`](crate::Grown).
     pub(super) picks: [u32; 3],
@@ -245,7 +242,7 @@ pub(super) struct Vertexing {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Spanned {
     /// The corner where each blend stops on each of its two faces, in
-    /// [`Vertexing::made`]'s own order.
+    /// [`Opened::made`](crate::solid::geometry::vertexed::Opened)'s own order.
     pub(super) made: [[VertexId; 2]; 3],
     /// The cross section each blend closes on, in the ends' own order.
     pub(super) crossed: [EdgeId; 3],

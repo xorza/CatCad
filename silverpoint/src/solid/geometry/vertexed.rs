@@ -33,17 +33,24 @@ pub(crate) const PATCHED: &str = "a patch was raised at a corner it cannot span"
 const BOXED: u32 = 12;
 
 /// How many cells the probe of a triangle's straying takes each way.
-const PROBED: u32 = 10;
+///
+/// **Four, which is fifteen places over the triangle.** The patch is smooth,
+/// so what a flat triangle leaves under it is a bowl with one low place.
+/// Measured on the notch's step corner at a stride of `1.05e-2`, the probe
+/// reads within `1.5e-4` of one taken at thirty-two — and a probe at eight
+/// reads no closer, what it misses being where the lattice falls rather than
+/// how fine it is. Every place added costs the mesher a reading of the height.
+const PROBED: u32 = 4;
 
 /// How many steps a ray is walked over before its crossings are closed on.
 const WALKED: u32 = 64;
 
 /// How many places each of the six sides is walked at — see
-/// [`Patched::bending`].
+/// [`Patched::walked`].
 const RIMMED: u32 = 24;
 
 /// How many shells in from the rim the reading is taken over, drawn in toward
-/// the middle by squares — see [`Patched::bending`].
+/// the middle by squares — see [`Patched::walked`].
 const STEPPED: u32 = 8;
 
 /// What share of the reach a middle difference is taken over — see
@@ -73,7 +80,7 @@ pub(crate) struct Vertexed {
     /// them wanting a frame: what a blend is here is where its axis runs and
     /// how far off it the surface stands, and a `Surface` is copied by value on
     /// every path a frame walks.
-    pub(crate) axes: [Line; 3],
+    axes: [Line; 3],
     /// Which way the face each neighbouring pair shares points: `facing[i]` is
     /// the normal of the one both `blends[i]` and `blends[i + 1]` run out onto.
     ///
@@ -81,13 +88,22 @@ pub(crate) struct Vertexed {
     /// — so the corner and the normal are the whole of one. Each points *out of
     /// the material*, the way its own face of the body does, which is what
     /// [`Vertexed::flattening`] adds up.
-    pub(crate) facing: [DVec3; 3],
+    facing: [DVec3; 3],
     /// The corner of the body the three swallow.
-    pub(crate) at: DVec3,
+    at: DVec3,
     /// The one reach all three were raised at.
-    pub(crate) reach: f64,
+    reach: f64,
     /// How far along its own edge each blend stops short of that corner.
-    pub(crate) setback: f64,
+    setback: f64,
+    /// How hard the patch bends: the larger of its height's two principal
+    /// second derivatives, at the worst place a walk of the opening finds.
+    ///
+    /// **Carried rather than asked for.** It is what a mesh's own stride comes
+    /// off, and the walk that finds it is by far the largest thing this surface
+    /// does — so it is worked out once, where the surface is made, and never
+    /// again. See [`Vertexed::new`], which is the only way one is made, and
+    /// [`Patched::stride`], which is the only thing that reads it.
+    bending: f64,
 }
 
 /// The six places the opening runs between.
@@ -161,18 +177,31 @@ struct Heighted {
 }
 
 impl Vertexed {
-    /// What the height is held to at `at`, where the patch faces `facing`.
+    /// The surface a corner leaves, or `None` where it leaves none a body
+    /// holds.
     ///
-    /// `None` where the patch turns square to its own plane there, which is a
-    /// corner no height over that plane spans — see [`Vertexed::flattening`],
-    /// which is what keeps the rest of them clear of it.
-    fn heighted(over: Plane, at: DVec3, facing: DVec3) -> Option<Heighted> {
-        let normal = over.normal();
-        let along = facing.dot(normal);
-        (along > 0.0).then(|| Heighted {
-            height: (at - over.origin).dot(normal),
-            slope: -DVec2::new(facing.dot(over.x), facing.dot(over.y)) / along,
-        })
+    /// **The only way one is made**, because a surface here carries how hard it
+    /// bends — see [`Vertexed::bending`] — and that is not a number a caller
+    /// could hand over.
+    pub(crate) fn new(
+        axes: [Line; 3],
+        facing: [DVec3; 3],
+        at: DVec3,
+        reach: f64,
+        setback: f64,
+    ) -> Option<Self> {
+        // The frame the walk runs over does not read the bending, so the nought
+        // stands only until the walk has answered.
+        let mut held = Self {
+            axes,
+            facing,
+            at,
+            reach,
+            setback,
+            bending: 0.0,
+        };
+        held.bending = held.patched()?.walked();
+        Some(held)
     }
 
     /// Where the blend at `which` stops on the face it shares with the blend
@@ -330,7 +359,6 @@ impl Vertexed {
                     over,
                     self.crossed(&opened, which),
                     Along::Blend {
-                        axis: self.axes[which],
                         filled: self.filled(which),
                     },
                     spread,
@@ -345,11 +373,12 @@ impl Vertexed {
         });
         Some(Patched {
             over,
+            up: over.normal(),
             sides,
             at: self.at,
             reach: opened.reach,
-            laid: sides.iter().flat_map(Sided::extremes).collect(),
             middle,
+            bending: self.bending,
         })
     }
 
@@ -409,7 +438,11 @@ impl Vertexed {
 enum Along {
     /// A cross section: out of the blend's own cylinder, or into it where the
     /// blend was filled into the void rather than cut into the material.
-    Blend { axis: Line, filled: bool },
+    ///
+    /// **The cylinder's axis is not carried.** A cross section is centred on
+    /// that axis, so the way out of the cylinder at a place of the section is
+    /// the section's own radial there.
+    Blend { filled: bool },
     /// A spring: the way its face does, which is one direction for the whole
     /// of it.
     Face(DVec3),
@@ -441,8 +474,13 @@ enum Along {
 /// [`Sided::hushed`].
 #[derive(Debug, Clone, Copy)]
 struct Footed {
-    reading: DVec3,
-    held: DVec3,
+    /// Where the side is read: its height, its facing and its own place.
+    at: DVec3,
+    facing: DVec3,
+    /// That place in the patch's own plane.
+    flat: DVec2,
+    /// The place the side is weighed from, in that plane.
+    held: DVec2,
     past: f64,
     near: f64,
 }
@@ -473,6 +511,9 @@ impl Flattened {
 #[derive(Debug, Clone, Copy)]
 struct Sided {
     circle: Circle,
+    /// The circle's own quarter turn, worked out once rather than crossed out
+    /// of its frame at every reading.
+    quarter: DVec3,
     /// The stretch of that circle the side actually takes.
     ///
     /// **Weighed from, and not merely recorded.** A circle runs on past its
@@ -509,6 +550,7 @@ impl Sided {
         let turn = (PI - (to - from).abs() / 2.0).max(0.0) * side.circle.radius;
         Self {
             circle: side.circle,
+            quarter: side.circle.axis.quarter(),
             bounds: side.bounds,
             margin: spread.min(turn / 4.0),
             flat: Flattened::new(over, side.circle),
@@ -544,11 +586,19 @@ impl Sided {
         let angle = (across.perp_dot(out) / spread).atan2(out.perp_dot(up) / spread);
         let [from, to] = self.bounds;
         let angle = branch::nearest(angle, (from + to) / 2.0);
-        let held = angle.clamp(from.min(to), from.max(to));
+        let stood = angle.clamp(from.min(to), from.max(to));
+        let (sin, cos) = angle.sin_cos();
+        let radial = self.radial(angle);
+        let flat = middle + across * cos + up * sin;
         Some(Footed {
-            reading: self.circle.at(angle),
-            held: self.circle.at(held),
-            past: (angle - held).abs() * self.circle.radius,
+            at: self.circle.axis.origin + radial * self.circle.radius,
+            facing: self.facing(radial),
+            flat,
+            held: match stood == angle {
+                true => flat,
+                false => self.turned(stood),
+            },
+            past: (angle - stood).abs() * self.circle.radius,
             near,
         })
     }
@@ -626,18 +676,19 @@ impl Sided {
         squared / (HUSHED + squared)
     }
 
-    /// Which way the patch faces at `at`, which stands on this side.
-    fn facing(&self, at: DVec3) -> DVec3 {
+    /// The way out of the side's own circle at the turn `angle`, which is
+    /// unit by how it is made.
+    fn radial(&self, angle: f64) -> DVec3 {
+        let (sin, cos) = angle.sin_cos();
+        self.circle.axis.reference * cos + self.quarter * sin
+    }
+
+    /// Which way the patch faces where the side's circle runs out `radial`.
+    fn facing(&self, radial: DVec3) -> DVec3 {
         match self.along {
             Along::Face(normal) => normal,
-            Along::Blend { axis, filled } => {
-                let out = at - axis.origin;
-                let radial = (out - axis.direction * out.dot(axis.direction)).normalize();
-                match filled {
-                    true => -radial,
-                    false => radial,
-                }
-            }
+            Along::Blend { filled: true } => -radial,
+            Along::Blend { filled: false } => radial,
         }
     }
 }
@@ -658,6 +709,9 @@ impl Sided {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Patched {
     over: Plane,
+    /// That plane's own normal, crossed and normalised once rather than at
+    /// every side of every reading.
+    up: DVec3,
     sides: [Sided; 6],
     /// The corner the three blends swallow, which is what the patch's own
     /// extent is measured about.
@@ -665,15 +719,28 @@ pub(crate) struct Patched {
     /// How far the opening stands from that corner, which is the only length
     /// the patch has to step by — see [`Patched::normal`].
     reach: f64,
-    /// The stretch of its own parameters the opening fills, solved off the six
-    /// arcs — see [`Sided::extremes`].
-    laid: Bounds<DVec2>,
     /// The middle of the opening in those parameters, which the walk of the
-    /// patch's own curvature fans from — see [`Patched::bending`].
+    /// patch's own curvature fans from — see [`Patched::walked`].
     middle: DVec2,
+    /// How hard the patch bends, carried from the surface — see
+    /// [`Patched::walked`], which is what worked it out.
+    bending: f64,
 }
 
 impl Patched {
+    /// What the height is held to at `at`, where the patch faces `facing`.
+    ///
+    /// `None` where the patch turns square to its own plane there, which is a
+    /// corner no height over that plane spans — see [`Vertexed::flattening`],
+    /// which is what keeps the rest of them clear of it.
+    fn heighted(&self, at: DVec3, facing: DVec3) -> Option<Heighted> {
+        let along = facing.dot(self.up);
+        (along > 0.0).then(|| Heighted {
+            height: (at - self.over.origin).dot(self.up),
+            slope: -DVec2::new(facing.dot(self.over.x), facing.dot(self.over.y)) / along,
+        })
+    }
+
     /// How far the patch stands off its own plane at the domain place `uv`.
     fn height(&self, uv: DVec2) -> f64 {
         let (mut top, mut sum) = (0.0_f64, 0.0_f64);
@@ -681,12 +748,11 @@ impl Patched {
             let Some(footed) = side.footing(uv) else {
                 continue;
             };
-            let at = footed.reading;
-            let Some(held) = Vertexed::heighted(self.over, at, side.facing(at)) else {
+            let Some(held) = self.heighted(footed.at, footed.facing) else {
                 continue;
             };
-            let local = held.height + held.slope.dot(uv - self.over.flatten(at));
-            let apart = (uv - self.over.flatten(footed.held)).length_squared();
+            let local = held.height + held.slope.dot(uv - footed.flat);
+            let apart = (uv - footed.held).length_squared();
             if apart <= f64::EPSILON {
                 return local;
             }
@@ -700,7 +766,7 @@ impl Patched {
 
     /// Where the parameters `uv` land.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
-        self.over.point(uv) + self.over.normal() * self.height(uv)
+        self.over.point(uv) + self.up * self.height(uv)
     }
 
     /// Which parameters `at` stands at.
@@ -730,7 +796,7 @@ impl Patched {
             (self.height(uv + DVec2::X * step) - self.height(uv - DVec2::X * step)) / (2.0 * step),
             (self.height(uv + DVec2::Y * step) - self.height(uv - DVec2::Y * step)) / (2.0 * step),
         );
-        (self.over.normal() - self.over.x * slope.x - self.over.y * slope.y).normalize()
+        (self.up - self.over.x * slope.x - self.over.y * slope.y).normalize()
     }
 
     /// How far `at` stands from the patch, never signed.
@@ -741,8 +807,8 @@ impl Patched {
     /// — exact where the patch is flat and first order elsewhere.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         let uv = self.uv(at);
-        let gap = (at - self.over.origin).dot(self.over.normal()) - self.height(uv);
-        gap.abs() * self.normal(uv).dot(self.over.normal())
+        let gap = (at - self.over.origin).dot(self.up) - self.height(uv);
+        gap.abs() * self.normal(uv).dot(self.up)
     }
 
     /// The place of the patch under `at`, read down its own plane's normal.
@@ -763,14 +829,15 @@ impl Patched {
     /// [`Gusset::fills`](super::gusset::Gusset).
     pub(crate) fn fills(&self) -> Bounds<DVec3> {
         let mut filled = Bounds::default();
-        let span = self.laid.high - self.laid.low;
+        let laid = self.laid();
+        let span = laid.high - laid.low;
         for down in 0..=BOXED {
             for across in 0..=BOXED {
                 let share = DVec2::new(
                     f64::from(across) / f64::from(BOXED),
                     f64::from(down) / f64::from(BOXED),
                 );
-                filled.hold(self.at(self.laid.low + span * share));
+                filled.hold(self.at(laid.low + span * share));
             }
         }
         filled
@@ -850,20 +917,30 @@ impl Patched {
     /// How far apart those parameter lines stand, both being alike.
     fn stride(&self, sagitta: f64) -> f64 {
         debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} cuts nothing");
-        let bending = self.bending();
-        match bending > 0.0 {
-            true => (4.0 * sagitta / bending).sqrt(),
-            false => self.laid.high.distance(self.laid.low),
+        match self.bending > 0.0 {
+            true => (4.0 * sagitta / self.bending).sqrt(),
+            false => {
+                let laid = self.laid();
+                laid.high.distance(laid.low)
+            }
         }
     }
 
-    /// How many places a `stride` lays along each parameter.
-    fn steps(&self, stride: f64) -> usize {
-        let span = self.laid.high - self.laid.low;
-        ((span / stride).max_element().ceil().max(1.0) as usize) + 1
+    /// The stretch of its own parameters the opening fills, solved off the six
+    /// arcs — see [`Sided::extremes`].
+    ///
+    /// **Asked for rather than carried.** Only the laying out of a grid wants
+    /// it, and a reading of one place is what the mesher asks for a thousand
+    /// times over — so the six solves stay out of that path.
+    fn laid(&self) -> Bounds<DVec2> {
+        self.sides.iter().flat_map(Sided::extremes).collect()
     }
 
-    /// How hard the patch bends, over the whole of the opening.
+    /// How hard the patch bends, walked over the whole of the opening.
+    ///
+    /// **Run once, where the surface is made** — see [`Vertexed::new`]. It is
+    /// what every stride comes off and it costs some thousands of readings of
+    /// the height, so a mesher asking twice would pay it twice.
     ///
     /// **The larger of the height's two principal second derivatives**, read
     /// off a middle difference in each parameter and across the two, and taken
@@ -874,7 +951,7 @@ impl Patched {
     /// draws in from each place it reaches — and a walk that stopped at the
     /// chords of those sides would miss exactly that, an arc standing off its
     /// own chord.
-    fn bending(&self) -> f64 {
+    fn walked(&self) -> f64 {
         let step = self.reach * BENT;
         let mut most = 0.0_f64;
         for side in &self.sides {
@@ -916,12 +993,13 @@ impl Patched {
     /// parameter running fastest.
     pub(crate) fn netted(&self, sagitta: f64, into: &mut Vec<DVec3>) -> usize {
         debug_assert!(sagitta > 0.0, "a sagitta of {sagitta} lays out nothing");
-        let span = self.laid.high - self.laid.low;
-        let steps = self.steps(self.stride(sagitta));
+        let laid = self.laid();
+        let span = laid.high - laid.low;
+        let steps = ((span / self.stride(sagitta)).max_element().ceil().max(1.0) as usize) + 1;
         for down in 0..steps {
             for across in 0..steps {
                 let share = DVec2::new(across as f64, down as f64) / (steps - 1) as f64;
-                into.push(self.at(self.laid.low + span * share));
+                into.push(self.at(laid.low + span * share));
             }
         }
         steps
@@ -940,10 +1018,9 @@ impl Patched {
     /// cannot be: a ray is walked only where it stands within two reaches of
     /// the corner, and outside that the blend answers about nothing.
     pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
-        let normal = self.over.normal();
         let gap = |along: f64| {
             let at = from + way * along;
-            (at - self.over.origin).dot(normal) - self.height(self.uv(at))
+            (at - self.over.origin).dot(self.up) - self.height(self.uv(at))
         };
         let out = from - self.at;
         let (half, apart) = (out.dot(way), out.length_squared());
@@ -971,6 +1048,9 @@ impl Patched {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a square corner the notch leaves would be.
+    const SPANS: &str = "a square corner spans a patch";
     use std::f64::consts::PI;
 
     /// The notch's step corner, in the frame `.notes/VERTEX-BLENDS.md` reads it
@@ -980,7 +1060,7 @@ mod tests {
     /// The fill runs the reflex edge, its axis a reach into the void the notch
     /// leaves; the two cuts run the edges the cap makes with the floor and the
     /// wall, each a reach into the material.
-    fn notch(reach: f64, setback: f64) -> Vertexed {
+    fn notch(reach: f64, setback: f64) -> Option<Vertexed> {
         let axes = [
             Line {
                 origin: DVec3::new(-reach, 0.0, -reach),
@@ -1000,13 +1080,7 @@ mod tests {
         // Each pointing out of the material: the notch holds `v >= 0`, and
         // `u >= 0` or `w >= 0`.
         let facing = [DVec3::NEG_Z, DVec3::NEG_Y, DVec3::NEG_X];
-        Vertexed {
-            axes,
-            facing,
-            at: DVec3::ZERO,
-            reach,
-            setback,
-        }
+        Vertexed::new(axes, facing, DVec3::ZERO, reach, setback)
     }
 
     /// **The six places are hand-computed off the rails.** A rail stands one
@@ -1022,7 +1096,10 @@ mod tests {
     fn the_six_places_of_the_opening_stand_at_one_distance() {
         for (reach, setback) in [(0.5, 1.0), (0.5, 0.75), (1.0, 1.5), (0.25, 0.5)] {
             let (r, t) = (reach, setback);
-            let opened = notch(r, t).opened().expect("a square corner opens");
+            let opened = notch(r, t)
+                .expect(SPANS)
+                .opened()
+                .expect("a square corner opens");
             // Each blend's end on the face before it first, and on the face
             // after it second — see [`Opened::made`].
             let want = [
@@ -1054,7 +1131,7 @@ mod tests {
     #[test]
     fn the_six_sides_run_between_the_six_places() {
         let (r, t) = (0.5, 1.0);
-        let corner = notch(r, t);
+        let corner = notch(r, t).expect(SPANS);
         let opened = corner.opened().expect("a square corner opens");
         for which in 0..3 {
             let side = corner.crossed(&opened, which);
@@ -1109,7 +1186,7 @@ mod tests {
     #[test]
     fn the_spring_on_the_face_that_turns_past_a_half_runs_the_long_way() {
         let (r, t) = (0.5, 1.0);
-        let corner = notch(r, t);
+        let corner = notch(r, t).expect(SPANS);
         let opened = corner.opened().expect("a square corner opens");
         let sweeps = [0, 1, 2].map(|which| {
             let side = corner.sprung(&opened, which);
@@ -1146,7 +1223,7 @@ mod tests {
     #[test]
     fn the_middle_is_the_way_the_corners_lean() {
         let (r, t) = (0.5, 1.0);
-        let corner = notch(r, t);
+        let corner = notch(r, t).expect(SPANS);
         let opened = corner.opened().expect("a square corner opens");
         let middle = corner.middle(&opened).expect("six corners lean somewhere");
         let want = DVec3::new(-2.0, 3.0, -2.0).normalize() * opened.reach;
@@ -1172,7 +1249,7 @@ mod tests {
     #[test]
     fn the_opening_stands_clear_of_the_corner_all_the_way_round() {
         for (r, t) in [(0.5, 1.0), (0.5, 0.75), (1.0, 1.5), (0.25, 0.5)] {
-            let corner = notch(r, t);
+            let corner = notch(r, t).expect(SPANS);
             let opened = corner.opened().expect("a square corner opens");
             let mut least = f64::INFINITY;
             for which in 0..3 {
@@ -1214,14 +1291,16 @@ mod tests {
     #[test]
     fn the_patch_faces_one_way_all_the_way_round_its_boundary() {
         for (r, t) in [(0.5, 1.0), (0.5, 0.75), (1.0, 1.5), (0.25, 0.5)] {
-            let patched = notch(r, t).patched().expect("a square corner patches");
+            let patched = notch(r, t)
+                .expect(SPANS)
+                .patched()
+                .expect("a square corner patches");
             let mut least = f64::INFINITY;
             for side in patched.sides {
                 for step in 0..=16 {
                     let along =
                         side.bounds[0] + (side.bounds[1] - side.bounds[0]) * f64::from(step) / 16.0;
-                    let at = side.circle.at(along);
-                    least = least.min(side.facing(at).dot(patched.over.normal()));
+                    least = least.min(side.facing(side.radial(along)).dot(patched.up));
                 }
             }
             assert!(
@@ -1245,7 +1324,10 @@ mod tests {
     #[test]
     fn a_normal_read_back_off_the_slope_is_the_one_it_was_written_from() {
         for (r, t) in [(0.5, 1.0), (0.5, 0.75), (1.0, 1.5), (0.25, 0.5)] {
-            let patched = notch(r, t).patched().expect("a square corner patches");
+            let patched = notch(r, t)
+                .expect(SPANS)
+                .patched()
+                .expect("a square corner patches");
             let over = patched.over;
             let mut asked = 0;
             for side in patched.sides {
@@ -1253,11 +1335,12 @@ mod tests {
                     let along =
                         side.bounds[0] + (side.bounds[1] - side.bounds[0]) * f64::from(step) / 16.0;
                     let at = side.circle.at(along);
-                    let facing = side.facing(at);
-                    let held = Vertexed::heighted(over, at, facing)
+                    let facing = side.facing(side.radial(along));
+                    let held = patched
+                        .heighted(at, facing)
                         .expect("the patch stands clear of square");
                     let read =
-                        (over.normal() - over.x * held.slope.x - over.y * held.slope.y).normalize();
+                        (patched.up - over.x * held.slope.x - over.y * held.slope.y).normalize();
                     assert!(
                         read.abs_diff_eq(facing, 1e-12),
                         "the slope reads {read} back where {facing} was written",
@@ -1281,6 +1364,7 @@ mod tests {
     #[test]
     fn the_patch_meets_every_side_it_was_written_from() {
         let patch = notch(0.5, 1.0)
+            .expect(SPANS)
             .patched()
             .expect("a square corner is patched");
         let (mut off, mut turned) = (0.0_f64, 0.0_f64);
@@ -1291,7 +1375,7 @@ mod tests {
                 let at = side.circle.at(along);
                 let uv = patch.uv(at);
                 off = off.max(patch.at(uv).distance(at));
-                turned = turned.max(patch.normal(uv).distance(side.facing(at)));
+                turned = turned.max(patch.normal(uv).distance(side.facing(side.radial(along))));
             }
         }
         assert!(off < 1e-12, "the patch stands {off} off its own boundary");
@@ -1310,7 +1394,7 @@ mod tests {
     #[test]
     fn the_patch_faces_its_own_plane_inside_the_opening_too() {
         let (r, t) = (0.5, 1.0);
-        let corner = notch(r, t);
+        let corner = notch(r, t).expect(SPANS);
         let opened = corner.opened().expect("a square corner opens");
         let over = corner.flattening().expect("three faces that add up");
         let middle = over.flatten(corner.middle(&opened).expect("a middle"));
@@ -1341,11 +1425,11 @@ mod tests {
     fn a_setback_of_the_reach_leaves_no_spring_to_span() {
         let reach = 0.5;
         assert!(
-            notch(reach, reach).opened().is_none(),
-            "a setback of the reach was opened, where its springs come to nothing",
+            notch(reach, reach).is_none(),
+            "a setback of the reach spans a patch, where its springs come to nothing",
         );
         assert!(
-            notch(reach, reach + PLACED * 10.0).opened().is_some(),
+            notch(reach, reach + PLACED * 10.0).is_some(),
             "a setback past the reach leaves a spring and was refused",
         );
     }

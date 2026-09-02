@@ -1337,22 +1337,13 @@ impl Planning {
             let between = topology.face(face);
             facing[which] = between.normal(between.surface.uv(corner));
         }
-        let laid = Vertexed {
-            axes,
-            facing,
-            at: corner,
-            reach,
-            setback: reach * 2.0,
-        };
-        let opened = laid.opened()?;
-        laid.patched()?;
+        let laid = Vertexed::new(axes, facing, corner, reach, reach * 2.0)?;
         let mut picks = ends.map(|end| blends[end.blend].pick);
         picks.sort_unstable();
         Some(Vertexing {
             held,
             shared,
             laid,
-            made: opened.made,
             picks,
         })
     }

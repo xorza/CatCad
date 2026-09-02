@@ -1063,7 +1063,7 @@ impl Rounding {
         let held = self.planning.vertexed[at];
         let face = self.spanned[at];
         let opened = held.laid.opened().expect(SPANNED);
-        let made = held.made.map(|pair| {
+        let made = opened.made.map(|pair| {
             pair.map(|at| {
                 into.topology_mut().add_vertex(Vertex {
                     at,
