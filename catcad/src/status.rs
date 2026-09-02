@@ -35,7 +35,7 @@ pub(crate) struct Status<'a> {
     /// being worked in, and the reason it is worth a line: a drawing whose
     /// regions have been cut up carries on looking exactly as it did, and the
     /// feature that has lost its footing says nothing until someone asks it to
-    /// build. See [`Models::lost`](crate::model::models::Models::lost).
+    /// build. See [`Faults::lost`](crate::model::faults::Faults::lost).
     pub(crate) lost: usize,
     /// How many solids the kernel would not put into the model.
     ///
@@ -44,14 +44,14 @@ pub(crate) struct Status<'a> {
     /// out from under it, and this is a boolean the kernel cannot do yet — the
     /// solid is on screen and whole, standing apart from the rest of
     /// the model instead of joined into it. See
-    /// [`Models::unmerged`](crate::model::models::Models::unmerged).
+    /// [`Faults::unmerged`](crate::model::faults::Faults::unmerged).
     pub(crate) unmerged: usize,
     /// How many blends the kernel would not put in.
     ///
     /// Beside the two counts above on the terms they stand beside each other:
     /// a person mends this one by scrubbing a reach down, where a step adrift
     /// wants drawing or picking again and an unmerged solid wants moving. See
-    /// [`Models::unrounded`](crate::model::models::Models::unrounded).
+    /// [`Faults::unrounded`](crate::model::faults::Faults::unrounded).
     pub(crate) unrounded: usize,
     pub(crate) hovered: Option<Part>,
     /// What the last edit is worth saying, where it was the last thing done.

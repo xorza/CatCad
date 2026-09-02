@@ -533,6 +533,14 @@ mod tests {
 
     /// Two fields are not one, and putting a member of each together is a
     /// mistake in the algorithm rather than a number.
+    ///
+    /// **Gated on the assertions it reads.** [`Quadratic::alongside`] is a
+    /// `debug_assert!`, so a release build makes no such mistake known and
+    /// there is nothing here to hold it to. Left ungated the row fails a
+    /// release run, and dropping the assertion to make it pass would put a
+    /// comparison of two radicands into every add, subtract, multiply and
+    /// divide of an exact intersection.
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic = "different fields"]
     fn members_of_two_fields_may_not_be_added() {

@@ -233,10 +233,10 @@ where
     /// Whether the root on the `far` branch lands between the ends of the span,
     /// or `None` where this tier declines to say.
     ///
-    /// It matters for the same reason [`lands_between`] does for two straight
-    /// spans: read off a parameter the machine worked out, a crossing drawn on
-    /// the end of a span reads a rounding past it, and a corner the drawing put
-    /// there stands for something it need not.
+    /// It matters for the same reason [`lands_between`](super::lands_between)
+    /// does for two straight spans: read off a parameter the machine worked
+    /// out, a crossing drawn on the end of a span reads a rounding past it, and
+    /// a corner the drawing put there stands for something it need not.
     ///
     /// **The square root is squared away**, which is what keeps a round
     /// crossing inside a ladder that has no square root in it. `t ≥ 0` asks

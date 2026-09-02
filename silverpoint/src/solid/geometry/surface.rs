@@ -40,7 +40,8 @@ pub(crate) enum Surface {
 /// quartic and a ray through its hole crosses the tube twice going in and twice
 /// coming out. A [`Gusset`](super::gusset::Gusset) is neither: where a ray
 /// meets it is a harmonic of degree three in the fillet's own angle, which has
-/// six roots at the most — see [`Gusset::met_by`], where the degree is argued.
+/// six roots at the most — see [`Gusset::met_by`](super::gusset::Gusset::met_by),
+/// where the degree is argued.
 /// A graze counts for none of them, for the reason
 /// [`roots`](crate::math::quartic::roots) gives.
 pub(crate) type Crossings = Inline<f64, 6>;

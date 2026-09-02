@@ -40,7 +40,7 @@ pub(super) struct Junction {
     /// with `ends`.
     ///
     /// What puts this junction's own two corners on that blend's sides — see
-    /// [`Ending::Against`].
+    /// [`Ending::Against`](crate::solid::rounding::Ending::Against).
     pub(super) shared: [usize; 2],
     /// The corner of the body they swallow between them.
     pub(super) at: VertexId,
@@ -125,13 +125,14 @@ pub(super) struct Gusseting {
     /// **They chain as they were laid**, the first running from the touch point
     /// to the far corner, the straight one on to the third and the second back
     /// to the touch point — so the patch's own loop is one bit rather than a
-    /// search. See [`Rounding::gusseted`].
+    /// search. See
+    /// [`Rounding::gusset`](crate::solid::rounding::Rounding::gusset).
     pub(super) sides: [EdgeId; 3],
 }
 
 impl Gusseting {
     /// Its straight side, which is the one a face other than the two blends
-    /// walks — see [`Rounding::line`].
+    /// walks — see [`Rounding::line`](crate::solid::rounding::Rounding::line).
     pub(super) fn straight(self) -> EdgeId {
         self.sides[2]
     }
@@ -139,11 +140,15 @@ impl Gusseting {
 
 /// The corner three blend ends land on, before anything is put in it.
 ///
-/// **Three faces between them, one apiece, and one side of the material.**
-/// Both fillings below want exactly that much settled and neither can do
-/// without it: a corner where the three divide other than three faces is not
-/// the trihedral one either fills, and one where they do not agree which way
-/// the material lies is a corner no single surface answers.
+/// **Three faces between them, one apiece.** Both fillings below want that
+/// much settled and neither can do without it: a corner where the three divide
+/// other than three faces is not the trihedral one either fills.
+///
+/// **Which way the material lies is the round filling's question alone** — see
+/// [`Trihedral::outward`]. A sphere between three blends stands on all three
+/// cylinder axes, which three picks that do not agree give it no point to do;
+/// three chamfer planes cross at a point whatever each of them was cut from, so
+/// the star asks nothing about the side. See `.notes/KERNEL.md` §7.5.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Trihedral {
     /// The three ends meeting, in the order the blends were found.
@@ -152,8 +157,6 @@ pub(super) struct Trihedral {
     pub(super) tips: [Spine; 3],
     /// The three faces they divide between them, the first blend's two first.
     pub(super) faces: [FaceId; 3],
-    /// Which side of each blend the material is on, which all three share.
-    pub(super) outward: bool,
 }
 
 impl Trihedral {
@@ -173,19 +176,27 @@ impl Trihedral {
         {
             return None;
         }
-        // **A corner the three do not agree about is neither filling's.** A
-        // rolling ball is on one side of the material throughout, so a corner
-        // where one edge is convex and another concave wants a surface whose
-        // radius moves — which §7.5 names and neither of these is.
-        let outward = blends[ends[0].blend].outward;
-        ends.iter()
+        Some(Self { ends, tips, faces })
+    }
+
+    /// Which side of each blend the material is on, or `None` where the three
+    /// do not share one.
+    ///
+    /// **A corner the three do not agree about is the round filling's to
+    /// refuse.** The patch is a sphere standing on all three cylinder axes at
+    /// once, and each axis lies a reach off the two faces its own blend divides
+    /// on the side its pick says — so a pair that disagrees puts its two axes
+    /// on opposite sides of the face they share, and there is no point on both.
+    /// What the three leave instead is a three-sided hole whose corners are the
+    /// star's own — see [`Met`], and §7.5, where the patch it wants is stated
+    /// and shown to be unwritten. The flat filling asks nothing of this, three
+    /// planes crossing at a point however each was cut.
+    pub(super) fn outward(&self, blends: &[Blend]) -> Option<bool> {
+        let outward = blends[self.ends[0].blend].outward;
+        self.ends
+            .iter()
             .all(|end| blends[end.blend].outward == outward)
-            .then_some(Self {
-                ends,
-                tips,
-                faces,
-                outward,
-            })
+            .then_some(outward)
     }
 
     /// Which of the three faces is `face`.
@@ -222,11 +233,13 @@ impl Trihedral {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Cornered {
     pub(super) held: Trihedral,
-    /// The sphere it lies on. Whether the material is inside it is
-    /// [`Trihedral::outward`], the patch facing the way the blends it fills
-    /// between do.
+    /// The sphere it lies on.
     pub(super) sphere: Sphere,
-    /// The three picks that met there, in order — see [`Grown::Cornered`].
+    /// Whether the material lies where that surface's own normal points, which
+    /// is the side all three blends hold it on — see [`Trihedral::outward`].
+    pub(super) outward: bool,
+    /// The three picks that met there, in order — see
+    /// [`Grown::Cornered`](crate::Grown).
     pub(super) picks: [u32; 3],
     /// Where the sphere touches each of [`Trihedral::faces`], in that order.
     pub(super) made: [DVec3; 3],

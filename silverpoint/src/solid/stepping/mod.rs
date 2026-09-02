@@ -82,7 +82,7 @@ pub struct Stepping {
     /// [`Stepping::polylined`], which is the one thing here that lays them down.
     places: Vec<Sampled>,
     /// One ruled patch's places on their way into a net — see
-    /// [`Stepping::ruled`].
+    /// [`Stepping::netted`].
     net: Vec<DVec3>,
     /// Every polyline already written, and the entity each became.
     ///
@@ -457,8 +457,10 @@ impl Stepping {
 
     /// One curve, as the analytic entity it is.
     ///
-    /// Every arm a body that reached here can hold: the three it cannot are
-    /// what [`analytic`] turned away before a line was written.
+    /// **Five of the eight are entities and three are not.** A line, a circle,
+    /// an ellipse, a hyperbola and a parabola each name a STEP curve outright;
+    /// a saddle, a marched run and a quartic name none, and go out as the
+    /// polylines [`Stepping::polylined`] lays down.
     fn curve(&mut self, of: &Curve, carried: &Carried, sagitta: f64, into: &mut String) -> u32 {
         match of {
             Curve::Line(line) => {
@@ -752,7 +754,7 @@ struct Laid {
 /// The two curves that cost one are the quartic a general pair of quadrics
 /// meets in and the saddle a cross drilling leaves. The one surface that costs
 /// one is the ruled patch a corner two picks do not agree about is filled with
-/// — see [`Stepping::ruled`]. All three are written down *exactly* here, so
+/// — see [`Stepping::netted`]. All three are written down *exactly* here, so
 /// what a chording costs is an error the body did not carry until this made
 /// it, which is why the file has to say so. Everything else either has an
 /// entity or was already walked to a bound of its own.

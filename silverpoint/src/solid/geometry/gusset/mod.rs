@@ -259,7 +259,7 @@ impl Gusset {
     /// [`Marching`](crate::solid::meeting::marching::Marching), where the same
     /// reading is argued. Nothing writes this edge's curvature down, so no step
     /// count can be read off a radius the way
-    /// [`arc::chords`](crate::math::arc::chords) reads one:
+    /// [`arc::chords`] reads one:
     /// instead the walk doubles until three places along the worst chord all
     /// stand within `sagitta` of the edge, and what comes back is what that
     /// walk measured.

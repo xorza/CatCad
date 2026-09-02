@@ -219,6 +219,26 @@ fn smooth(body: &Body) -> usize {
         .count()
 }
 
+/// Whether the body has a corner standing at `at`.
+fn stands(body: &Body, at: DVec3) -> bool {
+    body.topology()
+        .vertices()
+        .any(|(_, vertex)| vertex.at.abs_diff_eq(at, PLACED))
+}
+
+/// How many edges of the body run to the corner at `at`.
+fn legs(body: &Body, at: DVec3) -> usize {
+    let topology = body.topology();
+    topology
+        .edges()
+        .filter(|(_, edge)| {
+            [edge.from, edge.to]
+                .iter()
+                .any(|&end| topology.vertex(end).at.abs_diff_eq(at, PLACED))
+        })
+        .count()
+}
+
 /// **A blend down one convex edge takes the corner and nothing else**, which is
 /// the whole of what a fillet is asked to be.
 ///
@@ -1420,16 +1440,9 @@ fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
     // of the faces meeting at `(4, 4, 0)`, so the three cross half a setback
     // inside all three of them.
     let point = DVec3::new(3.5, 3.5, -0.5);
-    let legs = topology
-        .edges()
-        .filter(|(_, edge)| {
-            [edge.from, edge.to]
-                .iter()
-                .any(|&end| topology.vertex(end).at.abs_diff_eq(point, PLACED))
-        })
-        .count();
     assert_eq!(
-        legs, 3,
+        legs(&into, point),
+        3,
         "three planes crossing leave one corner on three legs"
     );
 
@@ -1441,9 +1454,7 @@ fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
         DVec3::new(4.0, 3.0, -1.0),
     ] {
         assert!(
-            topology
-                .vertices()
-                .any(|(_, vertex)| vertex.at.abs_diff_eq(met, PLACED)),
+            stands(&into, met),
             "no corner of the answer stands at {met}, where a pair of the \
              chamfers cross on the face they share",
         );
@@ -1679,11 +1690,8 @@ fn a_chamfer_onto_a_cylinder_stands_its_setback_along_the_face() {
     // round the rod from there rather than across the chord — so the corner it
     // leaves stands a whole radius from the axis, not less.
     let touched = DVec3::new(-rod * round_by.sin(), 0.0, rod * round_by.cos());
-    let topology = into.topology();
     assert!(
-        topology
-            .vertices()
-            .any(|(_, vertex)| vertex.at.abs_diff_eq(touched, PLACED)),
+        stands(&into, touched),
         "no corner of the answer stands at {touched}, where the setback reaches \
          round the rod",
     );
@@ -1693,6 +1701,7 @@ fn a_chamfer_onto_a_cylinder_stands_its_setback_along_the_face() {
         0,
         "a chamfered half rod is still a ball"
     );
+    let topology = into.topology();
     assert_eq!(
         topology.faces().count(),
         7,
@@ -1871,17 +1880,9 @@ fn three_picks_meeting_on_a_body_a_boolean_cut_fill_the_corner_either_way() {
         volume(&into),
     );
     let point = DVec3::new(3.75, 3.75, -0.25);
-    let legs = into
-        .topology()
-        .edges()
-        .filter(|(_, edge)| {
-            [edge.from, edge.to]
-                .iter()
-                .any(|&end| into.topology().vertex(end).at.abs_diff_eq(point, PLACED))
-        })
-        .count();
     assert_eq!(
-        legs, 3,
+        legs(&into, point),
+        3,
         "three planes crossing leave one corner on three legs"
     );
     assert_eq!(
@@ -2389,6 +2390,113 @@ fn two_chamfers_that_do_not_agree_leave_a_triangle() {
         assert_eq!(
             corners, want,
             "the triangle does not run between its own corners"
+        );
+    }
+}
+
+/// **Three chamfers meeting at a corner leave a star whether or not the picks
+/// agree**, which is the whole of what a chamfer has over a round here: three
+/// planes cross at one point however each of them was cut, where a rolling
+/// ball has to stay on one side of the material and so has no sphere to leave.
+/// `.notes/KERNEL.md` §7.5 is where the two part company.
+///
+/// The notch's step corner with all three of its edges picked: the reflex one
+/// filled into the notch, and the two the cap makes with the floor and the wall
+/// cut out of it. Every place below is hand-computed off the three planes.
+///
+/// **The three planes and where they cross.** Measure `(a, b, c)` from the
+/// corner along `+x`, `+y` and `+z`. The fill stands a reach back along the
+/// floor and the wall, so it is `a + c = −r`; the floor's chamfer stands a
+/// reach along the floor and the cap, so it is `b + c = r`; the wall's stands a
+/// reach along the wall and the cap, so it is `a + b = r`. Those cross at
+/// `(−r/2, 3r/2, −r/2)`, and each pair crosses again where its own two rails
+/// cross on the face the pair shares.
+///
+/// **The volume is `48 − 11r³/12`, hand-computed.** The three prisms cancel —
+/// the fill puts `r²/2` down the whole four of the reflex edge and each cut
+/// takes `r²/2` off the whole two of its own — so what is left is the corner.
+/// The two cuts reach across the fill as far as the planes above let them:
+/// `∫∫(r − max(a, c))` over the fill's own triangle is `7r³/12` off what the
+/// fill puts back, and the cuts take `r³/3` more than their prisms where they
+/// run past the corner onto the cap.
+#[test]
+fn three_chamfers_that_do_not_agree_leave_a_star() {
+    let notched = notch();
+    let corner = DVec3::new(2.0, 0.0, -2.0);
+    let picks = [
+        between(&notched, corner, DVec3::new(2.0, 4.0, -2.0)),
+        between(&notched, corner, DVec3::new(0.0, 0.0, -2.0)),
+        between(&notched, corner, DVec3::new(2.0, 0.0, -4.0)),
+    ];
+    for reach in [0.25, 0.5, 0.75, 1.0] {
+        let mut into = Body::default();
+        assert!(
+            Rounding::default().round(
+                &Round::new(&picks, reach, Bevel::Flat, ROUND),
+                &notched,
+                &mut into,
+            ),
+            "a corner three chamfers do not agree about was refused at {reach}",
+        );
+
+        assert_eq!(into.reckoning().genus, 0, "the notch is still a ball");
+        assert!(into.exact(), "three planes crossing in a point stay exact");
+        assert_eq!(smooth(&into), 0, "no join of a chamfer is smooth");
+
+        // Eleven faces, twenty-seven edges and eighteen corners, which Euler
+        // holds to a ball. The notch's eight faces and a chamfer apiece, and no
+        // face at the corner — where three *rounds* would leave a patch of a
+        // sphere.
+        let topology = into.topology();
+        assert_eq!(
+            topology.faces().count(),
+            11,
+            "the notch's eight faces, a chamfer apiece and nothing between",
+        );
+        assert_eq!(topology.edges().count(), 27);
+        assert_eq!(topology.vertices().count(), 18);
+
+        let want = 48.0 - 11.0 * reach * reach * reach / 12.0;
+        assert!(
+            (volume(&into) - want).abs() < CLOSES,
+            "the starred corner shuts in {} where the arithmetic says {want}",
+            volume(&into),
+        );
+
+        // The point the three planes cross at, on three legs and no more.
+        let point = corner + DVec3::new(-reach / 2.0, 1.5 * reach, -reach / 2.0);
+        assert_eq!(
+            legs(&into, point),
+            3,
+            "three planes crossing leave one corner on three legs at {reach}",
+        );
+
+        // And each pair of them crosses where its two rails do on the face it
+        // shares: the fill against the floor's cut on the floor, the fill
+        // against the wall's cut on the wall, and the two cuts on the cap.
+        for met in [
+            corner + DVec3::new(-reach, reach, 0.0),
+            corner + DVec3::new(0.0, reach, -reach),
+            corner + DVec3::new(reach, 0.0, reach),
+        ] {
+            assert!(
+                stands(&into, met),
+                "no corner of the answer stands at {met}, where a pair of the \
+                 chamfers cross on the face they share",
+            );
+        }
+
+        // **And the round is still refused there.** A sphere between three
+        // blends stands a reach off all three faces on one side, and a corner
+        // whose picks name two sides has none for it to be on.
+        let mut rounded = Body::default();
+        assert!(
+            !Rounding::default().round(
+                &Round::new(&picks, reach, Bevel::Round, ROUND),
+                &notched,
+                &mut rounded,
+            ),
+            "a sphere was fitted at a corner three rounds do not agree about",
         );
     }
 }

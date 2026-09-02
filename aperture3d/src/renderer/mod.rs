@@ -322,9 +322,9 @@ pub(crate) mod internals {
     impl Renderer {
         /// Re-flatten whatever is marked, with no frame to ask for one.
         ///
-        /// What [`Renderer::paint`] does first of all, reached on its own —
-        /// which is what an allocation gate over flattening wants, there being
-        /// no device in front of it.
+        /// What [`GpuPaint::paint`](palantir::GpuPaint::paint) does first of
+        /// all, reached on its own — which is what an allocation gate over
+        /// flattening wants, there being no device in front of it.
         pub fn flatten(&mut self, raster_scale: f32) {
             self.refresh(raster_scale);
         }
@@ -332,9 +332,9 @@ pub(crate) mod internals {
 
     /// An application that shows one renderer and does nothing else.
     ///
-    /// A [`Renderer`] is a [`GpuPaint`] rather than an [`App`], so painting one
-    /// at all needs something to show a [`GpuView`] from — this is the least of
-    /// that.
+    /// A [`Renderer`] is a [`GpuPaint`](palantir::GpuPaint) rather than an
+    /// [`App`], so painting one at all needs something to show a [`GpuView`]
+    /// from — this is the least of that.
     #[derive(Debug)]
     pub struct SceneApp {
         pub view: Rc<RefCell<Renderer>>,

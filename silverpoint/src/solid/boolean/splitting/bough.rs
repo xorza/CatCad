@@ -131,7 +131,7 @@ impl Bough {
     /// where it lands on the side of the vertex line the branch is on.
     ///
     /// A graze counts for none, on the terms
-    /// [`quadratic::roots`](crate::math::quadratic::roots) states.
+    /// [`quadratic::roots`] states.
     pub(crate) fn crossed(self, from: DVec2, to: DVec2) -> Crossed {
         let (start, run) = (from - self.at, to - from);
         let (x, dx) = (self.across.dot(start), self.across.dot(run));

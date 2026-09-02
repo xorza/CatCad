@@ -46,9 +46,10 @@ impl<R> Records<R> {
     /// whatever a tag named.
     ///
     /// Every kind but text, which fills its buffers itself — see
-    /// [`TextRecords::refresh`]. It needs the shaper and the sheet to know what a
-    /// run comes to, it has two more things that can move it, and its highlight
-    /// is a second *shaping* rather than the same records in another colour.
+    /// [`TextRecords::refresh`](super::text_records::TextRecords::refresh). It
+    /// needs the shaper and the sheet to know what a run comes to, it has two
+    /// more things that can move it, and its highlight is a second *shaping*
+    /// rather than the same records in another colour.
     /// None of that fits a seam whose whole input is a batch.
     pub(crate) fn refresh<O: Flatten<Record = R>>(
         &mut self,

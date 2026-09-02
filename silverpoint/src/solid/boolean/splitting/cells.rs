@@ -32,7 +32,7 @@ pub(crate) struct Cells {
     /// stands inside the outline that holds it.
     ///
     /// Held rather than measured, for the reason
-    /// [`Bounds`](crate::math::bounds::Bounds) gives: the corners are walked to
+    /// [`Bounds`] gives: the corners are walked to
     /// be written anyway, and folding four floats out of that walk costs
     /// nothing beside it. What reads them is the cut that comes next, which
     /// asks of every region whether it is worth walking at all.

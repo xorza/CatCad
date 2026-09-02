@@ -97,8 +97,8 @@ pub(crate) const CIRCLE: Marked = Marked::new(Glyph::Circle, "Circle");
 /// one of them to draw a kind as its neighbour.
 ///
 /// Which is silent where it is wrong — one artwork reads much like another —
-/// so no two rows may share a glyph, and [`EVERY`] is walked to say so. A list
-/// nothing walks cannot be held to it.
+/// so no two rows may share a glyph, and the test-gated `EVERY` below is
+/// walked to say so. A list nothing walks cannot be held to it.
 pub(crate) const PLANE: Marked = Marked::new(Glyph::Plane, "Plane");
 pub(crate) const SKETCH: Marked = Marked::new(Glyph::Sketch, "Sketch");
 pub(crate) const EXTRUDE: Marked = Marked::new(Glyph::Extrude, "Extrude");

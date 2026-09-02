@@ -171,7 +171,7 @@ impl Ruled<f64> {
     /// comes to nought at once. A place that is *not* on the member has no
     /// ruling through it at all and the two disagree — by as much as it stands
     /// off, and no more, the solve being linear. See
-    /// [`Quartics::along`](super::quartic::Quartics), which is what that
+    /// [`Quartics::along`](super::quartics::Quartics::along), which is what that
     /// bounds.
     pub(crate) fn through(&self, at: DVec4) -> [f64; 2] {
         let weight = DMat4::from_cols_array_2d(&self.corner).inverse() * at;

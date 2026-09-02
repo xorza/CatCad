@@ -316,7 +316,7 @@ pub(crate) enum Built {
     /// boolean can say anything about — which is what M4 is, and what M5 is
     /// for. Handing back something that reads as a solid and is not would be
     /// the worse answer, so the two stand side by side. See
-    /// [`Boolean::combine`].
+    /// [`Boolean::combine`](silverpoint::Boolean::combine).
     ///
     /// **Named for what a person is shown rather than for the kernel's
     /// answer.** A reader meets this word again in the recipe and in the status

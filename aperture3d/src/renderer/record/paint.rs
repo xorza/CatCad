@@ -25,9 +25,10 @@ use glam::Vec3;
 /// telling apart. A label has no use for it either — a glyph's size came from
 /// its shaping — so it ships four dead bytes in a ninety-six byte record, and
 /// `text_vs` does not even declare the attribute. What buys them is that
-/// [`Instance::highlighted`] applies a highlight's `scale` to this field for
-/// every kind alike; pulling it out would put a per-kind hook in the one
-/// operation that is currently written once, to save four per cent of one
+/// [`Instance::highlighted`](super::Instance::highlighted) applies a
+/// highlight's `scale` to this field for every kind alike; pulling it out
+/// would put a per-kind hook in the one operation that is currently written
+/// once, to save four per cent of one
 /// record. The ring's twelve bytes were not worth that trade and the label's
 /// four are.
 #[repr(C)]
@@ -51,9 +52,10 @@ impl Paint {
     /// Take on a highlight's look, in place of the paint that was here.
     ///
     /// Named for what it does to a `Paint` rather than sharing
-    /// [`Instance::highlighted`]'s name: that one answers with a whole record,
-    /// this one edits the tail of one, and two things called `highlighted` on
-    /// either side of a `paint_mut()` read as the same operation twice.
+    /// [`Instance::highlighted`](super::Instance::highlighted)'s name: that
+    /// one answers with a whole record, this one edits the tail of one, and
+    /// two things called `highlighted` on either side of a `paint_mut()` read
+    /// as the same operation twice.
     pub(super) fn take_on(&mut self, look: Highlight) {
         self.color = look.tint.over(Vec3::from_array(self.color)).to_array();
         self.spread *= look.scale;

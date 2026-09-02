@@ -238,7 +238,7 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
 /// its sign long after it has stopped keeping its digits, so a chord across
 /// the outer part of a large circle can be decided rightly and placed wrongly
 /// — by sixty thousand times the width two places have to be within to count
-/// as one. See [`Aimed::read`].
+/// as one. See [`Aimed::read`](exact::Aimed::read).
 pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let along = span.along();
     let reach = along.length();

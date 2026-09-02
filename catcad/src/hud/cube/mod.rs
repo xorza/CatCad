@@ -228,9 +228,9 @@ impl Cube {
     /// Turn it by hand.
     ///
     /// The same gesture the drawing itself takes and so the same intent, at the
-    /// same rate — see [`ORBIT_RATE`]. A drag also gives up whatever view was
-    /// being turned to: taking hold of the cube is saying where to look more
-    /// directly than a press did.
+    /// same rate — see [`ORBIT_RATE`](crate::scene_view::ORBIT_RATE). A drag
+    /// also gives up whatever view was being turned to: taking hold of the
+    /// cube is saying where to look more directly than a press did.
     fn drag(&mut self, drag: Drag, intents: &mut Intents) {
         let step = self.travel.step(drag);
         // A drag of no distance is still a drag and gives up the view being

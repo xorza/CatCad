@@ -1,6 +1,7 @@
 use super::*;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::sphere::Sphere;
+use crate::solid::geometry::torus::Torus;
 use crate::solid::meeting::Meeting;
 use std::f64::consts::FRAC_PI_6;
 
@@ -200,5 +201,197 @@ fn the_two_branches_of_one_hyperbola_cut_the_nappe_each_stands_on() {
     assert_ne!(
         nappes[0], nappes[1],
         "the two branches were read onto one nappe",
+    );
+}
+
+/// **Every meeting the exact table writes down is one a face can be cut
+/// by**: each curve of it is written in both surfaces' own parameters, or
+/// every curve of it closes and the pair goes down the walked route whole.
+///
+/// That is what
+/// [`Combining::walked`](crate::solid::boolean::combining::Combining) rests
+/// on, and the whole of why it may turn an open curve away without turning
+/// away a boolean anybody can build. A curve that neither closes nor is
+/// written down would be a meeting refused outright, and the table above is
+/// what keeps one from arising: the two open conics lie on a plane and on a
+/// cone, the plane carries them as a bough and the cone as a flare, and a
+/// straight line lies on nothing that does not hold it.
+///
+/// **Swept rather than argued**, over one pair for every row of
+/// [`Meeting::of`] that answers along a curve. A row added without a cut to
+/// read it by fails here rather than in a boolean nobody ran.
+#[test]
+fn every_meeting_is_written_down_or_closes() {
+    let plane = |origin: DVec3, normal: DVec3| {
+        Surface::Natural(Natural::Plane(
+            Axis::about(origin, normal.normalize()).plane(),
+        ))
+    };
+    let tube = |origin: DVec3, direction: DVec3, radius: f64| {
+        Surface::Natural(Natural::Cylinder(Cylinder {
+            axis: Axis::about(origin, direction),
+            radius,
+        }))
+    };
+    let ball = |origin: DVec3, radius: f64| {
+        Surface::Natural(Natural::Sphere(Sphere {
+            axis: Axis::about(origin, DVec3::Y),
+            radius,
+        }))
+    };
+    let taper = Surface::Natural(Natural::Cone(Cone {
+        axis: Axis::about(DVec3::new(0.0, 4.0, 0.0), DVec3::NEG_Y),
+        half_angle: 0.5_f64.atan(),
+    }));
+    let ring = Surface::Fitted(Fitted::Torus(Torus {
+        axis: Axis::about(DVec3::ZERO, DVec3::Y),
+        major: 3.0,
+        minor: 1.0,
+    }));
+    // `cos α = √(R² − r²)/R`, the lean that touches the tube twice.
+    let bitangent = DVec3::new(1.0, 8.0_f64.sqrt(), 0.0);
+    let pairs = [
+        (
+            "two planes",
+            plane(DVec3::ZERO, DVec3::Z),
+            plane(DVec3::ZERO, DVec3::X),
+        ),
+        (
+            "a plane square across a cylinder",
+            plane(DVec3::Y, DVec3::Y),
+            tube(DVec3::ZERO, DVec3::Y, 2.0),
+        ),
+        (
+            "a plane leaning on a cylinder",
+            plane(DVec3::ZERO, DVec3::new(1.0, 1.0, 0.0)),
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+        ),
+        (
+            "a plane through a cylinder's axis",
+            plane(DVec3::ZERO, DVec3::X),
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+        ),
+        (
+            "a plane tangent along a cylinder",
+            plane(DVec3::X, DVec3::X),
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+        ),
+        (
+            "a plane cutting a sphere off its own axis",
+            plane(DVec3::X, DVec3::X),
+            ball(DVec3::ZERO, 2.0),
+        ),
+        (
+            "a plane square across a cone",
+            plane(DVec3::ZERO, DVec3::Y),
+            taper,
+        ),
+        (
+            "a plane clearing one nappe of a cone",
+            plane(DVec3::new(0.0, 2.0, 0.0), DVec3::new(0.2, 1.0, 0.0)),
+            taper,
+        ),
+        (
+            "a plane parallel to a ruling of a cone",
+            plane(DVec3::new(0.0, 2.0, 0.0), DVec3::new(2.0, 1.0, 0.0)),
+            taper,
+        ),
+        (
+            "a plane past a cone's rulings",
+            plane(DVec3::X, DVec3::X),
+            taper,
+        ),
+        (
+            "a plane through a cone's apex",
+            plane(DVec3::new(0.0, 4.0, 0.0), DVec3::X),
+            taper,
+        ),
+        (
+            "two cylinders on parallel axes",
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+            tube(DVec3::X, DVec3::Y, 1.0),
+        ),
+        (
+            "two crossing cylinders of one radius",
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+            tube(DVec3::ZERO, DVec3::X, 1.0),
+        ),
+        (
+            "a sphere on a cylinder's axis",
+            ball(DVec3::ZERO, 2.0),
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+        ),
+        ("two spheres", ball(DVec3::ZERO, 2.0), ball(DVec3::X, 2.0)),
+        (
+            "a cone and a cylinder on one axis",
+            taper,
+            tube(DVec3::ZERO, DVec3::Y, 1.0),
+        ),
+        (
+            "a cone and a sphere on one axis",
+            taper,
+            ball(DVec3::new(0.0, 2.0, 0.0), 1.0),
+        ),
+        (
+            "a plane through a ring's axis",
+            plane(DVec3::ZERO, DVec3::X),
+            ring,
+        ),
+        (
+            "a plane square across a ring",
+            plane(DVec3::ZERO, DVec3::Y),
+            ring,
+        ),
+        (
+            "a ring's bitangent plane",
+            plane(DVec3::ZERO, bitangent),
+            ring,
+        ),
+        (
+            "a ring and a cylinder on one axis",
+            ring,
+            tube(DVec3::ZERO, DVec3::Y, 2.5),
+        ),
+        (
+            "a ring and a sphere on one axis",
+            ring,
+            ball(DVec3::ZERO, 3.0),
+        ),
+    ];
+
+    // Wide enough to hold every section any of these leaves, the question
+    // here being which shapes are written down rather than which reach a
+    // face.
+    let laid = Bounds {
+        low: DVec2::new(-TAU, -10.0),
+        high: DVec2::new(TAU, 10.0),
+    };
+    let mut walked = 0;
+    for (named, one, two) in pairs {
+        let Meeting::Along(along) = Meeting::of(&one, &two) else {
+            panic!("{named} meet along no curve");
+        };
+        for on in [one, two] {
+            let written = along
+                .all()
+                .iter()
+                .all(|curve| Cut::of(on, *curve, Some(0), laid).is_some());
+            if written {
+                continue;
+            }
+            walked += 1;
+            for curve in along.all() {
+                assert!(
+                    curve.closed(),
+                    "{named}: {curve:?} on {on:?} neither closes nor is written down",
+                );
+            }
+        }
+    }
+    // A sweep every row of which is written down would hold the walked
+    // route to nothing at all.
+    assert!(
+        walked >= 4,
+        "only {walked} of the sweep reached the walked route",
     );
 }

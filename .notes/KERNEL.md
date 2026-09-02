@@ -758,14 +758,19 @@ tangent bores: the two halves meet along that line and nowhere else, which is
 not a body §4.4 holds. The sweep asserts the refusal rather than working around
 it.
 
-**One meeting is refused because the cut for it is not written.** A face whose
-own parameters have no straight line for a meeting is cut by the curve *walked*
-instead — but a traced cut samples a whole turn of the curve's parameter and
-orders places by how far round they stand, which an open curve has not got. A
-line lies on a plane, a cylinder or a cone and the first two hold it outright;
-the two open conics lie on a plane and a cone and only the plane holds them. So
-what reaches the walk and is turned away is an **open conic on a cone**, and it
-is turned away for want of a routine rather than for want of an answer.
+**No meeting the table writes down is refused for want of a cut.** A face whose
+own parameters have no closed form for a meeting is cut by the curve *walked*
+instead — and a traced cut samples a whole turn of the curve's parameter and
+orders places by how far round they stand, which an open curve has not got. So
+the walk turns an open curve away, and nothing hands it one: a line lies on a
+plane, a cylinder or a cone and each of the three holds it; the two open conics
+lie on a plane and a cone, the plane carrying them as a graph about the vertex
+and the cone as its own one section shape. What falls through to the walk are
+the two circles no chart writes down — one leaning across a sphere and
+Villarceau's on a torus — and both of those close.
+`every_meeting_is_written_down_or_closes` sweeps the table and holds it to that,
+so a row added without a cut to read it by fails there rather than in a boolean
+nobody ran.
 
 **And the pieces a cut leaves are merged at output, never in the answer.** A
 face cut by *n* surfaces comes back in *n* or more regions, nearly all kept;
@@ -1010,11 +1015,87 @@ same junction where two of them meet. `Bevel` is the one field that tells them
 apart, and **the crease flag is read rather than stated** — `Face::smooth` at
 every edge the rounding mints, which is what the checking holds it against.
 
-**A corner three picks do not agree about is refused.** A rolling ball stays on
-one side of the material throughout, so a corner where one of the three edges is
-convex and another concave wants a blend whose radius *moves* along it — which
-is a surface neither tier holds. The pair that disagree is answered, §7.7, and
-the triple is not.
+**A corner three *rounds* do not agree about is refused, and what it wants is a
+patch rather than a wider tier.** Every one of the three blends is a cylinder of
+the one reach, so nothing here asks for a radius that moves. What is missing is
+the corner: the sphere the agreeing triple leaves stands on all three axes at
+once, and three axes that do not agree have no common point to stand on. Each
+axis lies a reach off the two faces its own blend divides, on the side its pick
+says — so a pair that disagrees puts its two axes on opposite sides of the face
+they share and the sphere would have to be a reach *both* ways off it.
+
+**What the three leave is a three-sided hole, and its corners are the star's
+own.** Each of the three faces meeting at the corner keeps exactly one corner of
+its own — where the two rails on it cross — and each of those three places
+stands on exactly two of the three cylinders, a reach off both axes. So the
+boundary is one curve across each cylinder, running between the two of those
+places that lie on it. Which is the *same* three places the flat corner runs
+its legs from, the bevel moving no corner:
+`three_chamfers_that_do_not_agree_leave_a_star` holds them at four reaches,
+and a round corner would want a patch where that one wants a point.
+
+**And the pair that agrees cannot close the hole either.** Two blends that agree
+cross in an ellipse, and the arc of it they take runs to where the edge neither
+of them replaces is cut back to — a reach along that edge. Here that edge is the
+third pick, so the place it names lies on the run the third blend has already
+swallowed: measured on the notch's step corner, it stands `r√2` off that blend's
+axis where the blend stands `r`. So all three stop at the hole, exactly as three
+agreeing rounds stop at the sphere.
+
+**The patch it wants is tangent to three cylinders along its three sides, and
+two shapes are ruled out rather than merely unwritten.** No *quadric* fills it —
+§7.7 proves that of a patch tangent to two quadrics along curves, and both of
+the pairs that disagree here are the very pair it argues about.
+
+**Nor anything a rolling ball of the one reach sweeps**, which is the whole
+family the sphere belongs to and the torus with it. A ball of reach `r` touches
+a cylinder of reach `r` along a *whole circle* only where its centre sits on
+that cylinder's own axis, and the circle it touches along is a cross section of
+the cylinder. So a side of the hole that a ball could sweep is a cross section,
+and the two corners it runs between stand at one place along the axis. Measured
+on the notch's step corner: the side on the fill does — both its corners stand a
+reach along that axis, which is why the fill blend ends square — and the side on
+each cut blend does not, its two corners standing a reach either way. So the
+sphere's own family ends at the corner three picks agree about, and what fills
+this one is swept by no ball at all.
+
+**Which leaves §7.7's ruled family**, whose rulings already lie in one blend's
+tangent planes and run tangent to another. A ruled patch is tangent to two where
+the hole wants three, so the rulings sweep one side and their feet walk the
+other two — and the ruling where the feet change blend runs to the corner those
+two share. Every corner of the hole is a place two blends both reach one face
+at, so both stand tangent to that face there: the switch ruling has a plane to
+lie in and a pair to be tangent to. Which side the rulings sweep is the whole of
+the choice, and there are three of it.
+
+**Two of the three land and one does not.** Sweeping the *fill* puts the switch
+ruling in the cap through the corner there, tangent to the fill — and measured
+on the notch's step corner the two such lines leave the fill's axis at
+`(−0.411, 0.911)` and `(0.911, −0.411)`, where the blend's own quarter is the
+one both readings are positive over. Neither touches the face the fill raises.
+Sweeping either *cut* lands: the switch ruling runs through the corner the fill
+shares with the other cut, in the face they both reach, and touches the swept
+blend at `(−0.866, −0.5)` off its axis, which is on its own quarter.
+
+**So a patch is buildable out of what is already written, and it costs two
+things.** It is two ruled halves sharing that ruling, each half tangent to the
+two blends it joins and closing at a tip on the corner where those two touch.
+The halves agree at both ends of the shared ruling — with the swept blend at one
+end, with the pair that meet at that corner at the other — and turn away from
+each other between, which is a crease along a straight edge, the one a gusset
+already carries on its third side. And the two that land are mirror images, so a
+corner that is its own mirror comes out filled by a patch that is not.
+
+**The other answer is a three-sided patch**, symmetric and tangent along all
+three of its sides at once. Nothing rules one out. What it gives up is the
+closed-form inversion and the bounded ray that §7.7 was careful to keep, both of
+which the ruled family buys by being ruled — so it is the surface contract of
+§4.7 that decides between the two, rather than the corner.
+
+**That argument is the ball's and not the chamfer's**: three planes cross at a
+point however each of them was cut, so the flat triple is a star like any other
+and only the round one is turned away. The disagreeing pair is answered either
+way, §7.7.
 
 **Where three flat picks meet, the corner is a star and holds no face.** A
 chamfer is a plane, so the three cross at one point — one linear system, exact,
@@ -1026,8 +1107,13 @@ places a pair of the chamfers cross on the face they share — the same corner a
 junction of two already works out. **So a blend closing there bounds two edges
 and not one**, out along the leg on one of its sides and back down the leg on
 the other, which is the one place the routine's four-sided loop grows. What both
-corners share — three faces between the three of them, one apiece, and one side
-of the material — is settled once, before either is measured.
+corners share — three faces between the three of them, one apiece — is settled
+once, before either is measured. Which side of the material the picks hold is
+*not* shared: the sphere has to be on one of them and the star asks nothing, so
+that reading is taken where the sphere is, and a mixed corner reaches the star
+untroubled. Held on the notch's step corner at four reaches: eleven faces,
+twenty-seven edges, eighteen corners, genus 0, exact, and `48 − 11r³/12` of
+volume — the three prisms cancelling and the corner left over.
 
 **The blend is wound off the face it was cut from.** A blend uses each of its
 four edges the way the face across that edge does not, so fixing the first
@@ -1084,7 +1170,7 @@ case of its own.
 
 **Refused rather than guessed at**: a pick with no edge, an edge that is neither
 straight nor a rim, a wedge that does not open, a tube that would pinch, a
-corner of other than three edges, a corner the picks disagree about, three
+corner of other than three edges, a corner three *rounds* disagree about, three
 chamfer planes that do not cross at a point, and a radius that runs off the end
 of an edge it has to meet.
 

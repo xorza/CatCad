@@ -213,7 +213,7 @@ impl Projected {
 /// its length, because the box is not always on screen: a run of text laid in a
 /// plane is a rectangle in its own frame, so what is brought into that frame is
 /// the cursor and what has to come back out of it is the overshoot. See
-/// [`Text::pick`](crate::Text::pick).
+/// [`Text::pick`](crate::primitive::Primitive::pick).
 pub(crate) fn into_box(at: Vec2, rect: Rect) -> Vec2 {
     at.clamp(rect.min, rect.max()) - at
 }

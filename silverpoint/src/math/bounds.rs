@@ -225,8 +225,8 @@ impl<At: Axial> Bounds<At> {
     /// Whether a ray from `from` running `way` reaches it.
     ///
     /// **What spares a face the solve a ray would otherwise cost it.** A ray is
-    /// counted against every face of a body to say what a place stands inside
-    /// — see [`Sounding`](crate::solid::boolean::sounding::Sounding) — and a
+    /// counted against every face of a body to say what a place stands inside,
+    /// which is the boolean's own `Sounding`, and a
     /// body cut by a many-sided tool has hundreds of faces where a ray crosses
     /// two. A box apiece answers the rest in six comparisons.
     ///

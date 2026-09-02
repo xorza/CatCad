@@ -447,7 +447,8 @@ impl Quartic {
 
 /// One closed piece of a quartic: the arc it runs over, and how it closes.
 ///
-/// **What a body files, one edge apiece** — see [`Quartics::add`], and
+/// **What a body files, one edge apiece** — see
+/// [`Quartics::add`](super::quartics::Quartics::add), and
 /// [`Quartic::components`], which is the only thing that makes one.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Component {

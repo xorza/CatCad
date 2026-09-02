@@ -40,7 +40,7 @@ impl<Id: Copy> Sided<Id> {
     /// the face across it takes, and that is both.
     ///
     /// Nothing steps round by one here, which is the whole of the difference
-    /// from [`corner::turned`](crate::solid::boolean::splitting::corner::turned):
+    /// from the splitting's own `corner::turned`:
     /// a coedge says which way its own edge is walked and nothing about the
     /// stretch leaving it, so turning the run over is all there is to do.
     pub(crate) fn turn(of: &mut [Self]) {

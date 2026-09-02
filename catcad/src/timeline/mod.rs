@@ -826,9 +826,9 @@ pub(crate) struct Movable {
 /// timeline is. Undoing a delete that put its steps back on the end would put
 /// them back in a different recipe.
 ///
-/// Owned rather than borrowed, unlike [`Movable`] and [`Swept`] above: those
-/// are ways of looking at a step the timeline still holds, and this is what is
-/// left once it does not.
+/// Owned rather than borrowed, unlike [`Movable`] and [`Making`] beside it:
+/// those are ways of looking at a step the timeline still holds, and this is
+/// what is left once it does not.
 #[derive(Debug, Clone)]
 pub(crate) struct Uprooted {
     pub(crate) at: FeatureId,
@@ -962,8 +962,7 @@ impl FeatureId {
     ///
     /// **The crossing where a step becomes half of a name.** A body names each
     /// face by which feature grew it and what of that feature it is — see
-    /// [`Named`](silverpoint::Named) — and the kernel mints neither half: it is
-    /// handed this and
+    /// [`Named`] — and the kernel mints neither half: it is handed this and
     /// carries it, so that a face of one solid and the same-shaped face of
     /// another are told apart once a boolean puts the two together.
     pub(crate) fn step(self) -> Step {

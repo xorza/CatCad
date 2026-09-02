@@ -18,7 +18,7 @@ use crate::paint::write::remesh;
 /// A bundle on the terms [`Raising`] states: both are lent for the length of
 /// one call, and two `&mut`s in a row at the call site would be two chances to
 /// hand over the wrong one. Which of them a body goes in is what that body
-/// *is* — see [`solids`], where that is decided.
+/// *is* — see [`write`](fn@write), where that is decided.
 #[derive(Debug)]
 pub(crate) struct Shaping<'a> {
     /// The model, and an answer that already holds it.

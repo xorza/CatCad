@@ -215,7 +215,7 @@ impl Marchings {
     /// may be laid down: a place says nothing about where round it stands, so
     /// the chord nearest it is every chord. Lifting the cap wants a curve that
     /// can be solved, which is what the exact tier has and this one does not —
-    /// see [`Quartics::along`](super::quartic::Quartics).
+    /// see [`Quartics::along`](super::quartics::Quartics::along).
     pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
         let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
         let (mut along, mut off) = (0.0, f64::INFINITY);

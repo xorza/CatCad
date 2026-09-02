@@ -13,7 +13,7 @@ use crate::paint::write::Band;
 
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
-/// strokes — see [`rings`].
+/// strokes — see [`rings`](super::rings).
 pub(crate) fn write(
     models: Models<'_>,
     theme: &Theme,

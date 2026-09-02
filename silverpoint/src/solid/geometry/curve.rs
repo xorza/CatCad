@@ -146,8 +146,7 @@ impl Curve {
     ///
     /// **What a walked cut asks before it walks one.** A traced cut samples a
     /// whole turn of the curve's own parameter and orders places by how far
-    /// round they stand — see
-    /// [`Traced`](crate::solid::boolean::splitting::traced::Traced) — and an
+    /// round they stand, which is the boolean's own `Traced`, and an
     /// open curve has neither a turn nor a way round. A line, a parabola and a
     /// hyperbola's branch are the three that run away and never return.
     pub(crate) fn closed(&self) -> bool {

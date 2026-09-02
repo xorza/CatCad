@@ -1112,10 +1112,13 @@ impl Planning {
         // other.** Both cylinders stand a radius off the face they share, and
         // one cut into a convex edge stands off it on the other side from one
         // filled into a concave one — so the two never cross there at all, and
-        // what fills the gap is [`Gusseted`]'s patch rather than an arc.
-        if whole[0].outward != whole[1].outward {
-            return None;
-        }
+        // what fills the gap is [`Gusseted`]'s patch rather than an arc. Sorted
+        // by [`Planning::settle`] before either is asked for, so a pair
+        // arriving here that does not agree is this file having lost count.
+        debug_assert_eq!(
+            whole[0].outward, whole[1].outward,
+            "a pair that do not agree about a corner were sent to close on it",
+        );
         let at = whole[0].at?[ends[0].end];
         let Met {
             sides: [one, two],
@@ -1186,7 +1189,8 @@ impl Planning {
         at: VertexId,
     ) -> Option<Cornered> {
         let held = Trihedral::of(blends, runs, ends)?;
-        let Trihedral { faces, outward, .. } = held;
+        let outward = held.outward(blends)?;
+        let Trihedral { faces, .. } = held;
         // Asked of the first alone, one [`Round`] carrying one [`Bevel`] for
         // every blend it raises — where a flat corner leaves a star instead,
         // see [`Planning::starring`].
@@ -1243,6 +1247,7 @@ impl Planning {
                 axis: Axis::new(centre, pole, reference),
                 radius,
             },
+            outward,
             picks,
             made,
         })

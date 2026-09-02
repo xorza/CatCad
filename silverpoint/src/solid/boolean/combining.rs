@@ -47,7 +47,8 @@ pub(super) struct Sewn<'a> {
 ///
 /// **Over the two surfaces and which piece rather than over the places**, which
 /// is what makes a crossing met from either side key alike — see
-/// [`Marched::key`], and [`pairing`], where the pair's own half is worked out.
+/// [`Marched::key`], and [`Surface::paired`], where the pair's own half is
+/// worked out.
 fn named(on: &Surface, other: &Surface, nth: u32) -> u64 {
     on.paired(other).word(u64::from(nth)).done()
 }
@@ -153,7 +154,7 @@ struct Scratch {
     walk: Vec<DVec2>,
     corners: Vec<Corner>,
     /// The stretch of its own parameters the face being cut was laid out in —
-    /// see [`imprinted`], which is the one thing that reads it.
+    /// see [`Cut::of`], which every cut here is built against.
     ///
     /// A face may not wrap, so that stretch is less than a whole turn wide in
     /// each parameter and at most one turn of a wrapping cut falls inside it.
@@ -203,7 +204,7 @@ impl Combining {
     /// Cut both bodies against each other and keep what `doing` asks for.
     ///
     /// `false` where a crossing turns up that nothing here can write down in a
-    /// face's own parameters, which is [`imprinted`], or where the sounder
+    /// face's own parameters, which is [`Combining::cut`], or where the sounder
     /// cannot place a region — see [`Combining::sift`]. See `.notes/KERNEL.md`
     /// §8's `Built::Refused`.
     pub(super) fn combine(&mut self, one: &Body, two: &Body, doing: Operation) -> bool {
@@ -500,7 +501,8 @@ impl Combining {
             self.curves.push(Curve::Marched(Marched {
                 run,
                 // Over the two surfaces and which piece rather than over the
-                // places — see [`Marched::key`], and [`pairing`], which is what
+                // places — see [`Marched::key`], and [`Surface::paired`],
+                // which is what
                 // makes a crossing met from either side key alike.
                 key: named(on, other, self.curves.len() as u32 - from),
                 reach: filed.reach,
@@ -597,14 +599,22 @@ impl Combining {
     /// exactly as those file theirs, so a meeting worked out for one face is
     /// walked once and read by every face after it.
     ///
-    /// **An open curve is refused rather than walked.** A traced cut samples a
-    /// whole turn of its curve's own parameter and orders places by how far
-    /// round they stand, and a line, a parabola and a hyperbola's branch have
-    /// neither — see [`Curve::closed`]. A line lies on a plane, a cylinder or a
-    /// cone, and the first two hold it outright; the two open conics lie on a
-    /// plane and a cone, and only the plane holds them. So what reaches here is
-    /// an open conic on the *cone*, which is the one meeting
-    /// `.notes/KERNEL.md` §7.4 turns away for want of a routine.
+    /// **An open curve is refused rather than walked, and none arrives.** A
+    /// traced cut samples a whole turn of its curve's own parameter and orders
+    /// places by how far round they stand, and a line, a parabola and a
+    /// hyperbola's branch have neither — see [`Curve::closed`]. So the refusal
+    /// is the floor under a floor: every open curve the exact table writes down
+    /// has a closed form on both of the surfaces that made it, and what falls
+    /// through to here is a circle. A line lies on a plane, a cylinder or a
+    /// cone, and each of the three holds it; the two open conics lie on a plane
+    /// and a cone, and the plane carries them as a bough and the cone as a
+    /// flare — see [`Cut::of`].
+    ///
+    /// **What does fall through are the two circles no chart writes down**: one
+    /// leaning across a sphere, which runs `v = ψ(u) ± acos(…)` there, and
+    /// Villarceau's on a torus, which crosses both of its parameters at once.
+    /// Both close, so both are walked. `every_meeting_is_written_down_or_closes`
+    /// is that claim held over the table rather than argued here.
     fn walked(&mut self, on: &Surface, other: &Surface, along: Curves) -> bool {
         if along.all().iter().any(|it| !it.closed()) {
             return false;

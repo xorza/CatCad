@@ -19,14 +19,16 @@ pub(crate) enum Broken {
     /// region, and both come to the same thing here.
     Footing,
     /// The kernel would not put its solid into the model, so the solid stands
-    /// beside one — see [`Models::solids`].
+    /// beside one — see [`Models::solids`](super::models::Models::solids).
     Unmerged,
     /// The kernel would not put its blend in, so the model stands as the step
-    /// before it left it — see [`Built::Unrounded`].
+    /// before it left it — see
+    /// [`Built::Unrounded`](crate::build::bodied::Built::Unrounded).
     Unrounded,
 }
 
-/// How many steps came to each kind of trouble — see [`Models::faults`].
+/// How many steps came to each kind of trouble — see
+/// [`Models::faults`](super::models::Models::faults).
 ///
 /// A record rather than three numbers handed back loose: all three are counts
 /// of steps, and nothing about a number says which fault it counts.
@@ -39,8 +41,9 @@ pub(crate) struct Faults {
     /// Steps that lost what they were built on — see [`Broken::Footing`].
     pub(crate) lost: usize,
     /// Steps whose solid the kernel would not put into the model, so it stands
-    /// beside one — see [`Broken::Unmerged`] and [`Models::solids`], which is
-    /// where those solids end up.
+    /// beside one — see [`Broken::Unmerged`] and
+    /// [`Models::solids`](super::models::Models::solids), which is where those
+    /// solids end up.
     pub(crate) unmerged: usize,
     /// Steps whose blend the kernel would not put in — see
     /// [`Broken::Unrounded`].

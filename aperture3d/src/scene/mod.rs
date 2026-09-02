@@ -373,9 +373,9 @@ impl Scene {
     /// are held.
     ///
     /// **One walk, five kinds.** All five answer
-    /// [`Primitive::pick`](crate::primitive::Primitive::pick) — the arithmetic
-    /// behind it is each kind's own and the answer is one [`Hit`] — so what a
-    /// batch is made of reaches no further than the type parameter. A kind
+    /// [`Primitive::pick`] — the arithmetic behind it is each kind's own and
+    /// the answer is one [`Hit`] — so what a batch is made of reaches no
+    /// further than the type parameter. A kind
     /// walked by a copy of this would be a kind free to forget the standing
     /// filter, or to answer a scene's pick by a rule the other four do not
     /// keep.

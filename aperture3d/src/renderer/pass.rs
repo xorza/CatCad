@@ -27,9 +27,9 @@ impl Pass {
     ///
     /// **Labelled for the one shader all three of them share**, because that is
     /// what they are: a solid, a face and a ghost differ by pipeline state and
-    /// not by one line of WGSL — see [`MESH`](super::gpu::MESH). A label is
-    /// read by a capture tool and by nothing else, so it names the shader
-    /// rather than telling the three apart.
+    /// not by one line of WGSL — see [`MESH`]. A label is read by a capture
+    /// tool and by nothing else, so it names the shader rather than telling
+    /// the three apart.
     pub(super) fn mesh(pipeline: &wgpu::RenderPipeline) -> Self {
         let stem = format!("aperture.{MESH}");
         Self {

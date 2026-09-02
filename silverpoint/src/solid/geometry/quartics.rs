@@ -2,7 +2,7 @@
 //! one by.
 //!
 //! **Apart from the curve itself**, which is an algebraic construction and
-//! answers about itself — see [`Quartic`](super::quartic::Quartic). What is
+//! answers about itself — see [`Quartic`]. What is
 //! here is what a *body* has to hold: one component per edge, filed so a
 //! reader answers without evaluating it.
 //!
@@ -163,7 +163,8 @@ impl Quartics {
 
     /// Which angle round the component at `run` the place `at` stands at.
     ///
-    /// **Solved rather than searched** — see [`Ruled::through`], which is the
+    /// **Solved rather than searched** — see
+    /// [`Ruled::through`](super::ruled::Ruled::through), which is the
     /// whole of it: a place of the ruled member is written in the member's own
     /// corner basis by one four by four solve, and the ruling falls out of the
     /// weights. What is left is the two walks the store lays over that ruling,

@@ -4,10 +4,10 @@
 /// pairs.
 ///
 /// **One question asked in both halves of the crate.** A drawing asks which of
-/// its corners a walk along edges can get between — see
-/// [`Components`](crate::sketch::arrangement::components::Components) — and a
-/// merge asks which of a body's faces are pieces of one. The things differ and
-/// the arithmetic does not, so it is written here rather than twice.
+/// its corners a walk along edges can get between, which is the arrangement's
+/// own `Components`, and a merge asks which of a body's faces are pieces of
+/// one. The things differ and the arithmetic does not, so it is written here
+/// rather than twice.
 ///
 /// **A group is named by one of its own members** rather than by a number of
 /// its own, which is what makes joining two of them one write. Which member

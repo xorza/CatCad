@@ -237,8 +237,9 @@ enum Ending {
     },
     /// Against the blend on a second picked edge running to the same corner.
     ///
-    /// [`Junction`] holds the whole of what the two leave, because what they
-    /// leave is one arc between two corners and both of them walk it.
+    /// [`Junction`](corner::Junction) holds the whole of what the two leave,
+    /// because what they leave is one arc between two corners and both of
+    /// them walk it.
     /// `shared` says which of this blend's two faces the other one also runs
     /// out onto, which is what puts that junction's corners on this blend's own
     /// sides.
@@ -255,15 +256,16 @@ enum Ending {
     /// **The one ending that is two edges rather than one.** Three chamfer
     /// planes meet at a point, so what fills the corner is three lines to it
     /// and no face at all — and a blend closing on it runs out along the leg on
-    /// one of its sides and back down the leg on the other. [`Starred`] holds
-    /// the whole of what the three leave.
+    /// one of its sides and back down the leg on the other.
+    /// [`Starred`](corner::Starred) holds the whole of what the three leave.
     Starred { star: usize },
     /// On one side of the patch two picks that do not agree about the corner
     /// left there.
     ///
-    /// **The one ending that is a face of the fitted tier.** [`Gusseted`] holds
-    /// the whole of what the two leave — three corners and three sides — and
-    /// each blend closes on the side of it that lies on its own cylinder.
+    /// **The one ending that is a face of the fitted tier.**
+    /// [`Gusseted`](corner::Gusseted) holds the whole of what the two leave —
+    /// three corners and three sides — and each blend closes on the side of
+    /// it that lies on its own cylinder.
     /// `filled` says which of the pair this blend is, the patch's first edge
     /// lying on the filled one.
     Gusseted { gusseted: usize, filled: bool },
@@ -276,13 +278,14 @@ enum Ending {
 /// corner holding an answer of each kind would be two answers in one place.
 #[derive(Debug, Clone, Copy)]
 enum Filled {
-    /// The junction two of them left — see [`Junction`].
+    /// The junction two of them left — see [`Junction`](corner::Junction).
     Junction(usize),
     /// The patch three round ones left — see [`Cornered`].
     Corner(usize),
-    /// The star three flat ones left — see [`Starred`].
+    /// The star three flat ones left — see [`Starred`](corner::Starred).
     Star(usize),
-    /// The patch two that do not agree about it left — see [`Gusseted`].
+    /// The patch two that do not agree about it left — see
+    /// [`Gusseted`](corner::Gusseted).
     Gusseted(usize),
 }
 
@@ -520,7 +523,7 @@ impl Rounding {
                 into,
                 name,
                 Surface::Natural(Natural::Sphere(corner.sphere)),
-                corner.held.outward,
+                corner.outward,
             );
             self.patched.push(raised);
         }
@@ -824,7 +827,7 @@ impl Rounding {
     ///
     /// **Nothing between them**, which is what the whole record is for: three
     /// planes meeting leave a point and not a face, so what a blend closes on
-    /// here is two of these legs — see [`Starred`].
+    /// here is two of these legs — see [`Starred`](corner::Starred).
     fn point(&mut self, at: usize, into: &mut Body) -> Pointed {
         let star = self.planning.starred[at];
         let faces = star.held.ends.map(|end| self.raised[end.blend]);
@@ -1591,7 +1594,7 @@ const RAISED: &str = "every face of the body was raised";
 const ENDED: &str = "a run that ends carries the two corners it ends at";
 
 /// A closed blend lies on a torus or a cone, both of which the arc across it is
-/// written down for — see [`laid`].
+/// written down for — see [`Blend::laid`].
 const TUBED: &str = "a blend on a run that closes is cut apart by an arc";
 
 /// How far `at` stands off `curve`.

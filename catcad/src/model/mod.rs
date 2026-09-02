@@ -40,7 +40,7 @@ use crate::timeline::FeatureId;
 /// Borrowed and [`Copy`], so passing one down a stack costs what passing a
 /// reference costs. A caller that wants to *write* takes the halves separately,
 /// because writing them is exactly what has to happen in an order — see
-/// [`Build`].
+/// [`Build`](crate::build::Build).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Model<'a> {
     /// Which sketch of the timeline this is, which is half of what names

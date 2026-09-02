@@ -4,14 +4,16 @@ use glam::DVec3;
 
 /// A line in the world to spin about: a point on it, and the unit way it runs.
 ///
-/// [`Axle`] borne onto the plane its drawing lies on — see [`Axle::borne`].
+/// [`Axle`](super::axle::Axle) borne onto the plane its drawing lies on — see
+/// [`Axle::borne`](super::axle::Axle::borne).
 /// Named apart from that one because the two are read in different frames, and
 /// a reader holding the wrong one would spin a solid about a line of the
 /// drawing's own two coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Spindle {
     pub(crate) origin: DVec3,
-    /// Unit, unlike [`Axle::along`], which the kernel normalizes for itself.
+    /// Unit, unlike [`Axle::along`](super::axle::Axle::along), which the kernel
+    /// normalizes for itself.
     pub(crate) direction: DVec3,
 }
 

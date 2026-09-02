@@ -322,9 +322,9 @@ pub(super) fn show(
 /// caller unable to read the number it had just been scrubbed.
 ///
 /// **Salted, and named by the caller**, on the terms
-/// [`pill::rule`](crate::control::pill::rule) states: `auto_id` reads the line
-/// it is written on, which is this one for all three — so unsalted they share
-/// one identity, and a drag begun on one is picked up by another. The salt is
+/// [`pill::rule`] states: `auto_id` reads the line it is written on, which is
+/// this one for all three — so unsalted they share one identity, and a drag
+/// begun on one is picked up by another. The salt is
 /// also the only place a reading says which of the three it is.
 fn scrub(ui: &mut Ui, value: &mut f64, salt: &str, notation: Notation) -> Scrubbed {
     // **Scrubbed in the unit it is shown in and stored in millimetres**, which

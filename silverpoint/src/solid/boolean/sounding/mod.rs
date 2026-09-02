@@ -281,8 +281,10 @@ impl Sounding {
     /// is being sounded, and a boolean sounds a place per region of every face
     /// it kept — so a layout per question would retrace and reflatten the whole
     /// of the other body a few hundred times over, on the path a document is
-    /// rebuilt down sixty times a second. What the place does decide is
-    /// [`Covered::on`], and [`cover`](Sounding::cover) sets that per question.
+    /// rebuilt down sixty times a second. What the place does decide is which
+    /// turn of a wrapping parameter its own reading falls on, and
+    /// [`Sounding::covers`] carries it onto the boundary's own — see
+    /// [`Covered::anchor`], which is what this leaves behind for it.
     pub(super) fn about(&mut self, body: &Body) {
         let topology = body.topology();
         self.walk.clear();
