@@ -400,7 +400,7 @@ fn a_body_with_a_cavity_writes_the_shell_it_shuts_in() {
     );
 }
 
-/// The corner of `.notes/KERNEL.md` §9.6, at the origin and square: a fillet
+/// The corner of `.notes/KERNEL.md` §7.7, at the origin and square: a fillet
 /// filled into the concave edge along `y` and a round cut into the convex one
 /// along `x`, both of reach one, touching over the floor at `(1, 1, 0)`.
 fn corner() -> Gusset {

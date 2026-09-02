@@ -4,7 +4,7 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::marchings::Marchings;
 use std::f64::consts::PI;
 
-/// The corner of `.notes/KERNEL.md` §9.6, at the origin and square.
+/// The corner of `.notes/KERNEL.md` §7.7, at the origin and square.
 ///
 /// The floor is `z = 0` with material below, the riser `x = 0` with material to
 /// the left of it, and the wall `y = 0` with material behind. The concave edge
@@ -103,7 +103,7 @@ fn the_first_ruling_lands_where_the_round_runs_out() {
     // the riser's own plane `x = 0`; the only line in it tangent to the round
     // touches at (0, 0, −1), the round's ruling on the wall. So the gap's third
     // corner falls out of the construction rather than being a second choice —
-    // `.notes/KERNEL.md` §9.6.
+    // `.notes/KERNEL.md` §7.7.
     let gusset = square();
     let landed = gusset.at(DVec2::new(TURN[0], 1.0));
     assert!(
@@ -329,7 +329,7 @@ fn every_crossing_answered_stands_on_the_patch() {
 /// The tangent plane at the tip is the face the two blends share, and that face
 /// touches the round — so every line in it runs tangent to the round and the
 /// equation is satisfied there by every ray. It is a doubled root and not a
-/// crossing, which is why `.notes/KERNEL.md` §9.6 divides it out before the
+/// crossing, which is why `.notes/KERNEL.md` §7.7 divides it out before the
 /// harmonic is read: six roots are left where eight would be.
 ///
 /// Held as a comparison rather than against a bound: the reading at the tip is

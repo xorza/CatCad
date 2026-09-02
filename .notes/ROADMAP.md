@@ -213,7 +213,7 @@ geometry silverpoint can be handed. One is placement, the other is content.
 at one reach, including the corners where two and three picks meet — `KERNEL.md`
 §7.5 is the routine. A blend between two planes is a cylinder and stays exact,
 one against a rim is a torus, and the corner two picks disagree about is the
-ruled patch of §9.6. So the fitted tier exists because this item forced it, and
+ruled patch of §7.7. So the fitted tier exists because this item forced it, and
 a body says when it is no longer exact.
 
 **On sketch corners: not yet.** A sketch edit rather than a feature, and it
@@ -245,7 +245,7 @@ cheaper against a settled design than beside one.
   follow for anything about b-reps.
 - [Shutting Down Fornjot](https://archive.hannobraun.com/fornjot/blog/shutting-down-fornjot/)
   — six years on a Rust b-rep kernel with no usable output, and the author's own
-  list of why. §10 of `KERNEL.md` turns them into rules.
+  list of why. §9 of `KERNEL.md` turns them into rules.
 - [truck](https://github.com/ricosjp/truck), the live Rust NURBS b-rep kernel,
   and [Manifold](https://github.com/larsbrubaker/manifold-rust) for the mesh
   route — the two answers item 2 weighed and did not take. Why is in

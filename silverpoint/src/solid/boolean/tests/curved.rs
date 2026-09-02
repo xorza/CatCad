@@ -5,7 +5,7 @@
 //! whenever a routine is written or a reduction is found. So the answered ones
 //! are written down here, in three tables, and a pair that stops working is a
 //! diff in a table rather than a test nobody linked to another.
-//! `.notes/KERNEL.md` §9.4 is where the frontier is argued.
+//! `.notes/KERNEL.md` §7.3 is where the frontier is argued.
 //!
 //! **An answered row is checked rather than counted.** What a cut leaves and
 //! what an intersection keeps are complements, so the two add back to the body

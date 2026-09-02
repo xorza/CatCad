@@ -79,7 +79,7 @@ impl Standing {
     }
 
     /// A unit circle carried two deep, whose far rim is one closed run of
-    /// edges — see `.notes/KERNEL.md` §9.5.
+    /// edges — see `.notes/KERNEL.md` §7.5.
     fn rodded() -> Self {
         let mut sketch = Sketch::default();
         let middle = sketch.add_point(DVec2::ZERO);
@@ -409,7 +409,7 @@ fn a_rounding_becomes_the_model_and_names_its_blend() {
 /// blend down one costs the person: two faces and a radius, exactly as for a
 /// straight edge. What differs is the kernel's answer — a torus rather than a
 /// cylinder, and two faces rather than one, because a run that closes cannot be
-/// covered by a single face. See `.notes/KERNEL.md` §9.5.
+/// covered by a single face. See `.notes/KERNEL.md` §7.5.
 ///
 /// One name over the two, a pick naming as many patches as it found — which is
 /// why the count below goes up by one and not by two.
@@ -923,8 +923,8 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
 }
 
 /// **A circle spun about a line of its own drawing reaches the model as a
-/// ring**, which is what `.notes/KERNEL.md` §10's first rule owes M6: until a
-/// step of a document can make one, only a test raises a torus.
+/// ring**, which is what `.notes/KERNEL.md` §9's fourth rule owes a revolve:
+/// until a step of a document can make one, only a test raises a torus.
 ///
 /// The whole path in one call — an intent naming a region and a segment, a
 /// durable name minted from the drawing, a step of the timeline, a body built

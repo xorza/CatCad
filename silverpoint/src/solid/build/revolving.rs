@@ -994,7 +994,7 @@ impl Revolving {
 /// **Which is worth more than the faces it saves.** Three sectors of one disc
 /// are held apart by three radial seams, and a cut crossing one of those is
 /// broken there by the disc and not by the face across it — see
-/// `.notes/KERNEL.md` §9.2, where that is measured.
+/// `.notes/KERNEL.md` §7.4, where that is measured.
 ///
 /// The slots past `parts` repeat the last — see [`each_part`] — so a reader
 /// asking by part gets the one face wherever it asks.

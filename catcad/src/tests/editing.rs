@@ -220,7 +220,7 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
 ///
 /// The demo's solid is a disc carried off the ground, so the edge picked here is
 /// its *rim* — a plane meeting a cylinder square to its axis, where the blend is
-/// a torus and of the fitted tier. See `.notes/KERNEL.md` §9.5, where that is
+/// a torus and of the fitted tier. See `.notes/KERNEL.md` §7.5, where that is
 /// what is not done yet; a flat milled *down* a rod blends and stays exact.
 /// That is the honest thing to assert of this document: the step lands, the
 /// model goes on standing, and the recipe says which step could not go in. What
@@ -846,8 +846,8 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
 }
 
 /// **Picking a region and a line offers a revolve, and the form settles what it
-/// does** — which is what `.notes/KERNEL.md` §10's first rule owes M6: a step of
-/// a document a user can make.
+/// does** — which is what `.notes/KERNEL.md` §9's fourth rule owes a
+/// revolve: a step of a document a user can make.
 ///
 /// **Two picks and a whole turn to start from**, so the ring is on screen whole
 /// from the moment the form opens and what somebody types cuts it down. It

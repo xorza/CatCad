@@ -155,7 +155,7 @@ fn a_preview_shows_the_answer_and_the_operation_decides_which() {
 
 /// A tool with more faces than a frame can combine is shown as the tool.
 ///
-/// Sixty-four sides is sixty-six faces, and `.notes/KERNEL.md` §11 measures
+/// Sixty-four sides is sixty-six faces, and `.notes/KERNEL.md` §10 measures
 /// that cut at twenty-two milliseconds — nearly three frames. So the answer
 /// is the one a preview showed before there was a boolean to run in one,
 /// and it is the tool's own face count that comes back rather than the

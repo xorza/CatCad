@@ -58,7 +58,7 @@ pub(crate) struct Bodied {
     body: Body,
     /// The same solid with the pieces of every face put back together.
     ///
-    /// **A second body rather than an edit**, which `.notes/KERNEL.md` §9.3
+    /// **A second body rather than an edit**, which `.notes/KERNEL.md` §7.4
     /// measures: the splits one boolean makes are part of its answer's contract
     /// for the next one. So the step after this is built on `body`, and the
     /// drawing, the picker and the mesher read this — see

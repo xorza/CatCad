@@ -91,7 +91,7 @@ impl<'a> Round<'a> {
 /// place, so what one pick finds is a chain of edges between a chain of patches
 /// — and which patch is on the run's first side is not what any one edge says.
 /// Matched by surface, two patches of one face carrying the identical one — see
-/// `.notes/KERNEL.md` §9.3.
+/// `.notes/KERNEL.md` §7.4.
 #[derive(Debug, Clone, Copy)]
 struct Spine {
     edge: EdgeId,
@@ -368,7 +368,7 @@ struct Picked {
 /// a straight edge is a corner wedge less a cylinder, and every arrangement of
 /// that recipe is refused for the one reason a fillet cannot avoid — the
 /// cylinder lies *tangent* to both faces, which is what a fillet is. See
-/// `.notes/KERNEL.md` §9.5. Nothing here is cut against anything, so there is
+/// `.notes/KERNEL.md` §7.5. Nothing here is cut against anything, so there is
 /// no tangency to turn away.
 ///
 /// **Two faces are cut back to the rulings the blend runs out along, and what
@@ -528,12 +528,7 @@ impl Rounding {
         for at in 0..self.planning.gusseted.len() {
             let held = self.planning.gusseted[at];
             let name = of.by.grew(Grown::Gusseted(held.picks));
-            let raised = Self::patch(
-                into,
-                name,
-                Surface::Fitted(Fitted::Gusset(held.patch)),
-                held.outward,
-            );
+            let raised = Self::patch(into, name, held.laid, held.outward);
             self.gusseted.push(raised);
         }
     }
@@ -1008,7 +1003,7 @@ impl Rounding {
         // [`Rounding::ended`]'s own terms: the walked side is as wide as its
         // own run strays and it ends at two of them, the third holding what the
         // edge cut back there carried.
-        let strayed = held.second.strays(into.topology().carried());
+        let strayed = held.sides[1].strays(into.topology().carried());
         let made = [
             (held.made[0], strayed),
             (held.made[1], topology.edge(held.along).tolerance),
@@ -1023,15 +1018,15 @@ impl Rounding {
             sides: [
                 Self::arc(
                     into,
-                    held.first,
-                    held.bounds,
+                    held.sides[0],
+                    held.bounds[0],
                     [made[0], made[1]],
                     [faces[0], face],
                 ),
                 Self::arc(
                     into,
-                    held.second,
-                    [0.0, TAU],
+                    held.sides[1],
+                    held.bounds[1],
                     [made[2], made[0]],
                     [faces[1], face],
                 ),

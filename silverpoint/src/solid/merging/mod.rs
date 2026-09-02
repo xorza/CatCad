@@ -106,7 +106,7 @@ impl Merging {
     ///
     /// `into` is emptied first. What comes back stands where `from` stands and
     /// answers for the same names: this takes away faces and edges, and never a
-    /// vertex — see `.notes/KERNEL.md` §9.3.
+    /// vertex — see `.notes/KERNEL.md` §7.4.
     pub fn merge(&mut self, from: &Body, into: &mut Body) {
         let of = from.topology();
         self.lay(of);

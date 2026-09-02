@@ -173,7 +173,7 @@ mod tests {
     /// nought.**
     ///
     /// `1 − cos u` touches nought at nought and crosses nowhere, which is the
-    /// case the ruled patch of `.notes/KERNEL.md` §9.6 divides out before it
+    /// case the ruled patch of `.notes/KERNEL.md` §7.7 divides out before it
     /// asks — so the routine is held to answering none rather than one.
     #[test]
     fn a_graze_and_a_harmonic_clear_of_nought_answer_none() {

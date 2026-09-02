@@ -66,7 +66,7 @@ pub enum Grown {
     /// [`Grown::Cornered`]'s own argument. Two of them cross in an ellipse and
     /// leave no face where they agree; where one is cut into the material and
     /// the other filled into the void they touch at a point and leave a ruled
-    /// patch — see `.notes/KERNEL.md` §9.6.
+    /// patch — see `.notes/KERNEL.md` §7.7.
     Gusseted([u32; 2]),
 }
 

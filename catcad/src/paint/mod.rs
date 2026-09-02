@@ -129,7 +129,7 @@ impl Chorded {
 /// answer and shows the tool instead.
 ///
 /// A boolean grows between quadratically and cubically in the tool's faces —
-/// `.notes/KERNEL.md` §11 — so a bore, a pocket, a boss or a milled flat is a
+/// `.notes/KERNEL.md` §10 — so a bore, a pocket, a boss or a milled flat is a
 /// fraction of a frame and a profile traced round a curve is several of them.
 /// Measured, thirty faces is about a third of a frame at 120 Hz, which leaves
 /// the rest of it for the drawing the preview stands in.

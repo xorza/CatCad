@@ -299,7 +299,7 @@ fn a_document_is_written_exactly_like_this() {
             ],
             // And a third, for the other patch a rounding leaves: the ruled
             // one where two of its picks meet that do not agree about the
-            // corner — see `.notes/KERNEL.md` §9.6.
+            // corner — see `.notes/KERNEL.md` §7.7.
             [
                 grown.step().grew(Grown::Base),
                 grown.step().grew(Grown::Gusseted([0, 1])),

@@ -11,7 +11,6 @@
 //! two of them meet.
 
 use crate::solid::geometry::curve::Curve;
-use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
@@ -58,30 +57,33 @@ pub(super) struct Junction {
 
 /// The patch two picks that do not agree about a corner leave there.
 ///
-/// **The one filling of the fitted tier.** Two blends of one reach whose picks
-/// disagree stand off the face they share on opposite sides — a round is cut
-/// into the material where a fillet is filled into the void — so their axes
-/// stand two reaches apart, and the two cylinders touch at one point and cross
-/// along nothing. There is nothing to trim either against, and what goes
-/// between them is a ruled patch tangent to both along its own two edges.
-/// `.notes/KERNEL.md` §9.6 is where no quadric is shown to do the same job.
+/// **Two blends of one reach whose picks disagree touch at a point and cross
+/// along nothing.** A round is cut into the material where a fillet is filled
+/// into the void, so both stand off the face they share on opposite sides.
+/// There is nothing to trim either against, and what goes between them is a
+/// face of its own with three corners and three sides.
+///
+/// **One record for either bevel**, because the corners are the same three
+/// whichever it is: where the two rails cross on the shared face, and where
+/// each blend's rail on the face it does *not* share reaches the third edge's
+/// own line. What the bevel decides is the surface between them and the two
+/// curves that join it to the blends — a ruled patch of the fitted tier between
+/// two cylinders, and a plain triangle between two planes.
+/// `.notes/KERNEL.md` §7.7 is where the round one is argued and where no
+/// quadric is shown to do its job.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Gusseted {
     /// The two ends meeting, the *filled* blend first — the one the patch's
-    /// first edge lies on.
+    /// first side lies on.
     pub(super) ends: [Swallow; 2],
     /// Which of each blend's two faces the other also runs out onto, in step
     /// with `ends` — what puts the touch point on the right side of each.
     pub(super) shared: [usize; 2],
     /// The corner of the body they swallow between them.
     pub(super) at: VertexId,
-    pub(super) patch: Gusset,
-    /// Whether the material lies where the patch's own normal points.
-    ///
-    /// **Read off the blend it joins rather than stated.** The patch is tangent
-    /// to both along its own two edges, so at either join the two faces must
-    /// hold their material the same way — and which way the patch's normal
-    /// happens to come out is the parameterization's business, not the body's.
+    /// What the patch lies on.
+    pub(super) laid: Surface,
+    /// Whether the material lies where that surface's own normal points.
     pub(super) outward: bool,
     /// The face the cut blend runs out onto that the filled one does not, which
     /// is the face across the patch's straight side.
@@ -94,28 +96,22 @@ pub(super) struct Gusseted {
     /// which is the second of [`Gusseted::made`].
     pub(super) along: EdgeId,
     pub(super) cut: f64,
-    /// The patch's edge on the filled blend, from the touch point out to that
-    /// far corner, and the stretch of it the patch wants.
+    /// Its two curved sides and the stretch of each it wants: the one on the
+    /// filled blend first, running from the touch point out to that far corner,
+    /// then the one on the cut blend running back.
     ///
-    /// **An exact ellipse**, the fillet's own section by the plane the first
-    /// edge is cut by — see [`Gusset::sectioning`]. The edge on the *cut*
-    /// blend is not here: nothing writes it down, so it is walked and filed as
-    /// a run, which wants a store this record has no reach into.
-    pub(super) first: Curve,
-    pub(super) bounds: [f64; 2],
+    /// **Only the round pair is curved.** A fillet's is its own section by the
+    /// plane the patch is cut by, an exact ellipse; the round's is walked and
+    /// filed as a run, which is what puts the patch in the fitted tier although
+    /// both of its joins are exact. Two chamfers leave two straight lines and a
+    /// body that is still exact.
+    pub(super) sides: [Curve; 2],
+    pub(super) bounds: [[f64; 2]; 2],
+    /// Its straight side, laid down from the far corner towards the third.
+    pub(super) side: Line,
     /// The two picks that met there, the filled one first — see
     /// [`Grown::Gusseted`](crate::Grown).
     pub(super) picks: [u32; 2],
-    /// Its edge on the cut blend, walked and filed as a run of the answer's
-    /// own — see [`Planning::gusseting`].
-    ///
-    /// **The one side of the three that nothing writes down.** A plane section
-    /// of the fillet is an exact ellipse and the third side is a line; this one
-    /// follows from the first and is not planar, which is what puts the patch
-    /// in the fitted tier although both of its joins are exact.
-    pub(super) second: Curve,
-    /// Its straight side, laid down from the far corner towards the third.
-    pub(super) side: Line,
 }
 
 /// What one ruled patch came to in the answer.
@@ -180,7 +176,7 @@ impl Trihedral {
         // **A corner the three do not agree about is neither filling's.** A
         // rolling ball is on one side of the material throughout, so a corner
         // where one edge is convex and another concave wants a surface whose
-        // radius moves — which §9.5 names and neither of these is.
+        // radius moves — which §7.5 names and neither of these is.
         let outward = blends[ends[0].blend].outward;
         ends.iter()
             .all(|end| blends[end.blend].outward == outward)

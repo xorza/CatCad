@@ -5,7 +5,7 @@
 //! every ruling lying in both tangent planes at once. So the ruling from a
 //! place on the fillet is the line lying in the fillet's tangent plane there
 //! and running tangent to the round's cylinder — two divisions and one root,
-//! with no fit anywhere. `.notes/KERNEL.md` §9.6 is where no quadric is shown
+//! with no fit anywhere. `.notes/KERNEL.md` §7.7 is where no quadric is shown
 //! to do the same job, and where the whole corner is argued.
 use crate::math::arc;
 use crate::math::bounds::Bounds;
@@ -253,7 +253,7 @@ impl Gusset {
     /// plane section of the fillet and so an exact ellipse; the second follows
     /// from it and is then not planar — over the whole pencil of planes through
     /// its two ends it stands between a seventeenth and a tenth of its own size
-    /// out of flat, and never approaches nought. See `.notes/KERNEL.md` §9.6.
+    /// out of flat, and never approaches nought. See `.notes/KERNEL.md` §7.7.
     ///
     /// **Probed rather than bounded**, exactly as a marched meeting is — see
     /// [`Marching`](crate::solid::meeting::marching::Marching), where the same
@@ -547,7 +547,7 @@ impl Gusset {
     /// The first edge's sagitta is a **bound** — see [`Framing::swing`]. The
     /// ruling's turn is **exact**, and two evaluations. The second edge's
     /// sagitta is **probed** — see [`Gusset::sagging`], and `.notes/KERNEL.md`
-    /// §9.6 for what that costs.
+    /// §7.7 for what that costs.
     fn parted(&self, side: [DVec2; 2], framing: Framing) -> f64 {
         let [a, b] = side;
         let span = [a.x, b.x];
@@ -585,7 +585,7 @@ impl Gusset {
     /// **Nought over nought where the ruling has closed.** How far along the
     /// round's axis a ruling lands divides by the round's axis against the
     /// fillet's radial, and both come to nought at the touch point — see
-    /// `.notes/KERNEL.md` §9.6. Read there, the quotient hands back a wrong
+    /// `.notes/KERNEL.md` §7.7. Read there, the quotient hands back a wrong
     /// finite place rather than a `NaN`, and its error grows as the machine's
     /// own rounding over the angle off the tip.
     ///
@@ -630,7 +630,7 @@ impl Gusset {
     /// **The tip is written rather than read.** Where the ruling has closed to
     /// nothing both edges are the touch point, and how far along the round's
     /// axis the ruling lands is nought over nought there — see
-    /// `.notes/KERNEL.md` §9.6, which is where that limit is argued. The
+    /// `.notes/KERNEL.md` §7.7, which is where that limit is argued. The
     /// probing stops three quarters of a chord short of it, so nothing reads
     /// the quotient at the one angle it has no value at.
     fn along(&self, steps: usize, framing: Framing, mut held: impl FnMut(DVec3, DVec3)) -> f64 {
@@ -678,7 +678,7 @@ impl Gusset {
     /// **The middle of the two axes' common perpendicular.** Both spines run a
     /// reach off the face the two picks share and run off it on opposite sides,
     /// so the axes stand two reaches apart and touch nothing but each other's
-    /// tube at that one place — `.notes/KERNEL.md` §9.6.
+    /// tube at that one place — `.notes/KERNEL.md` §7.7.
     fn met(&self) -> DVec3 {
         let (one, two) = (self.filled.axis, self.cut.axis);
         let across = one.direction.cross(two.direction);
@@ -861,7 +861,7 @@ impl Gusset {
     /// the fillet's tangent plane, held against the pair of directions there
     /// that run tangent to the round. Written out that is a harmonic of degree
     /// four — the two top harmonics cancel, which
-    /// `.notes/KERNEL.md` §9.6 shows — and it carries a double root at the tip
+    /// `.notes/KERNEL.md` §7.7 shows — and it carries a double root at the tip
     /// whatever the ray, the tangent plane there being the face the two blends
     /// share and every line in it touching the round. Divided out, what is left
     /// is a harmonic of degree three and six roots at the most.
@@ -1041,7 +1041,7 @@ impl Gusset {
     /// the touch point.** The second is what leaves a corner rather than a cusp
     /// where the patch's two edges meet: both leave that point in the shared
     /// face's plane, so an edge running out *along* its own blend would leave
-    /// in its neighbour's direction. See `.notes/KERNEL.md` §9.6, where the
+    /// in its neighbour's direction. See `.notes/KERNEL.md` §7.7, where the
     /// choice is named as a choice.
     fn cutting(&self, met: DVec3) -> DVec3 {
         let axis = self.filled.axis;
@@ -1072,7 +1072,7 @@ impl Framing {
     /// How far the first edge leaves its chord over a turn of `spread`.
     ///
     /// **A bound rather than a reading**, which is what makes it half of
-    /// §9.6's own promise: an arc of the unit circle leaves its chord by
+    /// §7.7's own promise: an arc of the unit circle leaves its chord by
     /// [`arc::bulge`] of the turn, and the map that carries it to this edge
     /// never stretches that by more than [`Framing::swing`].
     fn bent(self, spread: f64) -> f64 {

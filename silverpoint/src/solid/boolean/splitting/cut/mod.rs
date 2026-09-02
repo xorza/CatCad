@@ -1046,7 +1046,7 @@ fn banded(level: f64, swing: f64, fills: Bounds<DVec2>) -> bool {
 /// ways. Interpolated from one end, a crossing rounds a little differently from
 /// the same crossing interpolated from the other, so the two halves come back
 /// carrying places an ulp apart and nothing downstream can tell that they are
-/// one place. See `.notes/KERNEL.md` §9.3, where what that costs is argued.
+/// one place. See `.notes/KERNEL.md` §7.4, where what that costs is argued.
 ///
 /// Any total order does, so long as it is the same one on both sides. This is
 /// [`f64::total_cmp`] over the two coordinates in turn, which orders every pair

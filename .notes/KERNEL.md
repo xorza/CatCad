@@ -1,17 +1,16 @@
 # A kernel
 
-Roadmap item 2: a solid that stops being one independent prism per extrude and
-becomes a body built by a sequence of operations, over an exact boundary
-representation written here.
+An exact boundary representation: a solid is a body built by a sequence of
+operations rather than one independent prism per extrude.
 
 `silverpoint/src/solid/` holds the geometry, the topology, the validity checker,
 the extrusion, the revolve, the mesher, both tiers of surface intersection, the
 boolean, the rounding and the STEP export. CatCad draws, picks, joins, cuts,
-intersects, rounds and writes out bodies. **§9 is every milestone and the order
-they were taken in, and none of them is outstanding.**
+intersects, rounds and writes out bodies.
 
-This is a design, not a record. A decision keeps its reason; what it cost to
-reach is in the diff.
+**This is a design, not a record.** A decision keeps its reason; what it cost to
+reach is in the diff, and what is *left* is in
+[`ROADMAP.md`](ROADMAP.md).
 
 ---
 
@@ -75,7 +74,7 @@ written against the row of it that already works:
 
 ## 3. What the field says
 
-Condensed to what changes a decision. Sources in §12.
+Condensed to what changes a decision. Sources in §11.
 
 **OCCT separates topology from geometry absolutely** — only vertex, edge and
 face carry geometry, which is why a surface type can be added without touching a
@@ -120,7 +119,7 @@ subdivision alike. Papers are still landing on it in 2026.
 **Fornjot is the cautionary tale**, and its author wrote the postmortem: six
 years, no usable output. He cut the application and kept the kernel,
 extrapolated from early promise, and refused prototypes in favour of incremental
-change. §10 turns those into rules.
+change. §9 turns those into rules.
 
 **truck shows how not to represent topology in Rust.** `Arc<Mutex<_>>` per
 entity and pointer identity: an allocation and a lock each, no serializable
@@ -372,14 +371,14 @@ widen a tolerance has to name the arm that did it.
 All four naturals arrive **together**. They are one algebra — a pencil of
 quadrics — so plane∩cone is not separate work from plane∩cylinder, and doing
 them together puts revolve, cones and spheres inside the exact tier at no extra
-cost. Torus, then the ruled patch §9.6 raises, then NURBS — all three
+cost. Torus, then the ruled patch §7.7 raises, then NURBS — all three
 `Fitted`, and all three forced by fillets.
 
 ### 4.7 Trimming: one representation, and no pcurves
 
 A face's parameter domain is obtained by **inverting the surface**, which is
 closed-form for every natural quadric — `Plane::flatten` already is this — and
-for the torus and for the ruled patch §9.6 raises, whose every ruling lies in a
+for the torus and for the ruled patch §7.7 raises, whose every ruling lies in a
 tangent plane of one of the two cylinders it joins. A Newton solve is what NURBS
 will cost, and nothing else here does.
 
@@ -465,7 +464,7 @@ an `Arrangement` and a face position.
 
 The published surface is what `lib.rs` `pub use`s, everything under `topology/`
 and `geometry/` is `pub(crate)`, and every published name has a caller in
-`catcad` — §10's first rule read off the crate boundary rather than asserted.
+`catcad` — §9's fourth rule read off the crate boundary rather than asserted.
 
 `Vertex` holds a position rather than the surfaces it stands at, because the
 surfaces are only worth holding once a vertex can be re-derived from them
@@ -517,7 +516,7 @@ coordinates are counts of cells — a run of *exactly* one cell comes out an ulp
 over as often as under, and cutting one that is over asks to be cut for ever.
 
 **One surface reads a term rather than deriving it.** A ruled patch's second
-edge has no bend written down — §9.6 — so `Gusset::straying` bounds two of its
+edge has no bend written down — §7.7 — so `Gusset::straying` bounds two of its
 three terms and *probes* the third, three shares of a chord as a marched curve
 is probed. The counting, the grid and `Refining` are unchanged. What is weakened
 is that a face on that one surface can be coarser than its sagitta claims, by
@@ -543,29 +542,28 @@ more.
 chords rather than a curve they stand for, so a step between two of them lands
 on a chord and off both surfaces — `Curve::divisible` is that reading.
 
-**What it mends is the ruled patch**, whose straight side is a whole ruling
-arriving as a single chord because a line is exact however coarsely it is cut.
-Its own rule asks for one piece where the grid wants seventy-two. Measured at a
-reach of a half, the worst triangle went from `7.6e-3` at every sagitta to
-`5.5e-3`, `6.9e-4` and `5.3e-4` at a hundredth, a thousandth and a
-ten-thousandth — the last being the `3.9e-4` its walked edge carries and no
-finer. **A face on it also covers `0.4362` where it used to cover `0.4470`**,
-and a quadrature over the surface's own parameters agrees with the new one: the
-coarse boundary was not merely rough, it was two and a half per cent too large.
+**The ruled patch is what wants it most**, its straight side being a whole
+ruling that arrives as a single chord because a line is exact however coarsely
+it is cut — one piece where the grid wants seventy-two. Measured at a reach of a
+half, the worst triangle then stands `5.5e-3`, `6.9e-4` and `5.3e-4` off at a
+sagitta of a hundredth, a thousandth and a ten-thousandth, the last being the
+`3.9e-4` its walked edge carries and no finer. A face on it covers `0.4362`, and
+a quadrature over the surface's own parameters agrees — which a boundary chorded
+by its curves alone did not, by two and a half per cent.
 
 **A sphere gains a little and had nothing to mend.** Its cell is a chord over
 the square root of two while its meridians arrive chorded at the whole width, so
 a run of its boundary does reach over more than a cell — but `Refining` asks a
 condemned triangle outright, and `Natural::straying` for a sphere is the true
 distance rather than a bound, so none of them was ever past the sagitta.
-Measured on a ball of radius one: `0.99` of the sagitta before and `0.89` after,
-for nineteen per cent more triangles.
+Measured on a ball of radius one, the worst stands `0.89` of the sagitta off,
+for nineteen per cent more triangles than the curves alone would ask for.
 
 **And it costs a remesh time.** A face asks its surface for the grid once per
 edge per trace, and a ruled patch's `strides` is a doubling probe rather than a
 division — so the notched body above remeshes in `9.0 ms` at a sagitta of a
-ten-thousandth where it took `6.1 ms`, an eighth of which is the extra triangles
-and the rest the reading. It falls on an edit rather than on an orbit, the
+ten-thousandth, a third of that being the reading and the rest the mesh. It
+falls on an edit rather than on an orbit, the
 picture being gated on what it was made from, and at the sagitta a camera asks
 for at arm's length the whole body is about a millisecond.
 `Surface::singular` says where, and `Face::flatten` writes such a corner twice,
@@ -635,7 +633,7 @@ boolean has to know before it can decide which of two flush faces survives, and
 there is no crease between two faces, better than comparing two surface
 descriptions — two planes can be one plane and not be the same `Plane`.
 
-**Fitted ∩ anything is marched**, and only the torus, the ruled patch §9.6
+**Fitted ∩ anything is marched**, and only the torus, the ruled patch §7.7
 raises and NURBS reach it. Here
 the literature's warnings apply in full and none will be found by testing: every
 branch found, not just the one the march started on; **small closed loops**,
@@ -690,6 +688,18 @@ surfaces answers those the way an exact one does: how far the place stands from
 the other surface, in closed form, with a crossing found by bisecting it. Only
 the three that lay corners down want the run at all.
 
+**Two meetings are refused, and they are one shape.** A bitangent plane on a
+torus cuts Villarceau's two circles, which cross at both places it touches the
+tube; a cylinder tangent to a ball meets it in one loop crossing itself,
+`h = ±2√(dr)·sin(θ/2)` in the cylinder's own angle. Both are a meeting with a
+*node* on it — a place the two surfaces lie tangent and cross — and the four
+sectors round a node alternate, so what a boolean would have to hand back is two
+lobes of material meeting at a point. That is not a body §4.4 holds. Measured
+for the tangent pair: inside the rod is `x ≥ −2 + z²/4` and outside the ball is
+`x ≤ −2 + (z² + y²)/6`, which is empty unless `y² ≥ z²/2` — two lobes and the
+point between them. So both are refused because the answer does not exist,
+rather than because a routine is missing.
+
 ### 7.4 Boolean — four stages, all precedented
 
 Intersect every candidate face pair (bounding-box filtered) → imprint the
@@ -716,7 +726,7 @@ of *both* faces that edge bounds — `Surface::reaches` is a ball round the box
 against the surface's own distance to its middle, coarse in the direction that
 only costs work. Cutting further than necessary costs nothing in the *answer*,
 §4.4's smooth-edge flag and §5's naming already handling a face in several
-patches. What it costs in time is §11, and it is the whole of what a boolean
+patches. What it costs in time is §10, and it is the whole of what a boolean
 spends.
 
 **Asking it of the faces instead is the one thing that looks sound and is not**,
@@ -748,11 +758,20 @@ tangent bores: the two halves meet along that line and nowhere else, which is
 not a body §4.4 holds. The sweep asserts the refusal rather than working around
 it.
 
+**One meeting is refused because the cut for it is not written.** A face whose
+own parameters have no straight line for a meeting is cut by the curve *walked*
+instead — but a traced cut samples a whole turn of the curve's parameter and
+orders places by how far round they stand, which an open curve has not got. A
+line lies on a plane, a cylinder or a cone and the first two hold it outright;
+the two open conics lie on a plane and a cone and only the plane holds them. So
+what reaches the walk and is turned away is an **open conic on a cone**, and it
+is turned away for want of a routine rather than for want of an answer.
+
 **And the pieces a cut leaves are merged at output, never in the answer.** A
 face cut by *n* surfaces comes back in *n* or more regions, nearly all kept;
 they share a surface, a name and a way to face, so §5 already calls the set one
 face of the body — but the count is what everything after the cutting is
-proportional to, and §11 measures it at sixty-eight times the shape's own.
+proportional to, and §10 measures it at sixty-eight times the shape's own.
 `Merging::merge` writes a *second* body with the pieces put back together, and
 the document keeps the split answer to build its next step on.
 
@@ -991,6 +1010,12 @@ same junction where two of them meet. `Bevel` is the one field that tells them
 apart, and **the crease flag is read rather than stated** — `Face::smooth` at
 every edge the rounding mints, which is what the checking holds it against.
 
+**A corner three picks do not agree about is refused.** A rolling ball stays on
+one side of the material throughout, so a corner where one of the three edges is
+convex and another concave wants a blend whose radius *moves* along it — which
+is a surface neither tier holds. The pair that disagree is answered, §7.7, and
+the triple is not.
+
 **Where three flat picks meet, the corner is a star and holds no face.** A
 chamfer is a plane, so the three cross at one point — one linear system, exact,
 and refused only where two of them run parallel. Three *cylinders* of one radius
@@ -1046,8 +1071,9 @@ whatever the wedge angles are, their common perpendicular lies along that face's
 own normal, and the two cylinders touch at its middle. That middle is where the
 two rails cross on the shared face. So a disagreeing pair meets at a point and
 along no curve at all, there is nothing to trim either against, and what goes
-between them is a face of its own — §9.6, which is the one thing in this
-document waiting on a surface rather than on a routine.
+between them is a face of its own — §7.7, which is where both bevels are
+argued. The two leave the same three corners and part company on the surface:
+two cylinders want a ruled patch and two planes want a triangle.
 
 **The patch is named by the three picks that met**, in order — `Grown::Cornered`
 — which is `Grown::Rounded`'s own argument one step further. A corner is less of
@@ -1092,6 +1118,370 @@ the rule for as long as nothing asked. What caught it was writing the check, not
 reading the code.
 
 ---
+
+### 7.7 The corner two picks do not agree about
+
+**One edge cut into and another filled in, meeting at a corner.** A step's floor
+takes a fillet where the riser stands on it and a round where the end wall cuts
+it off, and the two picks meet at the corner the three faces share. Both bevels
+are answered: a ruled patch where the picks are rounded, and a triangle where
+they are chamfered.
+
+**The two blends touch at one point and along nothing** — §7.5 derives it — and
+neither the wedge angles nor the reach move any of it. Over square, leaning and
+swung corners at two reaches the axes read `2r` apart to the last bit, and the
+rail crossing read a reach off both axes to the last bit.
+
+**So the gap is three-sided, and its corners are already computable.** The touch
+point is one. The other two stand on the line where the planes of the two faces
+the picks do not share cross — the unpicked third edge's own line, which the
+fillet's rail on the riser reaches and the round's rail on the wall reaches
+again. So the third side is a piece of that line rather than a curve drawn
+across a face, and the patch's own boundary is straight there. Nothing wants a
+routine that does not exist: `Met::of` is the touch point already, a rail
+against a plane is one division, and the third is where the ruling from the
+second lands.
+
+**And no quadric fills it, which is a proof rather than a search.** A quadric
+tangent to a quadric *along a curve* meets it in a doubled plane conic, so a
+quadric patch would be `Σ_A + a·L_A²` and `Σ_B + b·L_B²` at once — and
+`Σ_A − Σ_B` would have to be `b·L_B² − a·L_A²`. It cannot be. Written about the
+touch point, the difference is `(X̃cos γ + Ỹ sin γ)² − Ỹ² − 4rZ`, whose linear
+term along the shared face's normal only a pair of forms reaching along that
+normal can make — and matching the quadratic part then forces those two forms
+parallel, which leaves rank one where the difference needs rank two. The rank
+drops only when `cos γ` is nought, which is the two edges running parallel and
+so no corner at all. Searched as well as proved: over the same six corners the
+nearest `b·L_B² − a·L_A²` leaves between a fifth and a half of the difference it
+is trying to be. **Nor a cyclide**, the classical exact blend between two
+natural quadrics, which wants the two axes coplanar where these two are skew by
+exactly `2r`.
+
+**What fills it is ruled, and its join to both blends is exact.** A patch
+tangent to both along its own two edges has every ruling lying in both tangent
+planes — so the ruling from a place on the fillet is the line that lies in the
+fillet's tangent plane there and runs tangent to the round's cylinder. Where it
+lands is two statements and both are written down: `(p − c)·m + r = 0` for the
+angle, a first harmonic and so one `acos`, and one linear equation for how far
+along the axis. So the whole family is closed form, and the two joins are
+**exact rather than fitted**. Measured over the same six corners, every ruling
+lies in both tangent planes to the last bit, and both of its ends lie on their
+own cylinder to the last bit again.
+
+**A place on the fillet has two tangent lines, and the patch takes one
+throughout.** `acos` answers a pair, and near the touch point the two close on
+each other — so nothing read at a place tells them apart there, and taking the
+shorter one flips branch under rounding. The bit is settled once, at the far
+end, and carried: which of the two axes runs which way decides it, and the
+rounding does not choose how a cylinder was framed.
+
+**The far corner falls out rather than being chosen.** The ruling from where the
+first edge starts lands on the round's *other* rail — the one on the wall — to
+the last bit, in every corner measured. So the gap's third corner is the
+construction's own answer, and only the first edge is a choice.
+
+**So this is not the NURBS §4.1 held a place for.** What the tier gains is a ruled surface whose two edges lie on the
+blends it joins, and whose ruling is a division rather than a fit.
+
+**One edge is a conic and the other never is.** The family has a free function
+in it: any curve on the fillet from its rail on the riser to the touch point
+picks out one patch, and the boundary on the round follows from it. Taking the
+first as a plane section makes that edge an exact ellipse — and the second is
+then not planar. Over the whole pencil of planes through the edge's two ends
+the second edge stands between a seventeenth and a tenth of its own size out of
+flat, and never approaches nought. So that edge is *walked* and carries its
+stray, which is §7.5's rim arc again rather than a case of its own. It is also
+what puts the patch in the fitted tier although both of its joins are exact.
+
+**The plane taken leaves the touch point square to the blend's own rulings.**
+Both edges leave that point in the shared face's plane, that plane being what
+the two blends are tangent to there — so the two would run out along one
+direction and leave a cusp if either were taken along its own blend instead.
+Square to the rulings is the one reading that leaves a corner, and it is a
+choice the plan makes rather than one the geometry forces.
+
+**And the tip is a point rather than a side**, which is why the gap is
+three-sided and not four: the ruling shrinks to nothing at the touch point and
+the patch closes there the way a cone closes at its apex.
+
+**The tip is nought over nought, and both halves are known.** How far along the
+round's axis the ruling lands divides by `d·m`, the round's axis against the
+fillet's radial — nought exactly at the touch point, the round's axis lying in
+the shared face and the fillet's radial there being that face's own normal. What
+it divides vanishes with it, so the limit stands. A reader asking at the tip is
+asking at the one place the parameters say nothing, and every route to a place
+goes through the one reading that writes it.
+
+**And it inverts in closed form**, so §4.7's promise survives this surface
+untouched. Every ruling lies in a tangent plane of the fillet and those planes
+are one family, so a place off that cylinder stands in exactly two of them —
+`(x − o)·m = r`, one harmonic in the angle. No Newton solve after all.
+
+**The flat pair leaves the same gap and a far simpler filling.** Two chamfers
+that disagree are planes, and two planes always cross — but the line they cross
+in leaves one strip going one way and the other going the other, so the two
+faces touch at the one point their rails cross and nowhere else, the same as the
+two cylinders. The ruled construction does not reach it, a patch tangent to a
+*plane* along a curve being that plane; and it is not wanted, because a chamfer
+creases against everything it meets. So the filling owes its neighbours nothing
+but their shared corners, and three points name one plane.
+
+**Its three corners are the round pair's own**, none of them depending on what
+runs between the blends — so one record serves both bevels and the bevel decides
+only the surface and the two curves that join it. Both of those are straight
+lines here, and the answer stays in the *exact* tier where the round one leaves
+it.
+
+**And the plane runs through the corner it swallows rather than cutting it
+off.** That corner sits at the middle of the patch's own straight side, a reach
+either way along the third edge's line, so the triangle bisects the wedge the
+two unshared faces leave. Held on the notch's step corner at four reaches: the
+answer is eleven faces, genus 0, exact, and `48 + r²` of volume — the fill's
+prism down the whole reflex edge less the cut's down the whole convex one, the
+corner adding nothing to either.
+
+**A ray is answered in closed form, and six is the most it is answered.** A ray
+meets a ruled surface where it lies in a plane with a ruling, which here is one
+equation in the fillet's own angle: the ray picks one direction out of the
+fillet's tangent plane, and the two lines there running tangent to the round are
+the roots of a quadratic form on that plane — so putting the ray's own direction
+into the form asks about both tangents at once and takes no root that would tell
+them apart. What that is, is a harmonic, and its degree was the whole question.
+
+**Degree four rather than six, and the cancellation is exact.** Counting
+harmonics gives six: the head runs round an ellipse, so the direction the ray
+picks is second order and the round's own terms are second order again. But the
+linear form the tangency is written in — `(q − head)·(D × m)`, with `D` the
+direction the ray picks — drops a whole harmonic. Its top term is a difference
+whose two halves are equal: with `ε = (e₁ − ie₂)/2`, which is isotropic, both
+come to `−i r²(κ/L)·det[d, ε, w]·det[d, ε, m]`, so the difference is nought.
+Measured over two hundred random corners, the two halves agree to twelve places
+and the harmonics above the fourth read fourteen orders below the first.
+
+**And the tip takes two of the eight, whatever the ray.** The tangent plane at
+the tip is the face the two blends share, and that face is tangent to the round
+— so every line in it runs tangent to the round, and the equation is satisfied
+there by every ray at all. It is a *doubled* root and not a crossing: the
+reading falls as the square of the angle off the tip, to two decimal places over
+six decades. Divided out — `1 − cos(u − u_tip)` is one harmonic with a double
+root at the tip and nowhere else, and the division leaves no remainder — what is
+left is a harmonic of degree three. **So a ray is answered six times at most**,
+which is what `Crossings` was widened to carry.
+
+**Solved on a line, and the cut in the turn is why it terminates.** Seven
+readings fix a harmonic of degree three; the half-angle tangent then takes it to
+a sextic, where fencing at the roots of the derivative runs out because a
+derivative on a *line* drops a degree where one on a circle does not — Rolle
+puts a root between every two roots of what it came from, so on a circle the
+fencing never ends. `math/harmonic.rs` is that routine, and it knows nothing
+about corners.
+
+**Which tangent a root belongs to is a comparison and not a bound**, the ray
+standing clear of the one it does not meet. And a ray is answered about the
+*patch* rather than about the whole ruled surface: this one closes at the tip
+and runs out where its blends do, so a crossing past either end of a ruling
+would be a place a hundred million reaches out that no face holds and the
+inversion cannot read back.
+
+**A bounded surface carries no extent, it walks one.** Every other surface in
+either tier is unbounded, so `Fitted::spans` has never had to ask a surface how
+far it reaches. Storing a box is the shape `Marched` suggests and it is the
+wrong one here: a box is a reading of a walk at some fineness, so two patches
+that are one patch would compare unequal for having been measured differently,
+and `Gusset` would stop being constructible from geometry alone. Identity stays
+over the four things a patch is made of.
+
+**`straying` answers on a reduction that is exact and one term that is probed.**
+§7.2 makes the sagitta *a promise rather than a hope*, and a ruled patch keeps
+that whole mechanism while weakening one reading inside it.
+
+**The triangle reduces to its three sides, exactly.** The patch is affine in `v`
+and a triangle's own plane is affine in both, so the difference is affine in `v`
+— and over a run of the triangle at one angle its greatest stands at an end,
+which is on the triangle's boundary. A side at one angle is nought at both its
+corners and affine between, so it is nought throughout. **So a triangle strays
+by the worst of its three sides**, which is the reading `Surface::straying`
+already names by letting a caller pass one corner twice. No bilinear
+interpolant, no twist term added on top of one, and nothing about how a triangle
+leans.
+
+**And a side reduces to the two edges and a turn.** A side runs at `v` affine in
+`u`, so it is `(1 − v(u))·head(u) + v(u)·foot(u)`. Against the quadratic
+blending the two edges' own *chords* the same way it stands no further than the
+worse of the two edges' sagittas — and that quadratic leaves its own chord by
+exactly `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. Both agree with the side at
+either end, so the two chords are one chord and the readings add:
+
+    side ≤ max(head sagitta, foot sagitta) + Δv·|d(u₁) − d(u₀)|/4
+
+The head's sagitta is a **bound**, the first edge being the image of the unit
+circle under a pair of vectors. The ruling's turn is **exact**, and two
+evaluations. The foot's sagitta is **probed**. *Tried and wrong:* carrying the
+walk's own stray and using it here — a walk's stray bounds the foot against its
+*own* chords, not against a cell's chord spanning several of them, and a
+triangle over a quarter of the arc reaching the tip strays `0.697` where that
+bound reads `0.168`.
+
+**What stands in the way of the third being a bound is one supremum.** The foot
+is analytic on the patch — `√(D² − r²)` has a *double* zero at the tip, the
+head's ellipse lying outside the round everywhere else, so the square root is
+smooth on the patch's own side — and a sagitta over a stretch `h` is at worst
+`h²/8` of the second derivative. But the foot is `c + m·z(u) + r·n(u)` with `z`
+a quotient whose divisor vanishes at the tip and `n` carrying that square root,
+so bounding `z″` and `φ″` wants the supremum of a function that is algebraic and
+not polynomial. Every route tried reduces to that same supremum: interpolation
+error, arc length against chord, a cylindrical box round the foot. The one exit
+is algebraic — under `t = tan(u/2)` the foot lies in a quadratic extension of
+the rationals, so the extremes of `|foot″|` are roots of a resultant
+`Polynomial` already isolates — and it is a derivation of its own size.
+
+**So it is probed, and here is what that costs.** A face on this one surface can
+be coarser than its sagitta claims, by however much the probe understates a bend
+between its own three shares. Nothing else in either tier reads a term rather
+than deriving it. Against that: the kernel already trusts this same probe for
+every marched edge in a drawing; the field's own procedural tessellators measure
+the *whole* surface where this measures one of three terms; and a kernel that
+pushed the patch to NURBS first would bound the approximant rather than the
+patch. The alternative is that the corner goes on refusing.
+
+**`strides` halves the sagitta between the two terms a side adds** — the angle
+takes one and the run along the ruling the other — and the angle's step is the
+one the export's own net is laid at, so a face and the file it goes out in are
+cut by one rule.
+
+**A marched run may be open, which this edge needs.** A march round a meeting
+lays its first place down again at the end; this one runs from the first ruling
+to the tip and stops. Whether a run comes back is *read off the walk* rather than
+declared — bit for bit, so no caller can file a run as closing that does not —
+and that reading is what `Curve::closed` answers for the arm, what holds a
+parameter at an end rather than carrying it round, and what the export's own
+closing flag says.
+
+**`settle` splits on whether the two picks agree**: one convexity crosses in an
+ellipse and leaves no face, one of each leaves the patch, and `Filled::Gusseted`,
+`Ending::Gusseted` and `Grown::Gusseted` carry it the rest of the way. The
+notch's step corner rounds at a reach of a half into eleven faces, genus 0, and
+`Checking` holds the whole of it.
+
+**Three readings answer differently for this surface than for any other**, and
+each is a reading a caller has to take from the surface rather than assume.
+
+- **A singular place frees one parameter and holds the other, and which is
+  which is the surface's to say.** A cone's apex and a sphere's pole stand at
+  one height and every angle; a ruled patch's tip is the other way about, one
+  angle and every run along the ruling. `Surface::freed` answers it, and
+  `Face::flatten` varies the one it names.
+- **The tip has nothing to divide by.** Every run names it, the ruling having
+  closed, so the one `Gusset::uv` reads back there is nought and
+  `Surface::singular` is what says so.
+- **The nearest place is sought to a thousand-millionth of the arc.** An edge is
+  held to `PLACED` of the surfaces it lies between, and a coarser search could
+  answer for no face at all. Sixteen angles over ten rounds reach it, at a
+  hundred and seventy rulings a call.
+
+**The two joins read as the tangency they are, and the room is derived.**
+`Face::smooth` reads a normal off each face at a place *on the curve*, which for
+a marched edge is a place on a chord and so a place on neither surface — and a
+place the machine wrote down is off by its own rounding besides. Each surface is
+now asked what it turns its normal by over that walk, and the two answers and
+`ALIGNED` are the room. `Surface::wavering` is the reading, `Curve::strays` and
+`predicate::slack` are the walk, and a bare constant is what it replaced.
+
+**A ruled patch turns its normal by a square root of the walk, where every
+quadric turns by a proportion.** `Gusset::uv` reads the angle as a bearing about
+the fillet's axis less an `acos` of the radius over the distance from it, and
+that `acos` is square-root singular where a place lies on the fillet itself:
+`d(acos)/dh` is at most `1/√(2r(h − r))`, so a walk of `off` moves the angle by
+at most `√(2·off/r)`, and the bearing by `off/r` besides. A reach of one and a
+walk of a hundred-millionth is `1.4142e-4`, four orders above the walk — which
+is why `ALIGNED` could not tell that join from a wedge, and why quadrupling the
+walk doubles the room rather than quadrupling it.
+
+**The room is derived and the turn across it is read**, which is §4.1's bargain
+with this tier one more time: the parameter box a walk of `off` can land in is
+written down, and the normal is read at its four corners. A quadric writes both
+halves down — a plane turns by nothing, a cylinder and a sphere by `off/r`, a
+cone by `off·cos α/d` read at the *place* rather than at a radius it has one of
+per height, a torus by `off` over the tighter of its tube and what the ring
+leaves inside. Held as a bound and not as a number: a place actually moved by
+`off` and inverted back reads a normal no further than the answer said it could
+be, over both corners and twelve directions at each place.
+
+**And the straight side stays a crease, which it is.** It is a ruling with the
+cut blend's unshared face across it, so the patch's normal swings from one
+blend's to the other's along it. The notch's step corner comes back one crease
+and two joins where it came back three creases.
+
+**The mesher cuts a face on one, and what it cuts follows the patch.** Every
+corner lands on it to within what the body says it strays — an inside corner is
+evaluated on the surface, and a boundary corner is a place on a chord of the
+walked second edge, which is what the body's exactness is measured by anyway. A
+face at a reach of a half covers `0.4362`, and a quadrature over the surface's
+own parameters agrees, which is what says the mesh follows the surface rather
+than merely repeating itself.
+
+**Its straight side is why §7.2 chords an edge by its faces rather than by its
+curve.** The side is a whole ruling, and a line is exact however coarsely it is
+cut, so its own count is one piece where the patch's grid wants seventy-two —
+and a face's boundary is the one run no pass may cut.
+
+**What is left after that is the walked edge**, which cannot be laid down again.
+A triangle carrying one of its chords is as wide as that chord, so the mesh
+settles at what the *body* declares rather than at what was asked for. Measured
+at a reach of a half: `5.5e-3` of a sagitta of a hundredth, `6.9e-4` of a
+thousandth and `5.3e-4` of a ten-thousandth, the last being the `3.9e-4` the
+walk carries.
+
+**And the cost is a doubly curved surface's, not a blend's.** At a sagitta of a
+ten-thousandth the patch is 148 cells round by 72 along the ruling and comes out
+52,407 triangles, against the 87 and 96 of the two blends it joins — a blend
+being a cylinder, which rules one way and needs no line across it, where a
+ruling that twists wants a grid. The floor is `span·|d′|/(4·sagitta)` cells
+whatever the grid, the twist term alone, so no split of the sagitta between the
+two terms buys an order. At the sagitta a camera asks for at arm's length it is
+a few thousand triangles.
+
+**The route reads a disagreeing pair off the plan.**
+`Planning::gusseting` reads a disagreeing pair off the plan: the filled blend first,
+which is what `Blend::outward` already says; the touch point from `Met::of`,
+which is where the two rails cross on the shared face; and the other two corners
+where each blend's rail on the face it does *not* share reaches the line the two
+unshared planes cross in, one division apiece. The branch is settled at the far
+end and carried — only one of the two tangents puts the first edge's own ruling
+on the far corner. Held on the notch's step at a reach of a half, where the
+three corners come to `(1.5, 0.5, −2)`, `(2, 0, −2.5)` and `(2, 0, −1.5)`, and
+the patch joins both cylinders to the last bit.
+
+**Its walked side is filed as an open run.**
+`Planning::gusseting` builds the record and hands the walk to `Marchings::add`,
+which reads off the places that the run does not come back. The edge leaves the
+third corner, runs round the cut blend and stops at the tip.
+
+**Two of its three sides are written down.** The edge on the filled blend is
+the fillet's own section by the plane the first edge is cut by — an exact
+ellipse `Meeting::of` gives, off `Gusset::sectioning` — and the arc of the two
+that is the patch's own is the one whose middle the patch holds. The straight
+side is a line between the second corner and the third. The edge on the *cut*
+blend is the one nothing writes down: it is walked and filed as an open run.
+
+**And that straight side is one new edge rather than a split.** The third edge
+of the body is cut back to the filled blend's corner by the reading every other
+cut back already takes, held to landing strictly inside the edge. What is left
+between that corner and the cut blend's — which stands a reach the *other* side
+of the body's own corner, on no edge at all — is the patch's straight side, with
+the cut blend's unshared face across it. **And the two blends' end closures go
+away**: each closes against the patch along one of its curved sides rather than
+across the face beyond the corner. `Filled::Gusseted` and `Ending::Gusseted`
+carry that, `Grown::Gusseted` names the face, and the side goes into its loop
+between the cut blend's rail and the edge cut back beside it — all of it the
+same for either bevel, which is what one record buys.
+
+**The export writes a net.** A ruled patch has no analytic entity, so it goes out as
+a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.
+One of the two degrees is *exact* — a ruling is a straight line, so two places
+hold one to the last bit — and the whole of the fitting runs along the turn.
+What the net costs is declared in the file's own accuracy, as a chorded curve's
+already is.
 
 ## 8. The document
 
@@ -1170,435 +1560,28 @@ on has to be one. Names come out in the order the faces were made, so tags are
 stable across a rewrite. Vertex normals come from the surface, not from the
 mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
-## 9. The milestones, in the order they were taken
-
-**The order was §10's first rule applied.** A case a document can already reach
-came before one nothing produces, whatever either cost — a refusal a user meets
-is worse than a routine nobody has written.
-
-**M0 through M8 are in the tree, and nothing is left on this list.** The reason
-each piece works is in the code that does it. What they came to:
-
-- **M6a** — a boolean over a surface whose parameters run out. A ball and a cone
-  can be cut, poles and apexes included, and a meeting the face's own parameters
-  have no straight line for is cut by the curve *walked* rather than refused.
-  Only the classification is walked; the edge keeps the exact curve the meeting
-  gave.
-- **M6b** — merging what one cut split, at output rather than in the answer.
-  §7.4 is the rule and why it cannot move earlier.
-- **M6c** — the two conics a cone refused, so a flat mills down a taper. It also
-  made a revolve's planar wall one face rather than a third of a turn: a disc's
-  parameters do not wrap, so it needs no seam.
-- **M6d** — the section a cone's own apex leaves: two rulings, one where the
-  plane lies tangent, or the apex alone. `cos α / s` is the whole
-  classification.
-- **M7** — fillet, chamfer and STEP. §7.5 is the routine; `Stepping` is the
-  export.
-- **M8** — the corner two picks do not agree about, which §9.6 argues in full.
-  It also grew §7.2 a rule: an edge is chorded as finely as the finer of its two
-  faces asks, rather than as finely as its own curve does.
-
-So the plane row of §7.3's table has no gap in it. What is left of the kernel is
-what §11 says it costs and what the two refusals below say cannot exist.
-
-**Two refusals stand outside all of it, and they are one shape.** A bitangent
-plane on a torus cuts Villarceau's two circles, which cross at both places it
-touches the tube; a cylinder tangent to a ball meets it in one loop crossing
-itself, `h = ±2√(dr)·sin(θ/2)` in the cylinder's own angle. Both are a meeting
-with a *node* on it — a place the two surfaces lie tangent and cross — and the
-four sectors round a node alternate, so what the boolean would have to hand back
-is two lobes of material meeting at a point. That is not a body §4.4 holds.
-Measured for the tangent pair: inside the rod is `x ≥ −2 + z²/4` and outside the
-ball is `x ≤ −2 + (z² + y²)/6`, which is empty unless `y² ≥ z²/2` — two lobes
-and the point between them. So both are refusals because the answer does not
-exist, rather than because a routine is missing, and neither is in
-`.notes/ISSUES.md`.
-
-### 9.6 M8 — the corner the picks do not agree about
-
-**One edge cut into and another filled in, meeting at a corner.** A step's floor
-takes a fillet where the riser stands on it and a round where the end wall cuts
-it off, and the two picks meet at the corner the three faces share. Both are
-ordinary picks a document reaches today, so §10's first rule puts this above
-everything else left — and what a user meets there is a refusal.
-
-**The two blends touch at one point and along nothing** — §7.5 derives it — and
-neither the wedge angles nor the reach move any of it. Over square, leaning and
-swung corners at two reaches the axes read `2r` apart to the last bit, and the
-rail crossing read a reach off both axes to the last bit.
-
-**So the gap is three-sided, and its corners are already computable.** The touch
-point is one. The other two stand on the line where the planes of the two faces
-the picks do not share cross — the unpicked third edge's own line, which the
-fillet's rail on the riser reaches and the round's rail on the wall reaches
-again. So the third side is a piece of that line rather than a curve drawn
-across a face, and the patch's own boundary is straight there. Nothing wants a
-routine that does not exist: `Met::of` is the touch point already, a rail
-against a plane is one division, and the third is where the ruling from the
-second lands.
-
-**And no quadric fills it, which is a proof rather than a search.** A quadric
-tangent to a quadric *along a curve* meets it in a doubled plane conic, so a
-quadric patch would be `Σ_A + a·L_A²` and `Σ_B + b·L_B²` at once — and
-`Σ_A − Σ_B` would have to be `b·L_B² − a·L_A²`. It cannot be. Written about the
-touch point, the difference is `(X̃cos γ + Ỹ sin γ)² − Ỹ² − 4rZ`, whose linear
-term along the shared face's normal only a pair of forms reaching along that
-normal can make — and matching the quadratic part then forces those two forms
-parallel, which leaves rank one where the difference needs rank two. The rank
-drops only when `cos γ` is nought, which is the two edges running parallel and
-so no corner at all. Searched as well as proved: over the same six corners the
-nearest `b·L_B² − a·L_A²` leaves between a fifth and a half of the difference it
-is trying to be. **Nor a cyclide**, the classical exact blend between two
-natural quadrics, which wants the two axes coplanar where these two are skew by
-exactly `2r`.
-
-**What fills it is ruled, and its join to both blends is exact.** A patch
-tangent to both along its own two edges has every ruling lying in both tangent
-planes — so the ruling from a place on the fillet is the line that lies in the
-fillet's tangent plane there and runs tangent to the round's cylinder. Where it
-lands is two statements and both are written down: `(p − c)·m + r = 0` for the
-angle, a first harmonic and so one `acos`, and one linear equation for how far
-along the axis. So the whole family is closed form, and the two joins are
-**exact rather than fitted**. Measured over the same six corners, every ruling
-lies in both tangent planes to the last bit, and both of its ends lie on their
-own cylinder to the last bit again.
-
-**A place on the fillet has two tangent lines, and the patch takes one
-throughout.** `acos` answers a pair, and near the touch point the two close on
-each other — so nothing read at a place tells them apart there, and taking the
-shorter one flips branch under rounding. The bit is settled once, at the far
-end, and carried: which of the two axes runs which way decides it, and the
-rounding does not choose how a cylinder was framed.
-
-**The far corner falls out rather than being chosen.** The ruling from where the
-first edge starts lands on the round's *other* rail — the one on the wall — to
-the last bit, in every corner measured. So the gap's third corner is the
-construction's own answer, and only the first edge is a choice.
-
-**So this is not the NURBS §4.1 held a place for**, and no milestone here asks
-for one yet. What the tier gains is a ruled surface whose two edges lie on the
-blends it joins, and whose ruling is a division rather than a fit.
-
-**One edge is a conic and the other never is.** The family has a free function
-in it: any curve on the fillet from its rail on the riser to the touch point
-picks out one patch, and the boundary on the round follows from it. Taking the
-first as a plane section makes that edge an exact ellipse — and the second is
-then not planar. Over the whole pencil of planes through the edge's two ends
-the second edge stands between a seventeenth and a tenth of its own size out of
-flat, and never approaches nought. So that edge is *walked* and carries its
-stray, which is §7.5's rim arc again rather than a case of its own. It is also
-what puts the patch in the fitted tier although both of its joins are exact.
-
-**The plane taken leaves the touch point square to the blend's own rulings.**
-Both edges leave that point in the shared face's plane, that plane being what
-the two blends are tangent to there — so the two would run out along one
-direction and leave a cusp if either were taken along its own blend instead.
-Square to the rulings is the one reading that leaves a corner, and it is a
-choice the plan makes rather than one the geometry forces.
-
-**And the tip is a point rather than a side**, which is why the gap is
-three-sided and not four: the ruling shrinks to nothing at the touch point and
-the patch closes there the way a cone closes at its apex.
-
-**The tip is nought over nought, and both halves are known.** How far along the
-round's axis the ruling lands divides by `d·m`, the round's axis against the
-fillet's radial — nought exactly at the touch point, the round's axis lying in
-the shared face and the fillet's radial there being that face's own normal. What
-it divides vanishes with it, so the limit stands. A reader asking at the tip is
-asking at the one place the parameters say nothing, and every route to a place
-goes through the one reading that writes it.
-
-**And it inverts in closed form**, so §4.7's promise survives this surface
-untouched. Every ruling lies in a tangent plane of the fillet and those planes
-are one family, so a place off that cylinder stands in exactly two of them —
-`(x − o)·m = r`, one harmonic in the angle. No Newton solve after all.
-
-**And the flat pair is no easier, which is worth saying because it looks it.**
-Two chamfers that disagree are planes, and two planes always cross — but the
-line they cross in leaves one strip going one way and the other going the other,
-so the two faces touch at the one point their rails cross and nowhere else, the
-same as the two cylinders. Nor does the ruled construction reach it: a patch
-tangent to a *plane* along a curve is that plane. So a flat corner wants its own
-answer, and this milestone does not carry one.
-
-**A ray is answered in closed form, and six is the most it is answered.** A ray
-meets a ruled surface where it lies in a plane with a ruling, which here is one
-equation in the fillet's own angle: the ray picks one direction out of the
-fillet's tangent plane, and the two lines there running tangent to the round are
-the roots of a quadratic form on that plane — so putting the ray's own direction
-into the form asks about both tangents at once and takes no root that would tell
-them apart. What that is, is a harmonic, and its degree was the whole question.
-
-**Degree four rather than six, and the cancellation is exact.** Counting
-harmonics gives six: the head runs round an ellipse, so the direction the ray
-picks is second order and the round's own terms are second order again. But the
-linear form the tangency is written in — `(q − head)·(D × m)`, with `D` the
-direction the ray picks — drops a whole harmonic. Its top term is a difference
-whose two halves are equal: with `ε = (e₁ − ie₂)/2`, which is isotropic, both
-come to `−i r²(κ/L)·det[d, ε, w]·det[d, ε, m]`, so the difference is nought.
-Measured over two hundred random corners, the two halves agree to twelve places
-and the harmonics above the fourth read fourteen orders below the first.
-
-**And the tip takes two of the eight, whatever the ray.** The tangent plane at
-the tip is the face the two blends share, and that face is tangent to the round
-— so every line in it runs tangent to the round, and the equation is satisfied
-there by every ray at all. It is a *doubled* root and not a crossing: the
-reading falls as the square of the angle off the tip, to two decimal places over
-six decades. Divided out — `1 − cos(u − u_tip)` is one harmonic with a double
-root at the tip and nowhere else, and the division leaves no remainder — what is
-left is a harmonic of degree three. **So a ray is answered six times at most**,
-which is what `Crossings` was widened to carry.
-
-**Solved on a line, and the cut in the turn is why it terminates.** Seven
-readings fix a harmonic of degree three; the half-angle tangent then takes it to
-a sextic, where fencing at the roots of the derivative runs out because a
-derivative on a *line* drops a degree where one on a circle does not — Rolle
-puts a root between every two roots of what it came from, so on a circle the
-fencing never ends. `math/harmonic.rs` is that routine, and it knows nothing
-about corners.
-
-**Which tangent a root belongs to is a comparison and not a bound**, the ray
-standing clear of the one it does not meet. And a ray is answered about the
-*patch* rather than about the whole ruled surface: this one closes at the tip
-and runs out where its blends do, so a crossing past either end of a ruling
-would be a place a hundred million reaches out that no face holds and the
-inversion cannot read back.
-
-**`Gusset` is in the tree**, with every reading of the tier answering for it and
-twenty-four tests over a square corner, a leaning one, and one framed so that
-its own turn runs past the half turn an inversion answers in.
-
-**A bounded surface carries no extent, it walks one.** Every other surface in
-either tier is unbounded, so `Fitted::spans` has never had to ask a surface how
-far it reaches. Storing a box is the shape `Marched` suggests and it is the
-wrong one here: a box is a reading of a walk at some fineness, so two patches
-that are one patch would compare unequal for having been measured differently,
-and `Gusset` would stop being constructible from geometry alone. Identity stays
-over the four things a patch is made of.
-
-**`straying` answers on a reduction that is exact and one term that is probed.**
-§7.2 makes the sagitta *a promise rather than a hope*, and a ruled patch keeps
-that whole mechanism while weakening one reading inside it.
-
-**The triangle reduces to its three sides, exactly.** The patch is affine in `v`
-and a triangle's own plane is affine in both, so the difference is affine in `v`
-— and over a run of the triangle at one angle its greatest stands at an end,
-which is on the triangle's boundary. A side at one angle is nought at both its
-corners and affine between, so it is nought throughout. **So a triangle strays
-by the worst of its three sides**, which is the reading `Surface::straying`
-already names by letting a caller pass one corner twice. No bilinear
-interpolant, no twist term added on top of one, and nothing about how a triangle
-leans.
-
-**And a side reduces to the two edges and a turn.** A side runs at `v` affine in
-`u`, so it is `(1 − v(u))·head(u) + v(u)·foot(u)`. Against the quadratic
-blending the two edges' own *chords* the same way it stands no further than the
-worse of the two edges' sagittas — and that quadratic leaves its own chord by
-exactly `Δv·|d(u₁) − d(u₀)|/4`, with `d` the ruling. Both agree with the side at
-either end, so the two chords are one chord and the readings add:
-
-    side ≤ max(head sagitta, foot sagitta) + Δv·|d(u₁) − d(u₀)|/4
-
-The head's sagitta is a **bound**, the first edge being the image of the unit
-circle under a pair of vectors. The ruling's turn is **exact**, and two
-evaluations. The foot's sagitta is **probed**. *Tried and wrong:* carrying the
-walk's own stray and using it here — a walk's stray bounds the foot against its
-*own* chords, not against a cell's chord spanning several of them, and a
-triangle over a quarter of the arc reaching the tip strays `0.697` where that
-bound reads `0.168`.
-
-**What stands in the way of the third being a bound is one supremum.** The foot
-is analytic on the patch — `√(D² − r²)` has a *double* zero at the tip, the
-head's ellipse lying outside the round everywhere else, so the square root is
-smooth on the patch's own side — and a sagitta over a stretch `h` is at worst
-`h²/8` of the second derivative. But the foot is `c + m·z(u) + r·n(u)` with `z`
-a quotient whose divisor vanishes at the tip and `n` carrying that square root,
-so bounding `z″` and `φ″` wants the supremum of a function that is algebraic and
-not polynomial. Every route tried reduces to that same supremum: interpolation
-error, arc length against chord, a cylindrical box round the foot. The one exit
-is algebraic — under `t = tan(u/2)` the foot lies in a quadratic extension of
-the rationals, so the extremes of `|foot″|` are roots of a resultant
-`Polynomial` already isolates — and it is a derivation of its own size.
-
-**So it is probed, and here is what that costs.** A face on this one surface can
-be coarser than its sagitta claims, by however much the probe understates a bend
-between its own three shares. Nothing else in either tier reads a term rather
-than deriving it. Against that: the kernel already trusts this same probe for
-every marched edge in a drawing; the field's own procedural tessellators measure
-the *whole* surface where this measures one of three terms; and a kernel that
-pushed the patch to NURBS first would bound the approximant rather than the
-patch. The alternative is that the corner goes on refusing.
-
-**`strides` halves the sagitta between the two terms a side adds** — the angle
-takes one and the run along the ruling the other — and the angle's step is the
-one the export's own net is laid at, so a face and the file it goes out in are
-cut by one rule.
-
-**A marched run may now be open, which the second edge needed.** Every run the
-kernel had filed until now was a march round a meeting, and one of those lays
-its first place down again at the end; this edge runs from the first ruling to
-the tip and stops. Whether a run comes back is *read off the walk* rather than
-declared — bit for bit, so no caller can file a run as closing that does not —
-and that reading is what `Curve::closed` answers for the arm, what holds a
-parameter at an end rather than carrying it round, and what the export's own
-closing flag says.
-
-**The route raises it, and the answer is a valid body.** `settle` splits on
-whether the two picks agree — one convexity crosses in an ellipse and leaves no
-face, one of each leaves the patch — and `Filled::Gusseted`, `Ending::Gusseted`
-and `Grown::Gusseted` carry it the rest of the way. The notch's step corner
-rounds at a reach of a half into eleven faces, genus 0, every corner where the
-arithmetic says, and `Checking` holds the whole of it.
-
-**Three readings had to grow to carry it, and each was a real gap.**
-
-- **`Face::flatten` doubled the wrong parameter.** A singular place leaves one
-  parameter free and holds the other, and until now every one of them was a
-  cone's apex or a sphere's pole — one height, every angle. A ruled patch's tip
-  is the other way about: one angle, every run along the ruling.
-  `Surface::freed` says which, and the writer varies that one.
-- **`Gusset::uv` divided by a ruling that had closed.** Every run names the tip,
-  so the one read back there is nought, and `Surface::singular` is what says the
-  parameters have nothing to divide.
-- **The nearest place was sought too coarsely to check against.** Sixteen angles
-  over six rounds left a millionth of the arc, where an edge is held to `PLACED`
-  of the surfaces it lies between. Ten rounds leave a thousand-millionth, at a
-  hundred and seventy rulings a call.
-
-**The two joins read as the tangency they are, and the room is derived.**
-`Face::smooth` reads a normal off each face at a place *on the curve*, which for
-a marched edge is a place on a chord and so a place on neither surface — and a
-place the machine wrote down is off by its own rounding besides. Each surface is
-now asked what it turns its normal by over that walk, and the two answers and
-`ALIGNED` are the room. `Surface::wavering` is the reading, `Curve::strays` and
-`predicate::slack` are the walk, and a bare constant is what it replaced.
-
-**A ruled patch turns its normal by a square root of the walk, where every
-quadric turns by a proportion.** `Gusset::uv` reads the angle as a bearing about
-the fillet's axis less an `acos` of the radius over the distance from it, and
-that `acos` is square-root singular where a place lies on the fillet itself:
-`d(acos)/dh` is at most `1/√(2r(h − r))`, so a walk of `off` moves the angle by
-at most `√(2·off/r)`, and the bearing by `off/r` besides. A reach of one and a
-walk of a hundred-millionth is `1.4142e-4`, four orders above the walk — which
-is why `ALIGNED` could not tell that join from a wedge, and why quadrupling the
-walk doubles the room rather than quadrupling it.
-
-**The room is derived and the turn across it is read**, which is §4.1's bargain
-with this tier one more time: the parameter box a walk of `off` can land in is
-written down, and the normal is read at its four corners. A quadric writes both
-halves down — a plane turns by nothing, a cylinder and a sphere by `off/r`, a
-cone by `off·cos α/d` read at the *place* rather than at a radius it has one of
-per height, a torus by `off` over the tighter of its tube and what the ring
-leaves inside. Held as a bound and not as a number: a place actually moved by
-`off` and inverted back reads a normal no further than the answer said it could
-be, over both corners and twelve directions at each place.
-
-**And the straight side stays a crease, which it is.** It is a ruling with the
-cut blend's unshared face across it, so the patch's normal swings from one
-blend's to the other's along it. The notch's step corner comes back one crease
-and two joins where it came back three creases.
-
-**The mesher cuts a face on one, and what it cuts follows the patch.** Every
-corner lands on it to within what the body says it strays — an inside corner is
-evaluated on the surface, and a boundary corner is a place on a chord of the
-walked second edge, which is what the body's exactness is measured by anyway.
-
-**And the straight side is what made §7.2 grow a rule.** It is a whole ruling
-and a line is exact however coarsely it is cut, so its own count is one piece
-where the patch's grid wants seventy-two — and a face's boundary is the one run
-no pass may cut. So an edge is now chorded as finely as the finer of its two
-faces asks, which is §7.2's, and it mends this surface rather than being a patch
-of it.
-
-**What is left after it is the walked edge**, which cannot be laid down again.
-A triangle carrying one of its chords is as wide as that chord, so the mesh
-settles at what the *body* declares rather than at what was asked for. Measured
-at a reach of a half: `5.5e-3` of a sagitta of a hundredth, `6.9e-4` of a
-thousandth and `5.3e-4` of a ten-thousandth, the last being the `3.9e-4` the
-walk carries. Before the rule it was `7.6e-3` at all three.
-
-**And the area was wrong by two and a half per cent.** A face on the patch
-covers `0.4362`, where the coarse boundary read `0.4470` and read it stably
-enough to look converged. A quadrature over the surface's own parameters agrees
-with the new number, which is what says the mesh follows the surface rather than
-merely repeating itself.
-
-**And the cost is a doubly curved surface's, not a blend's.** At a sagitta of a
-ten-thousandth the patch is 148 cells round by 72 along the ruling and comes out
-52,407 triangles, against the 87 and 96 of the two blends it joins — a blend
-being a cylinder, which rules one way and needs no line across it, where a
-ruling that twists wants a grid. The floor is `span·|d′|/(4·sagitta)` cells
-whatever the grid, the twist term alone, so no split of the sagitta between the
-two terms buys an order. At the sagitta a camera asks for at arm's length it is
-a few thousand triangles.
-
-**The patch itself is worked out, and every corner of it is measured.**
-`Planning::gusseting` reads a disagreeing pair off the plan: the filled blend first,
-which is what `Blend::outward` already says; the touch point from `Met::of`,
-which is where the two rails cross on the shared face; and the other two corners
-where each blend's rail on the face it does *not* share reaches the line the two
-unshared planes cross in, one division apiece. The branch is settled at the far
-end and carried — only one of the two tangents puts the first edge's own ruling
-on the far corner. Held on the notch's step at a reach of a half, where the
-three corners come to `(1.5, 0.5, −2)`, `(2, 0, −2.5)` and `(2, 0, −1.5)`, and
-the patch joins both cylinders to the last bit.
-
-**Its walked side is filed, and it is the first open run the kernel holds.**
-`Planning::gusseting` builds the record and hands the walk to `Marchings::add`,
-which reads off the places that the run does not come back. The edge leaves the
-third corner, runs round the cut blend and stops at the tip.
-
-**Two of its three sides are written down.** The edge on the filled blend is
-the fillet's own section by the plane the first edge is cut by — an exact
-ellipse `Meeting::of` gives, off `Gusset::sectioning` — and the arc of the two
-that is the patch's own is the one whose middle the patch holds. The straight
-side is a line between the second corner and the third. The edge on the *cut*
-blend is the one nothing writes down: it is walked and filed as an open run.
-
-**And that straight side is one new edge rather than a split.** The third edge
-of the body is cut back to the filled blend's corner by the reading every other
-cut back already takes, held to landing strictly inside the edge. What is left
-between that corner and the cut blend's — which stands a reach the *other* side
-of the body's own corner, on no edge at all — is the patch's straight side, with
-the cut blend's unshared face across it. **And the two blends' end closures go
-away**: each closes against the patch along one of its curved sides rather than
-across the face beyond the corner. That is the whole of the topology the route
-still owes, and what it wants is `Filled` and `Ending` arms of their own, a face
-named `Grown::Gusseted`, its three corners and three edges minted, and the side
-put into that face's loop between the cut blend's rail and the edge cut back
-beside it.
-
-**The export is done.** A ruled patch has no analytic entity, so it goes out as
-a `B_SPLINE_SURFACE_WITH_KNOTS` of degree one each way at the caller's sagitta.
-One of the two degrees is *exact* — a ruling is a straight line, so two places
-hold one to the last bit — and the whole of the fitting runs along the turn.
-What the net costs is declared in the file's own accuracy, as a chorded curve's
-already is.
-
 ---
 
-## 10. Rules of engagement
+## 9. Rules of engagement
 
 Either true of a commit or not.
 
-1. **The kernel never has a milestone without a consumer.** Every milestone
-   lands in CatCad. No milestone is "kernel-internal".
-2. **Prototype before integrating.** A routine whose shape is not yet known
-   gets a throwaway spike, outside the workspace, before a line of it is
-   written in `solid/`.
-3. **Validity is asserted, not hoped for.** Every operation runs `Checking` over
+1. **Prototype before integrating.** A routine whose shape is not yet known gets
+   a throwaway spike, outside the workspace, before a line of it is written in
+   `solid/`.
+2. **Validity is asserted, not hoped for.** Every operation runs `Checking` over
    what it just built, under `cfg!(debug_assertions)`. Every check it makes has
    a test that breaks a valid body one way and shows it caught.
-4. **No silent tolerance.** §4.1.
-5. **Every milestone is a stopping point.** Each leaves CatCad better off than
-   before, not merely no worse.
-6. **Do not extrapolate.** A milestone that came in cheaply says nothing about
-   the next. The degenerate cases are geometry and the general one is algebra,
-   and the two cost nothing like each other.
+3. **No silent tolerance.** §4.1.
+4. **Nothing lands without a consumer.** Every piece of this reaches CatCad.
+   Nothing here is "kernel-internal".
+5. **Do not extrapolate.** A piece that came in cheaply says nothing about the
+   next. The degenerate cases are geometry and the general one is algebra, and
+   the two cost nothing like each other.
 
 ---
 
-## 11. Scale, and what it costs
+## 10. Scale, and what it costs
 
 **A decision and a place are two questions**, and a sum that keeps its sign has
 long since stopped keeping its digits. That is where the arithmetic goes, and
@@ -1652,25 +1635,21 @@ plain halving cost 57, 56, 56, 54, 111 and 1079 readings; Illinois cost 57, 54,
 55, 51, 113 and 1948. Ending on the estimate rather than on the bracket would
 beat both, and it is a weaker promise than §7.4's.
 
-**What those figures show is a spike, and it is closed.** A root at nought cost
-1079 readings where an ordinary one cost 56, the last bit there being a
-subnormal — so the walk stepped down through every exponent. Floats above nought
-run in the order the integers their bits spell run in, so halving the *count of
-places* between the ends settles any bracket in the sixty-four an `i64` holds:
-the same six cost 65, 64, 56, 54, 65 and 64. The common case pays about ten
-readings for it, and the worst case stops being twenty times the ordinary one —
-which is what uniform frame time asks for.
+**So the walk halves the count of places rather than the value.** A root at
+nought would otherwise cost 1079 readings where an ordinary one costs 56, the
+last bit there being a subnormal, so the walk steps down through every exponent.
+Floats above nought run in the order the integers their bits spell run in, and
+halving *those* settles any bracket in the sixty-four an `i64` holds: the same
+six cost 65, 64, 56, 54, 65 and 64. The common case pays about ten readings for
+it, and no case is twenty times the ordinary one — which is what uniform frame
+time asks for.
 
 **Performance is poor before it is measured.** Exact fallbacks and Newton
 inversion instead of pcurves both spend it. The mitigation is that the interval
 filter means the exact path is rarely taken — but "rarely" is a measurement
 nobody has made yet.
 
-Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
-reachable, the only one that can say "this body is exact" and mean it, and the
-milestone structure means the project is never worse off than it is today.
-
-## 12. Read alongside
+## 11. Read alongside
 
 **Architecture**
 
@@ -1736,6 +1715,5 @@ milestone structure means the project is never worse off than it is today.
 **How not to do it**
 
 - [Shutting Down Fornjot](https://archive.hannobraun.com/fornjot/blog/shutting-down-fornjot/)
-  — six years, no usable output, and an unusually honest list of why. §10 is
+  — six years, no usable output, and an unusually honest list of why. §9 is
   this post turned into rules.
-

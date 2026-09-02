@@ -474,7 +474,7 @@ fn a_rounded_block_is_bored_like_any_other() {
 ///
 /// A cut is taken by whole surfaces, so a pocket's four walls divide the *whole*
 /// of every face they reach and every edge bounding one — see
-/// `.notes/KERNEL.md` §9.3, where those splits are the answer's contract for
+/// `.notes/KERNEL.md` §7.4, where those splits are the answer's contract for
 /// the next boolean. Here a two-by-two pocket through a four-cube leaves the
 /// far cap in nine patches and its edge against the first wall in three, and a
 /// pick naming the pair finds all three.
@@ -1453,7 +1453,7 @@ fn three_flat_blends_meeting_at_a_corner_leave_a_star() {
 
 /// The rod of `radius` with a flat milled down it through its own axis.
 ///
-/// **What §9.2 made buildable**, and the one body in this file whose blend runs
+/// **What §7.4 made buildable**, and the one body in this file whose blend runs
 /// out onto something that is not a plane: the flat meets the rod in a straight
 /// edge, and the two faces stand square to each other there.
 fn milled(radius: f64, deep: f64) -> Milled {
@@ -1529,7 +1529,7 @@ struct Milled {
 /// you get a plane, offset a cylinder and you get a cylinder, and a plane
 /// parallel to a cylinder's axis meets it in a pair of straight lines. So the
 /// axis is a line, the blend on it is a cylinder of the reach, and nothing here
-/// leaves the exact tier — which `.notes/KERNEL.md` §9.5 used to say was not
+/// leaves the exact tier — which `.notes/KERNEL.md` §7.5 used to say was not
 /// so.
 ///
 /// The rulings are straight for the same reason: one is the axis dropped onto
@@ -1931,7 +1931,7 @@ fn gusseted() -> Body {
 /// picks share: the fillet filled into the reflex edge below it stands its axis
 /// a reach *under* the floor and the round cut into the convex edge above
 /// stands its axis a reach *over* it, so the two stand a whole reach apart and
-/// the cylinders touch at one place on the floor. `.notes/KERNEL.md` §9.6 is
+/// the cylinders touch at one place on the floor. `.notes/KERNEL.md` §7.7 is
 /// where no quadric is shown to fill what they leave.
 ///
 /// Every corner of the patch is hand-computed. The two rails on the floor are
@@ -2044,7 +2044,7 @@ fn keyed(at: DVec3) -> [i64; 3] {
 }
 
 /// **The mesher cuts a face on a ruled patch, and what it cuts follows the
-/// patch** — the last reading of `.notes/KERNEL.md` §9.6's tier to be asked of
+/// patch** — the last reading of `.notes/KERNEL.md` §7.7's tier to be asked of
 /// this surface.
 ///
 /// **Every corner lands on the patch, to what the body says it strays.** An
@@ -2272,4 +2272,123 @@ fn integrated(face: &Face) -> f64 {
         }
     }
     area
+}
+
+/// **Two chamfers that do not agree about a corner leave a triangle**, where
+/// two rounds leave the ruled patch of `.notes/KERNEL.md` §7.7.
+///
+/// The same corner as that patch, at the same reaches. **The three corners are
+/// the same three** — the touch point where the two rails cross on the floor,
+/// and a reach either way along the third edge's line — because none of them
+/// depends on what runs between the blends. What the bevel decides is the
+/// surface, and three points name one plane.
+///
+/// **And the answer stays exact.** A chamfer creases against everything it
+/// meets, so the filling owes its neighbours nothing but their shared corners:
+/// no tangency to keep, no curve to walk, and no reason for the body to leave
+/// the exact tier the way the round pair does.
+///
+/// **The volume is `48 + r²`, hand-computed.** The fill puts a right prism of
+/// cross-section `r²/2` down the whole four of the reflex edge and the cut
+/// takes one off the whole two of the convex edge, so the two come to
+/// `4·r²/2 − 2·r²/2`. The corner adds nothing to either, which is what the
+/// triangle's own plane running *through* the body's corner says: it stands a
+/// reach either side of it on the third edge's line, and the two wedges that
+/// leaves are mirror images.
+#[test]
+fn two_chamfers_that_do_not_agree_leave_a_triangle() {
+    let notched = notch();
+    let picks = [
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(2.0, 4.0, -2.0),
+        ),
+        between(
+            &notched,
+            DVec3::new(2.0, 0.0, -2.0),
+            DVec3::new(0.0, 0.0, -2.0),
+        ),
+    ];
+    for reach in [0.25, 0.5, 0.75, 1.0] {
+        let mut into = Body::default();
+        assert!(
+            Rounding::default().round(
+                &Round::new(&picks, reach, Bevel::Flat, ROUND),
+                &notched,
+                &mut into,
+            ),
+            "a corner two chamfers do not agree about was refused at {reach}",
+        );
+        assert_eq!(into.reckoning().genus, 0, "the notch is still a ball");
+        assert_eq!(
+            into.topology().faces().count(),
+            11,
+            "the notch's eight faces, a chamfer apiece and the triangle between",
+        );
+        assert!(
+            into.exact(),
+            "two planes and a plane between them stay exact"
+        );
+        let want = 48.0 + reach * reach;
+        assert!(
+            (volume(&into) - want).abs() < CLOSES,
+            "the chamfered corner shuts in {} where the arithmetic says {want}",
+            volume(&into),
+        );
+
+        let name = ROUND.grew(Grown::Gusseted([0, 1]));
+        assert_eq!(into.patches(name).count(), 1, "{name:?} came apart");
+        let (raised, face) = into.patches(name).next().expect("the pair raised one");
+        let Surface::Natural(Natural::Plane(plane)) = face.surface else {
+            panic!("two chamfers left something that is not a plane");
+        };
+        // **Through the corner it swallowed**, which is what a chamfer between
+        // the two unshared faces looks like: it bisects the wedge they leave
+        // rather than cutting the corner off.
+        let corner = DVec3::new(2.0, 0.0, -2.0);
+        let off = (corner - plane.origin).dot(plane.normal()).abs();
+        assert!(off < PLACED, "the triangle stands {off} off the corner");
+
+        // The same three corners the ruled patch leaves, and all three of its
+        // sides are creases — a chamfer meets everything at an angle.
+        let topology = into.topology();
+        let walk: Vec<_> = topology
+            .loops_of(face)
+            .flatten()
+            .map(|coedge| coedge.edge)
+            .collect();
+        assert_eq!(walk.len(), 3, "the triangle is three-sided");
+        assert_eq!(
+            walk.iter()
+                .filter(|&&edge| !topology.edge(edge).artificial)
+                .count(),
+            3,
+            "a chamfer creases against everything it meets",
+        );
+        assert!(
+            walk.iter()
+                .all(|&edge| topology.edge(edge).between.contains(&raised)),
+            "an edge of the triangle's own loop does not bound it",
+        );
+        let mut corners: Vec<[i64; 3]> = walk
+            .iter()
+            .flat_map(|&edge| topology.edge(edge).ends(true))
+            .map(|end| keyed(topology.vertex(end).at))
+            .collect();
+        corners.sort_unstable();
+        corners.dedup();
+        let mut want: Vec<[i64; 3]> = [
+            DVec3::new(2.0 - reach, reach, -2.0),
+            DVec3::new(2.0, 0.0, -2.0 - reach),
+            DVec3::new(2.0, 0.0, -2.0 + reach),
+        ]
+        .map(keyed)
+        .into();
+        want.sort_unstable();
+        assert_eq!(
+            corners, want,
+            "the triangle does not run between its own corners"
+        );
+    }
 }

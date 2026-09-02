@@ -21,7 +21,7 @@ use glam::{BVec2, DVec2, DVec3};
 /// **Two members.** The torus is what a revolve makes of an arc swept about a
 /// line it does not touch, and what a fillet down a rim is — see §7.5. The
 /// ruled patch fills the corner a pair of picks do not agree about, its two
-/// joins exact and its second edge walked — see `.notes/KERNEL.md` §9.6.
+/// joins exact and its second edge walked — see `.notes/KERNEL.md` §7.7.
 ///
 /// **The two are fitted for different reasons, and the arm is what says so.** A
 /// torus is written down exactly and meets its neighbours in curves no closed
@@ -220,7 +220,7 @@ impl Fitted {
     /// triangle leaves out stands on its own boundary — see
     /// [`Gusset::straying`]. Two of the three terms of a side are written down
     /// and the third is probed, which is the one reading in the whole tier that
-    /// is measured rather than derived. `.notes/KERNEL.md` §9.6 is where that
+    /// is measured rather than derived. `.notes/KERNEL.md` §7.7 is where that
     /// is decided and where what it costs is named.
     pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
         match self {

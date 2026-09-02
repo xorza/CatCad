@@ -33,7 +33,7 @@
 /// the *bracket* closing, and false position moves one end and leaves the
 /// other — so the bracket stays wide and the count rises. Illinois and a halving
 /// every other step both came out above plain halving; the figures are in
-/// `.notes/KERNEL.md` §11.
+/// `.notes/KERNEL.md` §10.
 pub(crate) fn root(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> Option<f64> {
     debug_assert!(!lo.is_nan() && !hi.is_nan(), "{lo}..{hi} is no bracket");
     let (mut lo, mut hi) = (lo, hi);

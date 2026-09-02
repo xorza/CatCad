@@ -189,7 +189,7 @@ impl Planning {
     ///
     /// **A boolean leaves one edge as several**, cutting it wherever a surface
     /// crosses it and cutting both faces it divides at the same place — see
-    /// `.notes/KERNEL.md` §9.3, where those splits are the answer's contract
+    /// `.notes/KERNEL.md` §7.4, where those splits are the answer's contract
     /// for the next boolean. A pick naming the pair finds every piece, and one
     /// blend runs down the lot: they lie on one line between one pair of
     /// planes.
@@ -407,8 +407,16 @@ impl Planning {
                             self.junctions.push(junction);
                             Filled::Junction(self.junctions.len() - 1)
                         }
+                        // **And which surface goes between them is the bevel**,
+                        // the same split three picks take: two cylinders leave
+                        // the ruled patch of §7.7 and two planes leave the
+                        // triangle their three corners name.
                         false => {
-                            let Some(gusseted) = self.gusseting(topology, ends) else {
+                            let filling = match of.bevel {
+                                Bevel::Round => self.gusseting(topology, ends),
+                                Bevel::Flat => self.flattening(topology, ends),
+                            };
+                            let Some(gusseted) = filling else {
                                 return false;
                             };
                             self.gusseted.push(gusseted);
@@ -847,11 +855,15 @@ impl Planning {
     /// other at the touch point, so nothing read there tells them apart. Only
     /// one of the two puts the first edge's own ruling on the far corner, and
     /// that is the reading taken.
-    pub(super) fn gusseting(
-        &mut self,
-        topology: &Topology,
-        ends: [Swallow; 2],
-    ) -> Option<Gusseted> {
+    /// What both fillings of a disagreeing pair are built on, or `None` where
+    /// the pair leaves nothing a body can hold.
+    ///
+    /// **The three corners are the same three whichever bevel it is**, which is
+    /// what makes one record serve both: where the two rails cross on the face
+    /// the blends share, and where each blend's rail on the face it does *not*
+    /// share reaches the third edge's own line. What the bevel decides is the
+    /// surface between them — see [`Gusseted`].
+    fn wedging(&self, topology: &Topology, ends: [Swallow; 2]) -> Option<Wedge> {
         let (blends, runs) = (&self.blends, &self.runs);
         let order = [false, true].map(|convex| {
             ends.iter()
@@ -865,13 +877,6 @@ impl Planning {
         let pair = [0, 1].map(|which| whole[which].tip(runs, ends[which].end));
         let at = whole[0].at?[ends[0].end];
         let Met { sides, at: met, .. } = Met::of(topology, whole, pair, topology.vertex(at).at)?;
-        let [
-            Surface::Natural(Natural::Cylinder(filled)),
-            Surface::Natural(Natural::Cylinder(round)),
-        ] = whole.map(|blend| blend.laid)
-        else {
-            return None;
-        };
         // **Both straight**, as [`Met::of`] already argues of the rails on the
         // face the two share: a run that closes lands on no corner at all.
         let [Curve::Line(one), Curve::Line(two)] =
@@ -894,6 +899,116 @@ impl Planning {
         // side of the body's own corner, where no edge holds it — so it is read
         // off its rail against the filled blend's unshared face instead.
         let onto = rounding::reaching(two, topology.face(over).surface)?;
+        Some(Wedge {
+            ends,
+            whole,
+            shared: sides,
+            at,
+            made: [met, from, onto],
+            along,
+            cut,
+            across: pair[1].between[1 - sides[1]],
+        })
+    }
+
+    /// The triangle two chamfers that do not agree about a corner leave.
+    ///
+    /// **A plane through the three corners, and no tangency to keep.** A
+    /// chamfer meets both of its own faces at an angle, so the filling owes its
+    /// neighbours nothing but their shared corners — where a round pair wants a
+    /// surface tangent to both cylinders and `.notes/KERNEL.md` §7.7 shows no
+    /// quadric will do. Three points name one plane, its two curved sides are
+    /// the straight lines to them, and the body stays exact.
+    ///
+    /// **The corner it swallows lies on the patch's own straight side**, that
+    /// side running a reach along the third edge's line either way from it. So
+    /// the plane runs through the corner rather than cutting it off, which is
+    /// what a chamfer between the two unshared faces should look like.
+    fn flattening(&self, topology: &Topology, ends: [Swallow; 2]) -> Option<Gusseted> {
+        let Wedge {
+            ends,
+            whole,
+            shared: sides,
+            at,
+            made,
+            along,
+            cut,
+            across,
+            ..
+        } = self.wedging(topology, ends)?;
+        let [met, from, onto] = made;
+        let x = (from - met).normalize();
+        let normal = x.cross(onto - met).normalize();
+        if !predicate::normalized(normal) {
+            return None;
+        }
+        let laid = Plane {
+            origin: met,
+            x,
+            y: normal.cross(x),
+        };
+        // **Which way it faces is read off the blend it joins**, as the round
+        // one's is: the two are not tangent, a chamfer creasing against
+        // everything it meets, but they bound the same material along the side
+        // they share and so face the same way across it.
+        let toward = match whole[0].outward {
+            true => 1.0,
+            false => -1.0,
+        };
+        let middle = (met + from) / 2.0;
+        let facing = whole[0].laid.normal(whole[0].laid.uv(middle)) * toward;
+        Some(Gusseted {
+            picks: whole.map(|blend| blend.pick),
+            ends,
+            shared: sides,
+            outward: normal.dot(facing) > 0.0,
+            across,
+            at,
+            laid: Surface::Natural(Natural::Plane(laid)),
+            made,
+            along,
+            cut,
+            sides: [
+                Curve::Line(Line {
+                    origin: met,
+                    direction: x,
+                }),
+                Curve::Line(Line {
+                    origin: onto,
+                    direction: (met - onto).normalize(),
+                }),
+            ],
+            bounds: [[0.0, met.distance(from)], [0.0, onto.distance(met)]],
+            side: Line {
+                origin: from,
+                direction: (onto - from).normalize(),
+            },
+        })
+    }
+
+    pub(super) fn gusseting(
+        &mut self,
+        topology: &Topology,
+        ends: [Swallow; 2],
+    ) -> Option<Gusseted> {
+        let wedge = self.wedging(topology, ends)?;
+        let Wedge {
+            ends,
+            whole,
+            shared: sides,
+            at,
+            made: [met, from, onto],
+            along,
+            cut,
+            across,
+        } = wedge;
+        let [
+            Surface::Natural(Natural::Cylinder(filled)),
+            Surface::Natural(Natural::Cylinder(round)),
+        ] = whole.map(|blend| blend.laid)
+        else {
+            return None;
+        };
         let patch = [false, true].into_iter().find_map(|turning| {
             let patch = Gusset::new(filled, round, from, turning);
             let landed = patch.at(DVec2::new(patch.bounds()[0], 1.0));
@@ -936,15 +1051,14 @@ impl Planning {
             ends,
             shared: sides,
             outward,
-            across: pair[1].between[1 - sides[1]],
+            across,
             at,
-            patch,
+            laid: Surface::Fitted(Fitted::Gusset(patch)),
             made: [met, from, onto],
             along,
             cut,
-            first,
-            bounds,
-            second,
+            sides: [first, second],
+            bounds: [bounds, [0.0, TAU]],
             side: Line {
                 origin: from,
                 direction: (onto - from).normalize(),
@@ -955,7 +1069,7 @@ impl Planning {
     /// File the patch's edge on the cut blend as a run of the answer's own.
     ///
     /// **Walked because nothing writes it down** — see [`Gusset::chorded`], and
-    /// `.notes/KERNEL.md` §9.6. It leaves the first edge's own start, runs
+    /// `.notes/KERNEL.md` §7.7. It leaves the first edge's own start, runs
     /// round to the tip and stops, so what is filed is a run with two ends
     /// where every other run this store holds comes back to where it began.
     ///
@@ -1386,4 +1500,24 @@ fn shared(topology: &Topology, along: [EdgeId; 2], between: [FaceId; 2]) -> Opti
 fn paired(names: [Named; 2]) -> u64 {
     let [one, two] = names.map(Named::key);
     Key::default().pair(one, two).done()
+}
+
+/// What both fillings of a disagreeing pair are built on — see
+/// [`Planning::wedging`].
+#[derive(Debug, Clone, Copy)]
+struct Wedge {
+    /// The two ends meeting, the *filled* blend first.
+    ends: [Swallow; 2],
+    whole: [Blend; 2],
+    /// Which of each blend's two faces the other also runs out onto.
+    shared: [usize; 2],
+    /// The corner of the body they swallow between them.
+    at: VertexId,
+    /// The touch point, the filled blend's far corner, and the cut blend's.
+    made: [DVec3; 3],
+    /// The face across the straight side, which is the cut blend's own.
+    across: FaceId,
+    /// The edge neither blend replaces, and how far along it the cut lands.
+    along: EdgeId,
+    cut: f64,
 }

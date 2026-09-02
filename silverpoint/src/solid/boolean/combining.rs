@@ -603,8 +603,8 @@ impl Combining {
     /// neither — see [`Curve::closed`]. A line lies on a plane, a cylinder or a
     /// cone, and the first two hold it outright; the two open conics lie on a
     /// plane and a cone, and only the plane holds them. So what reaches here is
-    /// an open conic on the *cone*, which is where `.notes/KERNEL.md` §9.2
-    /// still owes a cut.
+    /// an open conic on the *cone*, which is the one meeting
+    /// `.notes/KERNEL.md` §7.4 turns away for want of a routine.
     fn walked(&mut self, on: &Surface, other: &Surface, along: Curves) -> bool {
         if along.all().iter().any(|it| !it.closed()) {
             return false;

@@ -86,7 +86,7 @@ impl Putting {
     /// `from` with the pieces of every face put back together, into `into`.
     ///
     /// **What a cut split, merged**, which is [`Merging`] and
-    /// `.notes/KERNEL.md` §9.3: a boolean divides a wall by every surface that
+    /// `.notes/KERNEL.md` §7.4: a boolean divides a wall by every surface that
     /// reaches it and hands back the pieces, where the document, the picker and
     /// the mesher all mean the face.
     ///

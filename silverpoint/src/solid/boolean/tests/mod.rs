@@ -2239,7 +2239,7 @@ fn a_taper_sliced_by_a_leaning_slab_is_cut_along_the_ellipse_its_rulings_set() {
 /// walls into three sectors like every other, and the wall's own chord across
 /// the base crossed a sector seam — where the disc broke its edge and the wall
 /// did not. A plane's parameters do not wrap, so the disc is one face and there
-/// is no seam to cross. See `.notes/KERNEL.md` §9.2.
+/// is no seam to cross. See `.notes/KERNEL.md` §7.4.
 #[test]
 fn a_flat_milled_down_a_taper_is_cut_along_the_hyperbola_the_wall_leaves() {
     // A wall at `x = 1`, which the taper is two across at its base and so
@@ -2305,7 +2305,8 @@ fn a_flat_milled_down_a_taper_is_cut_along_the_hyperbola_the_wall_leaves() {
 ///
 /// So each half is bounded by a *triangle*: the two rulings and that diameter,
 /// with the apex where the rulings meet. Three edges, and the apex is a corner
-/// of the body already — see `.notes/KERNEL.md` §9.1.
+/// of the body already — see `.notes/KERNEL.md` §7.3, where a cone's own
+/// section by a plane through its apex is worked out.
 ///
 /// **And the two halves sum to the cone**, `πr²h/3 = 16π/3` between them, which
 /// is the cross-check that needs no closed form of its own.
@@ -2856,7 +2857,7 @@ fn chained<const ROWS: usize>(cases: [Chained; ROWS]) {
 /// cylinder lies tangent to both faces it joins, so the tempting way to build
 /// one — take the corner wedge away and put the rounded part back, both of them
 /// bodies this kernel raises today — asks the boolean for exactly the pair it
-/// cannot answer. See `.notes/KERNEL.md` §9.5, where what is left is a local operation
+/// cannot answer. See `.notes/KERNEL.md` §7.5, where what is left is a local operation
 /// on the topology rather than one between bodies.
 ///
 /// **The wedge is the corner and the rod is the fillet.** A right-angled corner

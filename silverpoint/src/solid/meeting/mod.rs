@@ -214,7 +214,7 @@ impl Meeting {
     fn fitted(fitted: &Fitted, other: &Surface) -> Self {
         // **A ruled patch reduces with nothing.** It is spun about no line, so
         // no row of the coaxial table reads it, and the two the plane brings
-        // are a torus's own — see `.notes/KERNEL.md` §9.6, where what a corner
+        // are a torus's own — see `.notes/KERNEL.md` §7.7, where what a corner
         // patch meets is left to the march.
         let Fitted::Torus(torus) = fitted else {
             return Self::Marched;

@@ -65,7 +65,8 @@ fn exactly(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Ordering {
 /// share of the size of the two halves it is the difference of.
 ///
 /// **Shewchuk's `ccwerrboundA`, and the expression is his**: two products of
-/// two differences, subtracted, with every input an exact float — see §12. The
+/// two differences, subtracted, with every input an exact float — see §11 of
+/// `.notes/KERNEL.md`. The
 /// bound is a proved one rather than a measured one, and what the tests hold is
 /// the transcription of it: a sweep licenses no bound, but a decision the exact
 /// tier contradicts refutes one.
