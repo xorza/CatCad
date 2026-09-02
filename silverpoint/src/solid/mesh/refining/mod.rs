@@ -55,6 +55,16 @@ use glam::{DVec2, DVec3};
 /// it inside one: the window such a corner would fall in is narrower than a
 /// cell. What the counting asks for there cannot be had.
 ///
+/// **A ruled patch loses by it further**, and for a sharper reason: its
+/// straight side is a whole ruling and arrives as *one* chord, a line being
+/// exact however coarsely it is cut. So the triangle carrying that side reaches
+/// across every cell of the run, no pass may divide it, and [`Refining::strip`]
+/// lays the pieces beside it down as a fan off its low end. Measured on a
+/// corner blended at a reach of a half, that leaves a face standing `7.6e-3`
+/// off its surface whatever sagitta is asked for. `.notes/KERNEL.md` §9.6 is
+/// where the number is taken and where the one rule that would mend both this
+/// and the sphere is named.
+///
 /// So **a triangle the counting condemns is asked outright how far it strays**,
 /// and one already within the sagitta is left alone — see [`Refining::strays`].
 /// The counting is sufficient and it is not necessary, and this is the promise

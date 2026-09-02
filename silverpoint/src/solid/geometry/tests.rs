@@ -10,6 +10,7 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::hyperbola::Hyperbola;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::marchings::Marched;
@@ -892,6 +893,94 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
         across > 0.999 * sagitta,
         "and by more than it need be: {across}"
     );
+}
+
+/// **A normal read at a place off a surface turns by what the surface bends
+/// over that walk**, which is what [`Surface::wavering`] answers and what a
+/// reading taken at a place rather than at a parameter owes itself.
+///
+/// **Hand-computed for all five that write it down.** A plane turns by nothing
+/// however far a place stands off it. A cylinder and a sphere turn their normal
+/// by the angle the walk subtends at the radius, so a walk of a tenth off a
+/// radius of two is a twentieth. A cone leans its normal off the radial by the
+/// half angle, so it turns by the cosine of what the radial turns — and the
+/// radial's turn is read at the *place*, a cone having a different radius at
+/// every height. A torus turns fastest about its tube, or about what the ring
+/// has left on the inside, whichever is tighter.
+///
+/// **And it is a bound rather than a likeness**, which the second half asserts:
+/// a place actually moved by `off` and inverted back reads a normal no further
+/// from the true one than this said it could be. Moved along the surface, which
+/// is the worst direction — a walk along the normal itself moves the reading by
+/// nothing at all.
+#[test]
+fn a_normal_read_off_a_surface_turns_by_what_the_surface_bends() {
+    let axis = upright();
+    let off = 0.1;
+
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
+    assert_eq!(flat.wavering(DVec3::new(3.0, 0.0, 4.0), off), 0.0);
+    assert_eq!(
+        flat.wavering(DVec3::ZERO, 1e6),
+        0.0,
+        "a plane has one normal"
+    );
+
+    let barrel = Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 }));
+    let on = barrel.at(DVec2::new(0.0, 1.0));
+    assert!((barrel.wavering(on, off) - 0.05).abs() < NEAR);
+
+    let ball = Surface::Natural(Natural::Sphere(Sphere { axis, radius: 4.0 }));
+    assert!((ball.wavering(ball.at(DVec2::ZERO), off) - 0.025).abs() < NEAR);
+
+    // The ring three from the axis, which on a cone of thirty degrees stands
+    // `3/tan(30°)` up its own axis. The normal turns by `cos(30°)/3` of the
+    // walk, which is a tenth of that.
+    let horn = Surface::Natural(Natural::Cone(Cone {
+        axis,
+        half_angle: PI / 6.0,
+    }));
+    let rim = horn.at(DVec2::new(0.0, 3.0 / (PI / 6.0).tan()));
+    assert!((axis.off(rim) - 3.0).abs() < NEAR, "{rim} is not the ring");
+    let want = off * (PI / 6.0).cos() / 3.0;
+    assert!((horn.wavering(rim, off) - want).abs() < NEAR);
+    // Nearer the apex the same walk turns it further, which is the whole reason
+    // the place is read rather than a radius.
+    let near = horn.at(DVec2::new(0.0, 1.0 / (PI / 6.0).tan()));
+    assert!(horn.wavering(near, off) > 2.9 * horn.wavering(rim, off));
+
+    // The tube is one and the ring has two left on the inside, so the tube
+    // rules it.
+    let ring = Surface::Fitted(Fitted::Torus(Torus {
+        axis,
+        major: 3.0,
+        minor: 1.0,
+    }));
+    assert!((ring.wavering(ring.at(DVec2::ZERO), off) - off).abs() < NEAR);
+
+    for (what, surface, uv) in [
+        ("barrel", barrel, DVec2::new(0.0, 1.0)),
+        ("ball", ball, DVec2::new(0.4, 0.7)),
+        ("horn", horn, DVec2::new(0.0, 3.0 / (PI / 6.0).tan())),
+        ("ring", ring, DVec2::new(0.4, 0.7)),
+    ] {
+        let at = surface.at(uv);
+        let room = surface.wavering(at, off);
+        let here = surface.normal(surface.uv(at));
+        // Square to the normal, which is along the surface: a walk along the
+        // normal itself moves the nearest place by less.
+        let (one, two) = here.any_orthonormal_pair();
+        for step in 0..12 {
+            let (up, out) = (TAU * f64::from(step) / 12.0).sin_cos();
+            let moved = at + (one * out + two * up) * off;
+            let there = surface.normal(surface.uv(moved));
+            assert!(
+                here.distance(there) <= room,
+                "{what} read {} off where {room} was allowed",
+                here.distance(there),
+            );
+        }
+    }
 }
 
 /// **Every number a surface or a curve is made of reaches its key**, which is

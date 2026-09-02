@@ -173,6 +173,9 @@ enum Grew {
     /// The patch a rounding put where three of its picks met, named by those
     /// three.
     Corner([u32; 3]),
+    /// The ruled patch a rounding put where two of its picks met that do not
+    /// agree about the corner, named by those two and the filled one first.
+    Gusset([u32; 2]),
 }
 
 impl Grew {
@@ -192,6 +195,7 @@ impl Grew {
             )),
             Grown::Rounded(pick) => Grew::Blend(pick),
             Grown::Cornered(picks) => Grew::Corner(picks),
+            Grown::Gusseted(picks) => Grew::Gusset(picks),
         }
     }
 
@@ -210,6 +214,7 @@ impl Grew {
             }
             Grew::Blend(pick) => Grown::Rounded(*pick),
             Grew::Corner(picks) => Grown::Cornered(*picks),
+            Grew::Gusset(picks) => Grown::Gusseted(*picks),
         })
     }
 }

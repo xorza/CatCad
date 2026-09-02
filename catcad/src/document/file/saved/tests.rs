@@ -251,6 +251,13 @@ fn a_document_is_written_exactly_like_this() {
                 grown.step().grew(Grown::Base),
                 grown.step().grew(Grown::Cornered([0, 1, 2])),
             ],
+            // And a third, for the other patch a rounding leaves: the ruled
+            // one where two of its picks meet that do not agree about the
+            // corner — see `.notes/KERNEL.md` §9.6.
+            [
+                grown.step().grew(Grown::Base),
+                grown.step().grew(Grown::Gusseted([0, 1])),
+            ],
         ],
         reach: 0.25,
         bevel: Bevel::Flat,
@@ -345,6 +352,13 @@ fn a_document_is_written_exactly_like_this() {
                 ), (
                     by: 5,
                     grew: Corner((0, 1, 2)),
+                )),
+                ((
+                    by: 5,
+                    grew: Base,
+                ), (
+                    by: 5,
+                    grew: Gusset((0, 1)),
                 )),
             ],
             reach: 0.25,

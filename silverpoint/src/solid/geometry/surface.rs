@@ -286,6 +286,22 @@ impl Surface {
         }
     }
 
+    /// How far a normal read back at `at` may turn from this surface's own, as
+    /// a sine, where `at` may stand as much as `off` from it.
+    ///
+    /// **What a reading taken at a place rather than at a parameter owes
+    /// itself.** A normal is read through [`Surface::uv`], which answers about
+    /// the place it was handed — so a sample standing off the surface reads
+    /// the normal a walk away along it, and this is how far that walk turns
+    /// it. See [`Face::smooth`](crate::solid::topology::face::Face), which is
+    /// the one caller.
+    pub(crate) fn wavering(&self, at: DVec3, off: f64) -> f64 {
+        match self {
+            Self::Natural(of) => of.wavering(at, off),
+            Self::Fitted(of) => of.wavering(at, off),
+        }
+    }
+
     /// How far the flat triangle on the parameters `corners` strays from this
     /// surface at its furthest.
     ///

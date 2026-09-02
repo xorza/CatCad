@@ -28,17 +28,11 @@ use glam::{BVec2, DVec2, DVec3};
 /// form parameterizes; a patch is written down exactly *and* meets them
 /// exactly, and what it cannot do is answer about itself without measuring —
 /// its second edge, its own box, the nearest place on it, how far a triangle
-/// strays and how fine a grid wants to be are every one of them a reading.
+/// strays, how fine a grid wants to be and how far a normal read at a place can
+/// turn are every one of them a reading.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
     Torus(Torus),
-    /// Nothing raises one yet — the route in `Rounding` that does is what
-    /// `.notes/KERNEL.md` §9.6 owes next. Every reading the tier asks of this
-    /// arm is written and held to below.
-    #[allow(
-        dead_code,
-        reason = "the route in `Rounding` that raises one lands next"
-    )]
     Gusset(Gusset),
 }
 
@@ -190,6 +184,24 @@ impl Fitted {
         match self {
             Self::Torus(_) => false,
             Self::Gusset(gusset) => gusset.singular(at),
+        }
+    }
+
+    /// How far a normal read back at `at` may turn from the surface's own, as
+    /// a sine, where `at` may stand as much as `off` from the surface — see
+    /// [`Natural::wavering`](super::natural::Natural), which is where the
+    /// reading is argued.
+    ///
+    /// **A torus writes it down and a patch reads it**, which is the two arms
+    /// being fitted for different reasons all over again. A torus turns its
+    /// normal about the tube and about the ring, at the tube's own radius one
+    /// way and at what the ring has left the other — so the tighter of the two
+    /// bounds both. A patch has no curvature written down at all, and answers
+    /// off its own parameters — see [`Gusset::wavering`].
+    pub(crate) fn wavering(&self, at: DVec3, off: f64) -> f64 {
+        match self {
+            Self::Torus(torus) => off / torus.minor.min(torus.major - torus.minor),
+            Self::Gusset(gusset) => gusset.wavering(at, off),
         }
     }
 

@@ -2,8 +2,8 @@
 
 use crate::arena::Id;
 use crate::math::bounds::Bounds;
-use crate::number::predicate::ApproxEq;
-use crate::number::tolerance::ALIGNED;
+use crate::number::predicate::{self, ApproxEq};
+use crate::number::tolerance::{ALIGNED, EXACT};
 use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
@@ -206,6 +206,22 @@ impl Face {
     /// the surfaces, so which side each holds its material on is part of the
     /// answer.
     ///
+    /// **The room each sample is read in is derived rather than fixed**, and
+    /// two things go into it. A sample is a place *on the curve*, which for a
+    /// marched one is a place on a chord and so a place on neither surface —
+    /// and a normal read at a place off a surface is the normal somewhere else
+    /// along it. A place the machine wrote down is off by its own rounding
+    /// besides, however exact the curve. So each surface is asked what it turns
+    /// its normal by over that walk — see [`Surface::wavering`] — and the two
+    /// answers and [`ALIGNED`] are the room.
+    ///
+    /// **Without it a tangent join can read as a crease.** A ruled patch
+    /// inverts through an `acos` that loses half its digits along its own first
+    /// edge, so a place written to the last bit still names an angle a
+    /// hundred-millionth wide — a hundred times [`ALIGNED`], and the patch runs
+    /// out tangent to the blend there all the same. A bare constant cannot tell
+    /// that from a wedge, and a surface asked about itself can.
+    ///
     /// The ends are left out. A cone's apex and a sphere's poles are places a
     /// surface has no direction at, and an edge may run to one.
     pub(crate) fn smooth(
@@ -217,11 +233,18 @@ impl Face {
     ) -> bool {
         const SAMPLES: usize = 5;
         let [from, to] = bounds;
+        let strays = curve.strays(carried);
         (0..SAMPLES).all(|sample| {
             let along = (sample as f64 + 0.5) / SAMPLES as f64;
-            let at = curve.at(from + (to - from) * along, carried);
+            let t = from + (to - from) * along;
+            let at = curve.at(t, carried);
+            // How far the sample may stand off either surface: what the curve's
+            // own pieces stray from it, and what the machine cannot write a
+            // place of that size down any nearer than.
+            let off = strays + predicate::slack(EXACT, curve.reach(t));
             let [here, there] = [self, other].map(|face| face.normal(face.surface.uv(at)));
-            here.approx_eq(there, ALIGNED)
+            let room = ALIGNED + self.surface.wavering(at, off) + other.surface.wavering(at, off);
+            here.approx_eq(there, room)
         })
     }
 

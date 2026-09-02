@@ -1,4 +1,5 @@
 use super::*;
+use crate::number::tolerance::ALIGNED;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::marchings::Marchings;
 use std::f64::consts::PI;
@@ -200,6 +201,28 @@ fn leaning() -> Gusset {
     // normal from the axis.
     let from = axis - DVec3::new(lean.cos(), 0.0, lean.sin());
     Gusset::new(filled, square.cut, from, square.turning)
+}
+
+/// [`square`] with the fillet's frame turned a fifth of a radian backwards.
+///
+/// The same patch in the same place: only where the fillet's angles are counted
+/// from moves, which is a free choice of the axis and no part of the surface.
+/// What it buys is a patch whose turn runs *past* the half turn an inversion
+/// answers in — its bounds are `[−2.94, −4.51]` where `Axis::angle_of` answers
+/// in `(−π, π]` — so anything reading a place back against those bounds has to
+/// carry the branch rather than trust it.
+fn framed() -> Gusset {
+    let square = square();
+    let turn: f64 = -0.2;
+    let filled = Cylinder {
+        axis: Axis::new(
+            square.filled.axis.origin,
+            square.filled.axis.direction,
+            DVec3::new(turn.cos(), 0.0, -turn.sin()),
+        ),
+        radius: square.filled.radius,
+    };
+    Gusset::new(filled, square.cut, square.from, square.turning)
 }
 
 /// Three places clear of both blends, to cast from.
@@ -943,6 +966,94 @@ fn the_second_edge_files_as_a_run_with_two_ends() {
                 (gusset.cut.axis.off(at) - gusset.cut.radius).abs() < 1e-9,
                 "{named}: {at} is off the round",
             );
+        }
+    }
+}
+
+/// **A normal read at a place off the patch turns by a square root of how far
+/// off it stands**, where every surface of the exact tier turns by a
+/// proportion — and that is what `Face::smooth` had to be told before it would
+/// read either of the patch's joins as the tangency it is.
+///
+/// **Exactly `√(2·off/r)` along the first edge**, and hand-computed. The angle
+/// comes off an `acos` of the radius over the distance from the fillet's axis,
+/// which is square-root singular where a place lies on the fillet itself; and
+/// the patch's normal at `v = 0` *is* the fillet's own, so it turns one for one
+/// with the angle. A reach of one and a walk of a hundred-millionth is
+/// `1.4142e-4` — four orders above the walk, where a cylinder of the same reach
+/// would read the walk itself.
+///
+/// **Four times the walk reads twice the room**, which is the square root
+/// asserted as a law rather than as a number: a proportion would read four
+/// times.
+///
+/// **And it is a bound rather than a likeness.** A place actually moved by
+/// `off` along the patch and inverted back reads a normal no further from the
+/// true one than this said it could be — over the whole turn, and in twelve
+/// directions at each place.
+///
+/// **Over three corners, and the third is why one of them is here at all.**
+/// [`framed`] is [`square`] with the fillet's angles counted from somewhere
+/// else, which moves no place of the patch and moves every angle read off it:
+/// its turn runs past the half turn an inversion answers in. A reading that
+/// trusted the inverted angle against the patch's own bounds put every place of
+/// that corner at the far end, and read `0.39` where a walk of nothing owes
+/// nought.
+#[test]
+fn a_normal_read_off_the_patch_turns_by_the_root_of_the_walk() {
+    let walk: f64 = 1e-8;
+    // Both corners are blended at a reach of one, so the root is `√(2·off)` and
+    // the bearing's own share beside it is the walk itself, four orders under.
+    let want = (2.0 * walk).sqrt() + walk;
+    let doubled = 2.0 * (2.0 * walk).sqrt() + 4.0 * walk;
+    for (what, gusset) in [
+        ("square", square()),
+        ("leaning", leaning()),
+        ("framed", framed()),
+    ] {
+        let [from, to] = gusset.bounds();
+        for share in [0.0, 0.25, 0.5, 0.75] {
+            let u = from + (to - from) * share;
+            let head = gusset.at(DVec2::new(u, 0.0));
+            // A walk of nothing turns the normal by nothing. Held to
+            // [`ALIGNED`] rather than to nought: a frame the world axes do not
+            // line up with reads its own corners a rounding apart.
+            let still = gusset.wavering(head, 0.0);
+            assert!(still <= ALIGNED, "{what} moved {still} by nothing");
+            let room = gusset.wavering(head, walk);
+            // Held as a proportion of itself, and to a thousandth: the run
+            // along the ruling adds a share of its own, which grows as the
+            // ruling shortens towards the tip. Reading the walk as a
+            // proportion rather than as a root would be out by four orders,
+            // so the window pins the law and not the arithmetic.
+            assert!(
+                (room / want - 1.0).abs() < 1e-3,
+                "{what} at {u} reads {room} where the root says {want}",
+            );
+            let quadrupled = gusset.wavering(head, 4.0 * walk);
+            assert!(
+                (quadrupled / doubled - 1.0).abs() < 1e-3,
+                "{what} at {u} reads {quadrupled} where the root says {doubled}",
+            );
+        }
+
+        for share in [0.2, 0.5, 0.8] {
+            let u = from + (to - from) * share;
+            for v in [0.1, 0.5, 0.9] {
+                let at = gusset.at(DVec2::new(u, v));
+                let room = gusset.wavering(at, walk);
+                let here = gusset.normal(gusset.uv(at));
+                let (one, two) = here.any_orthonormal_pair();
+                for step in 0..12 {
+                    let (up, out) = (TAU * f64::from(step) / 12.0).sin_cos();
+                    let moved = at + (one * out + two * up) * walk;
+                    let turned = here.distance(gusset.normal(gusset.uv(moved)));
+                    assert!(
+                        turned <= room,
+                        "{what} at {u},{v} read {turned} off where {room} was allowed",
+                    );
+                }
+            }
         }
     }
 }

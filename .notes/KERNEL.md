@@ -513,7 +513,12 @@ surface here derives the whole of it.
 
 The face's own boundary is never cut, a corner on an edge being one the face
 across it does not have — except where a side has collapsed to a point, a cone's
-apex or a sphere's pole, there being no face across a point to disagree.
+apex or a sphere's pole, there being no face across a point to disagree. **Two
+surfaces lose by that rule**: a sphere, whose cell is a chord over the square
+root of two while its meridians still arrive chorded at the whole width; and a
+ruled patch, whose straight side is a whole ruling arriving as a single chord
+because a line is exact however coarsely it is cut. §9.6 measures what the
+second costs and names the one rule that would mend both.
 `Surface::singular` says where, and `Face::flatten` writes such a corner twice,
 at the angles its two neighbours round the loop stand at — so anything a caller
 holds one of per traced corner has to be doubled the same way, or it slides at
@@ -1141,8 +1146,8 @@ code that does it. What they came to:
 - **M7** — fillet, chamfer and STEP. §7.5 is the routine; `Stepping` is the
   export.
 
-So the plane row of §7.3's table has no gap in it. What is left is §9.6, one
-corner a blend still turns away.
+So the plane row of §7.3's table has no gap in it, and §9.6 — the corner two
+picks do not agree about — is in the tree with it.
 
 **Two refusals stand outside all of it, and they are one shape.** A bitangent
 plane on a torus cuts Villarceau's two circles, which cross at both places it
@@ -1308,8 +1313,8 @@ would be a place a hundred million reaches out that no face holds and the
 inversion cannot read back.
 
 **`Gusset` is in the tree**, with every reading of the tier answering for it and
-twenty-two tests over a square corner and a leaning one. It is kept ahead of its
-caller and says so.
+twenty-four tests over a square corner, a leaning one, and one framed so that
+its own turn runs past the half turn an inversion answers in.
 
 **A bounded surface carries no extent, it walks one.** Every other surface in
 either tier is unbounded, so `Fitted::spans` has never had to ask a surface how
@@ -1408,24 +1413,73 @@ arithmetic says, and `Checking` holds the whole of it.
   of the surfaces it lies between. Ten rounds leave a thousand-millionth, at a
   hundred and seventy rulings a call.
 
-**And the two joins are flagged as creases, which they are not.** The patch runs
-out tangent to each blend along its own edge, and the two face normals there
-agree to the last bits. What cannot see it is `Face::smooth`, which inverts both
-surfaces at a sampled place and holds the two answers to `ALIGNED`: a ruled patch
-inverts through an `acos` that loses half its digits on its own edge, so the
-reading is out by a hundred-millionth, and the walked side is sampled on a chord
-that lies on neither surface at all. The flag is self-consistent — the checking
-re-derives it the same way — so the body stands; what it costs is a hard line
-down each join in an export. **The reading wants a slack carrying what the
-sample can be off by**, which is the surface's own inversion and the edge's own
-stray, where today it carries a bare constant.
+**The two joins read as the tangency they are, and the room is derived.**
+`Face::smooth` reads a normal off each face at a place *on the curve*, which for
+a marched edge is a place on a chord and so a place on neither surface — and a
+place the machine wrote down is off by its own rounding besides. Each surface is
+now asked what it turns its normal by over that walk, and the two answers and
+`ALIGNED` are the room. `Surface::wavering` is the reading, `Curve::strays` and
+`predicate::slack` are the walk, and a bare constant is what it replaced.
 
-**What is left:**
+**A ruled patch turns its normal by a square root of the walk, where every
+quadric turns by a proportion.** `Gusset::uv` reads the angle as a bearing about
+the fillet's axis less an `acos` of the radius over the distance from it, and
+that `acos` is square-root singular where a place lies on the fillet itself:
+`d(acos)/dh` is at most `1/√(2r(h − r))`, so a walk of `off` moves the angle by
+at most `√(2·off/r)`, and the bearing by `off/r` besides. A reach of one and a
+walk of a hundred-millionth is `1.4142e-4`, four orders above the walk — which
+is why `ALIGNED` could not tell that join from a wedge, and why quadrupling the
+walk doubles the room rather than quadrupling it.
 
-- The slack `Face::smooth` reads a tangent join by, so a patch's two joins stop
-  claiming a crease.
-- The mesher over a face on one, which reads a ruled surface more cheaply than
-  either surface it joins.
+**The room is derived and the turn across it is read**, which is §4.1's bargain
+with this tier one more time: the parameter box a walk of `off` can land in is
+written down, and the normal is read at its four corners. A quadric writes both
+halves down — a plane turns by nothing, a cylinder and a sphere by `off/r`, a
+cone by `off·cos α/d` read at the *place* rather than at a radius it has one of
+per height, a torus by `off` over the tighter of its tube and what the ring
+leaves inside. Held as a bound and not as a number: a place actually moved by
+`off` and inverted back reads a normal no further than the answer said it could
+be, over both corners and twelve directions at each place.
+
+**And the straight side stays a crease, which it is.** It is a ruling with the
+cut blend's unshared face across it, so the patch's normal swings from one
+blend's to the other's along it. The notch's step corner comes back one crease
+and two joins where it came back three creases.
+
+**The mesher cuts a face on one, and what it cuts follows the patch as far as
+the boundary lets it.** Every corner lands on the patch to within what the body
+says it strays — an inside corner is evaluated on the surface, and a boundary
+corner is a place on a chord of the walked second edge, which is what the body's
+exactness is measured by anyway. The area falls at every step of the chording
+and settles on `0.44699` — measured rather than argued, a ruling between two
+chords having nothing to say it could not read long.
+
+**What it does not do is hold every triangle to the sagitta, and the reason is
+`Refining`'s rather than this surface's.** A face's boundary may not be cut, and
+the patch's **straight side is a whole ruling that arrives as one chord** — a
+line being exact however coarsely it is cut. So the triangle carrying it reaches
+across every cell of the run, no pass may divide it, and `strip` lays the pieces
+beside it down as a fan off its low end. Measured at a reach of a half that
+leaves `7.6e-3`, which does not move with the sagitta because neither the
+straight side nor the walked edge beside it does. It is what §7.2 already says a
+sphere loses by, one surface further on.
+
+**What would mend it is one rule rather than a patch of this surface**: an edge
+chorded as finely as the *finer of the two faces it lies between* wants, rather
+than as finely as its own curve does. Both faces see the same pair, so both
+would lay the same corners down and neither would gain a corner its neighbour
+lacks — which is the whole reason a boundary is left alone today. It would mend
+the sphere by the same stroke. It changes what every face in the kernel is
+traced at, so it is named here and left to §7.2.
+
+**And the cost is a doubly curved surface's, not a blend's.** At a sagitta of a
+ten-thousandth the patch is 148 cells round by 71 along the ruling and comes out
+46,457 triangles, against the 87 and 96 of the two blends it joins — a blend
+being a cylinder, which rules one way and needs no line across it, where a
+ruling that twists wants a grid. The floor is `span·|d′|/(4·sagitta)` cells
+whatever the grid, the twist term alone, so no split of the sagitta between the
+two terms buys an order. At the sagitta a camera asks for at arm's length it is
+a few thousand triangles.
 
 **The patch itself is worked out, and every corner of it is measured.**
 `Planning::gusseting` reads a disagreeing pair off the plan: the filled blend first,

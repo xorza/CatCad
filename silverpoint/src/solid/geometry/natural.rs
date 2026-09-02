@@ -338,6 +338,38 @@ impl Natural {
         }
     }
 
+    /// How far a normal read back at `at` may turn from the surface's own, as
+    /// a sine, where `at` may stand as much as `off` from the surface.
+    ///
+    /// **A curvature, and so a reading about the surface rather than a
+    /// tolerance.** Whoever reads a normal at a place reads it through
+    /// [`Natural::uv`], and an inversion answers about the place it was handed
+    /// rather than the place that was meant — so a sample standing off the
+    /// surface names a parameter a walk away along it, and what the normal
+    /// turns over that walk is what the surface bends by. See
+    /// [`Face::smooth`](crate::solid::topology::face::Face), which is the one
+    /// caller and the reason it is asked at all.
+    ///
+    /// **Closed form for all four, and nought for one.** A plane has one
+    /// normal everywhere, so no reading of it can be off. The other three turn
+    /// their normal about the axis and about nothing else, so what a walk of
+    /// `off` turns is the angle it subtends there.
+    ///
+    /// The cone reads its own place rather than a radius, having a different
+    /// one at every height — and it answers without bound at the apex, which
+    /// is where it has no normal to read.
+    pub(crate) fn wavering(&self, at: DVec3, off: f64) -> f64 {
+        debug_assert!(off >= 0.0, "a distance is a magnitude, not {off}");
+        match self {
+            Self::Plane(_) => 0.0,
+            Self::Cylinder(cylinder) => off / cylinder.radius,
+            Self::Sphere(sphere) => off / sphere.radius,
+            // The normal leans off the radial by the half angle and turns with
+            // it, so it turns by the cosine of what the radial does.
+            Self::Cone(cone) => off * cone.half_angle.cos() / cone.axis.off(at),
+        }
+    }
+
     /// How far the flat triangle on the parameters `corners` strays from this
     /// surface at its furthest.
     ///

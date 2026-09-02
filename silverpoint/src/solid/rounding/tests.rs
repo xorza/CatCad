@@ -15,7 +15,7 @@ use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::build::revolving::{MOST, Revolution};
 use crate::solid::build::sector::Sector;
-use crate::solid::mesh::Mesher;
+use crate::solid::mesh::{Mesher, Patch};
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -1890,27 +1890,13 @@ fn three_picks_meeting_on_a_body_a_boolean_cut_fill_the_corner_either_way() {
     assert!(into.exact(), "three planes crossing in a point stay exact");
 }
 
-/// **Two picks that do not agree about a corner leave a ruled patch between
-/// them**, where two that agree cross in an ellipse and leave no face at all.
+/// The notch's step corner rounded at a reach of a half, which is the one
+/// corner in this file the two picks do not agree about.
 ///
-/// The notch's step corner at a reach of a half. The floor is the face both
-/// picks share: the fillet filled into the reflex edge below it stands its axis
-/// a reach *under* the floor and the round cut into the convex edge above
-/// stands its axis a reach *over* it, so the two stand a whole reach apart and
-/// the cylinders touch at one place on the floor. `.notes/KERNEL.md` §9.6 is
-/// where no quadric is shown to fill what they leave.
-///
-/// Every corner of the patch is hand-computed. The two rails on the floor are
-/// `y = 0.5` and `x = 1.5`, so the touch point is `(1.5, 0.5, −2)`. The line
-/// the two unshared planes cross in is `x = 2, y = 0`; the fillet's rail on the
-/// face it does not share stands at `z = −2.5` and the round's at `z = −1.5`,
-/// so the patch's other two corners are `(2, 0, −2.5)` and `(2, 0, −1.5)`.
-///
-/// **And the answer is no longer exact.** The patch's edge on the round is
-/// walked, so the body carries what that walk strayed — §4.1's tier read off
-/// the answer rather than assumed about it.
-#[test]
-fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
+/// The fillet filled into the reflex edge below the floor and the round cut
+/// into the convex edge above it stand a whole reach apart, so the two blends
+/// touch at one place and leave the ruled patch between them.
+fn gusseted() -> Body {
     let notched = notch();
     let picks = [
         between(
@@ -1933,6 +1919,31 @@ fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
         ),
         "a corner two picks do not agree about was refused",
     );
+    into
+}
+
+/// **Two picks that do not agree about a corner leave a ruled patch between
+/// them**, where two that agree cross in an ellipse and leave no face at all.
+///
+/// The notch's step corner at a reach of a half. The floor is the face both
+/// picks share: the fillet filled into the reflex edge below it stands its axis
+/// a reach *under* the floor and the round cut into the convex edge above
+/// stands its axis a reach *over* it, so the two stand a whole reach apart and
+/// the cylinders touch at one place on the floor. `.notes/KERNEL.md` §9.6 is
+/// where no quadric is shown to fill what they leave.
+///
+/// Every corner of the patch is hand-computed. The two rails on the floor are
+/// `y = 0.5` and `x = 1.5`, so the touch point is `(1.5, 0.5, −2)`. The line
+/// the two unshared planes cross in is `x = 2, y = 0`; the fillet's rail on the
+/// face it does not share stands at `z = −2.5` and the round's at `z = −1.5`,
+/// so the patch's other two corners are `(2, 0, −2.5)` and `(2, 0, −1.5)`.
+///
+/// **And the answer is no longer exact.** The patch's edge on the round is
+/// walked, so the body carries what that walk strayed — §4.1's tier read off
+/// the answer rather than assumed about it.
+#[test]
+fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
+    let into = gusseted();
 
     let reckoning = into.reckoning();
     assert_eq!(reckoning.genus, 0, "the notch is still a ball");
@@ -1948,12 +1959,11 @@ fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
     );
     assert!(into.strays() > 0.0, "a walked edge that strays by nothing");
 
-    // The patch answers to the two picks that met, the filled one first.
+    // The patch answers to the two picks that met, the filled one first, and
+    // one face of the body carries that name.
     let name = ROUND.grew(Grown::Gusseted([0, 1]));
-    let (raised, face) = topology
-        .faces()
-        .find(|(_, face)| face.name == name)
-        .expect("the pair raised a patch");
+    assert_eq!(into.patches(name).count(), 1, "{name:?} came apart");
+    let (raised, face) = into.patches(name).next().expect("the pair raised a patch");
     let Surface::Fitted(Fitted::Gusset(patch)) = face.surface else {
         panic!("the patch does not lie on a ruled surface");
     };
@@ -2006,19 +2016,18 @@ fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
         "the patch does not run between its own corners"
     );
 
-    // **All three read as creases, and two of them are not** — see
-    // `.notes/KERNEL.md` §9.6. The patch runs out tangent to each blend along
-    // its own edge, and the two normals agree to the last bits there; what
-    // cannot see it is the reading that sets the flag, which inverts both
-    // surfaces at a sampled place and holds the answers to `ALIGNED`. A ruled
-    // patch inverts through an `acos` that loses half its digits on its own
-    // edge, and the walked side is sampled on a chord that lies on neither
-    // surface at all.
+    // **One of the three is a crease, and it is the straight side.** The patch
+    // runs out tangent to each blend along its own two curved edges, so those
+    // two are joins rather than corners; the side between them is a ruling with
+    // the cut blend's unshared face across it, and the patch's normal swings
+    // from one blend's to the other's along it. What lets the reading see the
+    // two joins is the room it takes off each surface rather than off a bare
+    // constant — see `Face::smooth` and `Surface::wavering`.
     let creases = walk
         .iter()
         .filter(|&&edge| !topology.edge(edge).artificial)
         .count();
-    assert_eq!(creases, 3, "the flag on a patch's joins moved");
+    assert_eq!(creases, 1, "the flag on a patch's joins moved");
     assert!(
         walk.iter()
             .all(|&edge| topology.edge(edge).between.contains(&raised)),
@@ -2030,4 +2039,113 @@ fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
 /// of the same corner key alike.
 fn keyed(at: DVec3) -> [i64; 3] {
     [at.x, at.y, at.z].map(|of| (of / PLACED).round() as i64)
+}
+
+/// **The mesher cuts a face on a ruled patch, and what it cuts follows the
+/// patch** — the last reading of `.notes/KERNEL.md` §9.6's tier to be asked of
+/// this surface.
+///
+/// **Every corner lands on the patch, to what the body says it strays.** An
+/// inside corner is evaluated on the surface and lands on it exactly; a corner
+/// off the boundary is a place on a chord of the walked second edge, and a
+/// chord of that walk is what the whole body's exactness is measured by. So the
+/// mesh is as true as the edge it was cut between, which is §4.1's tier read
+/// off a triangulation.
+///
+/// **And it converges**, the area falling at every step of the chording and
+/// settling on `0.44699`. Falling rather than rising is measured rather than
+/// argued here: the patch's two edges are chorded inside themselves, which is
+/// where a reading short of the truth comes from, and nothing says a ruling
+/// between two such chords could not read long.
+///
+/// **What it does not do is hold every triangle to the sagitta**, and the
+/// reason is `Refining`'s own — a face's boundary may not be cut, a corner put
+/// on an edge being one the face across it does not have. The patch's straight
+/// side is a whole ruling and arrives as *one* chord, a line being exact
+/// however coarsely it is cut, so the triangle carrying it reaches across every
+/// cell of the run and no pass may divide it. Measured at a reach of a half
+/// that leaves `7.6e-3`, which does not move with the sagitta because neither
+/// the straight side nor the walked edge beside it does. It is the same thing
+/// §7.2 says a sphere loses by, one surface further on.
+#[test]
+fn a_face_on_a_ruled_patch_is_cut_into_triangles_that_follow_it() {
+    let into = gusseted();
+    let strays = into.strays();
+    assert!(
+        (strays - 3.888e-4).abs() < 1e-6,
+        "the walk of the patch's second edge moved: {strays}",
+    );
+    let name = ROUND.grew(Grown::Gusseted([0, 1]));
+    let (at, face) = into.patches(name).next().expect("the pair raised a patch");
+
+    // The coarsest of the three first, and the two readings that cost a search
+    // are taken there alone: a nearest place on this surface is sought rather
+    // than solved, and the corners of the walked edge stand where they stand
+    // whatever sagitta is asked for.
+    let mut mesher = Mesher::default();
+    let mut patch = Patch::default();
+    mesher.shut_in(&into, &[at], 1e-2, &mut patch);
+    let worst = patch
+        .corners
+        .iter()
+        .map(|&at| face.surface.off(at))
+        .fold(0.0, f64::max);
+    assert!(
+        worst <= strays,
+        "a corner stands {worst} off the patch, past the {strays} the body carries",
+    );
+
+    let mut wide = 0.0_f64;
+    for &[a, b, c] in &patch.triangles {
+        let [a, b, c] = [a, b, c].map(|of| patch.corners[of as usize]);
+        // The middle and the three sides: a flat triangle over a ruled patch
+        // leaves it furthest on its own boundary — see [`Gusset::straying`] —
+        // and a middle alone reads two thirds of the answer here.
+        for on in [
+            (a + b + c) / 3.0,
+            (a + b) / 2.0,
+            (b + c) / 2.0,
+            (c + a) / 2.0,
+        ] {
+            wide = wide.max(face.surface.off(on));
+        }
+    }
+    assert!(
+        (wide - 7.6e-3).abs() < 1e-3,
+        "the patch's coarsest triangle moved: {wide}",
+    );
+
+    let mut cut = patch.triangles.len();
+    let mut last = covered(&patch);
+    for sagitta in [1e-3, 1e-4] {
+        mesher.shut_in(&into, &[at], sagitta, &mut patch);
+        assert!(
+            patch.triangles.len() > cut,
+            "a finer sagitta cut no more finely: {}",
+            patch.triangles.len(),
+        );
+        cut = patch.triangles.len();
+        let area = covered(&patch);
+        assert!(
+            area < last,
+            "{sagitta} read no nearer than the last: {area}"
+        );
+        last = area;
+    }
+    assert!(
+        (last - 0.44699).abs() < 1e-4,
+        "the patch covers {last} where the chording says 0.44699",
+    );
+}
+
+/// How much area the triangles of `patch` cover.
+fn covered(patch: &Patch) -> f64 {
+    patch
+        .triangles
+        .iter()
+        .map(|&[a, b, c]| {
+            let [a, b, c] = [a, b, c].map(|of| patch.corners[of as usize]);
+            (b - a).cross(c - a).length() * 0.5
+        })
+        .sum()
 }

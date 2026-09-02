@@ -7,12 +7,6 @@
 //! and running tangent to the round's cylinder — two divisions and one root,
 //! with no fit anywhere. `.notes/KERNEL.md` §9.6 is where no quadric is shown
 //! to do the same job, and where the whole corner is argued.
-#![allow(dead_code)]
-// Kept ahead of its caller deliberately: the route in `Rounding` that raises one
-// is what `.notes/KERNEL.md` §9.6 owes next. Everything a face on this patch
-// needs is written and tested — the tier's own readings, the grid a mesher cuts
-// it by, and the net it goes out in.
-
 use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::branch;
@@ -739,10 +733,78 @@ impl Gusset {
     /// the blend of them. So the two edges read the two blends' own normals
     /// back, which is the tangency this patch exists to keep.
     pub(crate) fn normal(&self, uv: DVec2) -> DVec3 {
-        let ruling = self.ruled(uv.x, self.framing());
+        self.facing(uv, self.framing())
+    }
+
+    /// The same, for a caller that has worked the framing out already.
+    fn facing(&self, uv: DVec2, framing: Framing) -> DVec3 {
+        let ruling = self.ruled(uv.x, framing);
         let along = ruling.foot - ruling.head;
         let across = ruling.heading + (ruling.footing - ruling.heading) * uv.y;
         across.cross(along).normalize()
+    }
+
+    /// How far a normal read back at `at` may turn from the patch's own, as a
+    /// sine, where `at` may stand as much as `off` from the patch.
+    ///
+    /// **The room is derived and the turn across it is read**, which is the
+    /// bargain §4.1 strikes with this whole tier: a patch answers about itself
+    /// by measuring where a quadric writes the answer down. What is derived
+    /// here is how far off the parameters an inversion can land; what is read
+    /// is how far the normal moves over that, four readings round it.
+    ///
+    /// **The angle's room is a square root, and that is the whole of why this
+    /// reading was wanted.** [`Gusset::uv`] takes the angle as a bearing about
+    /// the fillet's axis less an `acos` of the radius over the distance from
+    /// it, and that `acos` is square-root singular where a place lies on the
+    /// fillet itself: `d(acos)/dh` is at most `1/√(2r(h − r))`, so a walk of
+    /// `off` moves the angle by at most `√(2·off/r)` however near the first
+    /// edge it is taken. The bearing moves by `off/r` besides, the patch
+    /// standing outside the fillet everywhere. So a place written down to the
+    /// last bit of an `f64` still names an angle a hundred-millionth wide,
+    /// where every surface of the exact tier names one to a rounding.
+    ///
+    /// **The run's room is a division**, the run being read against the
+    /// ruling's own length — so a place `off` the patch names a run that much
+    /// further along a ruling that long. At the tip that length is nothing and
+    /// the room is the whole ruling, every run naming the one place there.
+    ///
+    /// **The angle is carried onto the bounds' own turn before either is
+    /// compared to the other.** An inversion answers in a half turn either side
+    /// of the reference, and [`Gusset::bounds`] is written wherever
+    /// [`Framing`] put it — so a patch framed with its turn running past that
+    /// half would read every place of itself at the wrong end.
+    ///
+    /// A corner of the room whose ruling has closed is passed over: the tip has
+    /// no normal to read, which is what [`Gusset::singular`] says.
+    pub(crate) fn wavering(&self, at: DVec3, off: f64) -> f64 {
+        debug_assert!(off >= 0.0, "a distance is a magnitude, not {off}");
+        let framing = self.framing();
+        let [from, to] = framing.bounds;
+        let mut uv = self.inverted(at, framing);
+        uv.x = branch::nearest(uv.x, from);
+        let reach = self.filled.radius;
+        let turn = (2.0 * off / reach).sqrt() + off / reach;
+        let ends = self.placed(uv.x, framing);
+        let length = ends.head.distance(ends.foot);
+        let run = match length > 0.0 {
+            true => (off / length).min(1.0),
+            false => 1.0,
+        };
+        let here = self.facing(uv, framing);
+        let mut most = 0.0_f64;
+        for angle in [uv.x - turn, uv.x + turn] {
+            let angle = angle.clamp(from.min(to), from.max(to));
+            let closed = self.placed(angle, framing);
+            if closed.head == closed.foot {
+                continue;
+            }
+            for along in [uv.y - run, uv.y + run] {
+                let corner = DVec2::new(angle, along.clamp(0.0, 1.0));
+                most = most.max(here.distance(self.facing(corner, framing)));
+            }
+        }
+        most
     }
 
     /// Which parameters `at` stands at, its angle read in `(-π, π]`.
@@ -758,6 +820,11 @@ impl Gusset {
     /// harmonic, so a half turn reads the way every other surface here reads
     /// one — see [`Axis::bearing`](super::axis::Axis).
     pub(crate) fn uv(&self, at: DVec3) -> DVec2 {
+        self.inverted(at, self.framing())
+    }
+
+    /// The same, for a caller that has worked the framing out already.
+    fn inverted(&self, at: DVec3, framing: Framing) -> DVec2 {
         let axis = self.filled.axis;
         let to = at - axis.origin;
         let (out, round) = (to.dot(axis.reference), to.dot(axis.quarter()));
@@ -765,7 +832,6 @@ impl Gusset {
             .clamp(-1.0, 1.0)
             .acos();
         let bearing = round.atan2(out);
-        let framing = self.framing();
         let held = [bearing - lean, bearing + lean].map(|angle| self.ruled(angle, framing));
         let ruling = if held[0].strays(at) <= held[1].strays(at) {
             held[0]
