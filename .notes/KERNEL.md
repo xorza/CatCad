@@ -390,6 +390,34 @@ family. One representation, and pay the Newton solve.
 A cached uv box per face is a legitimate optimisation when profiling asks for
 one; it is a cache, not a second truth.
 
+**A ray is the other half of that promise, and it is answered differently.**
+Inverting a surface is one question and meeting it with a ray is another, and
+only the first is settled above. Every surface here answers a ray in closed form
+— a quadric by a quadratic, the torus by a quartic, the ruled patch by a
+harmonic of degree three that §7.7 works out. A free-form patch answers none of
+them, and a Newton solve is no answer at all to a question whose whole use is a
+*count*.
+
+**So a bounded surface is counted instead**, and that is what the fitted tier
+admits. Three things make it a reading rather than a sample:
+
+- **Bounded.** A patch carries its own extent where every other surface here
+  runs on forever, so it can be cut into pieces and each piece bounded. Nothing
+  unbounded could be.
+- **Counted and not sampled.** Cut until a piece's normal turns too little for
+  any ray to meet it twice, and what the pieces hand back is a count. The one
+  caller wants a *parity* — see §7.4's sounding — so a crossing missed or
+  counted twice is a body solid to one question and hollow to the next.
+- **Free to refuse.** A piece the cutting cannot separate hands back nothing and
+  the sounder casts again: four directions, and a refusal where all four graze,
+  which is the refusal it already makes.
+
+**What it costs is bounded by where it is asked.** `Surface::met_by` has one
+caller in the kernel — that ray count — and it is asked only of a face whose own
+*box* the ray pierces, which §10 measures as one of the two things that kept the
+profile flat. A body holds a handful of corner patches where it holds thousands
+of regions.
+
 ### 4.8 Orientation lives on the face and the coedge
 
 A **face** is a surface plus a sense flag saying whether material is on the

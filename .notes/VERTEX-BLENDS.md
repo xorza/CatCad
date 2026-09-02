@@ -65,24 +65,26 @@ already is — and that is the interpenetration the ruled family dies on.
 Nothing in `Round` can move that boundary. It carries a reach and a bevel and no
 third thing.
 
-### 3.2 The fitted tier's contract excludes the general answer
+### 3.2 The tier answered each topology with a surface of its own
 
-§4.1 puts a surface in the exact tier or the fitted one, and §4.7 asks every
-surface for one representation with no pcurves. §7.7 went further for `Gusset`
-and kept a **closed-form inversion** and a **ray answered to a bounded degree**,
-which is what a ruled surface buys by being ruled.
+§4.1 puts a surface in the exact tier or the fitted one, and §7.7 went further
+for `Gusset` than either tier asked: a **closed-form inversion** and a **ray
+answered to a bounded degree**, both of which a ruled surface buys by being
+ruled. So the kernel's answer to each new blend topology has been a bespoke
+exact surface — a sphere for the agreeing triple, a ruled patch for the
+disagreeing pair, a triangle for the flat one — and that pattern has now met a
+topology with no bespoke exact answer.
 
-An n-sided patch has neither. So the surface the field uses for this corner is
-inadmissible before it is drawn, and the kernel's answer to each new blend
-topology has been a bespoke exact surface instead — a sphere for the agreeing
-triple, a ruled patch for the disagreeing pair, a triangle for the flat one.
-That pattern has now met a topology with no bespoke exact answer.
+**The contract was never quite the obstacle it looked like.** §4.7 already said
+a free-form surface costs a Newton solve and that the kernel pays it, so the
+inversion was settled before this file was written. The ray was not, and stage 0
+settles it. What is left is work rather than permission.
 
 **The tier already measures.** `Gusset` answers `straying`, `chorded`, `fills`,
 `nearest` and `wavering` by reading rather than by formula, and its second edge
-is walked. What it does not measure is `uv` and `met_by`. So the step is to
-widen *which* questions an arm may answer by measuring — not to admit a new kind
-of answer the tier has never given.
+is walked. What it does not measure is `met_by`. So the step is to widen *which*
+questions an arm may answer by measuring — not to admit a new kind of answer the
+tier has never given.
 
 ## 4. What the field does
 
@@ -115,30 +117,57 @@ that works today: the sphere, the star, the junction and the ruled patch stay
 exactly as they are, and the setback route is what a corner falls to when they
 do not answer.
 
-### Stage 0 — decide the contract, and nothing starts before it
+### Stage 0 — the contract, decided
 
-Say whether the fitted tier admits an arm whose `uv` and `met_by` are measured.
-Everything below rests on that one answer, and it is a decision about §4.7
-rather than about corners. Two things bear on it:
+**Half of it was settled already.** §4.7 asks every surface for one
+representation and no pcurves, and says outright that a Newton solve is what a
+free-form surface will cost and that the kernel pays it. So `uv` was never the
+question, and this file was wrong to say the contract excluded it.
 
-- `Surface::met_by` is asked per face per ray by the sounding, which is the
-  path §10 measures at sixty-eight times the shape's own count. A subdivision
-  answer there has to carry a bound, not a hope.
-- A patch is *bounded* where every other surface here is not, so its ray answer
-  may be subdivided over its own extent — which is the one thing that makes a
-  measured answer bounded rather than open-ended. `Gusset` already walks its own
-  extent for `fills`.
+**The ray was the question, and §4.7 now carries the answer.** A free-form patch
+answers a ray in no closed form, and a Newton solve is no answer at all to a
+question whose whole use is a *count* — the sounding reads a parity, so a
+crossing missed or counted twice is a body solid to one question and hollow to
+the next. What the tier admits instead is a **bounded** surface cut into pieces
+until a piece's normal turns too little for any ray to meet it twice, handing
+back a count; and a piece the cutting cannot separate hands back nothing, which
+sends the sounder to its next cast. `Surface::met_by` has one caller in the
+kernel and is asked only of a face whose own box the ray pierces.
 
-### Stage 1 — a setback the geometry derives
+### Stage 1 — the setback, and what derives it
 
-Give the rounding a setback: how far back along each edge a blend stops short of
-a vertex. Nought everywhere today, so every answer is unchanged.
+**The rule this file first gave is wrong.** It said each blend's face must stop
+before it reaches any other blend's cylinder. The corner three picks *agree*
+about fails that rule and wants no setback at all: the sphere touches each blend
+along a circle, and the arc of it the patch uses runs between the two places the
+sphere touches the other two faces — which stand *on* those two blends' own
+axes. Measured on a cube corner, the patch's side on one blend comes `0` from
+each of the other two axes where the reach is `1`. Blends at a corner run
+through each other as a matter of course, and that is not what a setback is for.
 
-**Derived and not asked for**, on §1's own terms — the fewest picks. The rule
-the corner needs is that each blend's face must stop before it reaches any other
-blend's cylinder, which is a reading each pair already knows how to take. A
-corner whose blends clear each other keeps the setback of nought and the answers
-it has now.
+**What a setback is for is the opening.** Stopped short, each blend ends on a
+cross section of itself, whose two ends stand on the two faces it divides. Two
+blends reaching one face stop short of the place their rails cross, so that face
+carries two distinct ends and a *spring curve* between them. Three blends leave
+six sides — three cross sections and three spring curves — which is the `2n` the
+literature builds a vertex blend over.
+
+**So the constraint is one-sided, and slack.** Any setback above nought leaves
+the opening well formed; a setback of nought puts the two ends of every spring
+curve at one place, which is the corner as it stands today. Over it stands the
+blend's own run: a blend must keep a face, so the setback and whatever the far
+end takes have to fit between them — the reach that runs off the end of an edge
+is a refusal §7.5 already makes.
+
+**Which leaves the size a shape choice rather than a derivation**, and the only
+length the corner is made of is the reach. A blend's rails already stand a reach
+off each face it divides, so a setback of one reach along the edge stops the
+cross section as far from the vertex as the rails already stand from their
+faces. That is the first size to try, and stage 3 is what can measure whether
+the patch wants more.
+
+**Its code lands with stage 2.** A setback nothing acts on is a number carried
+and never read, and where a blend stops is stage 2's own work.
 
 ### Stage 2 — the corner's own topology
 
