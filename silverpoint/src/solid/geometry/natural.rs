@@ -308,6 +308,15 @@ impl Natural {
         }
     }
 
+    /// Which of the two parameters a singular place leaves free.
+    ///
+    /// **The angle, for both that have one.** A cone's apex and a sphere's
+    /// poles stand at one height and every angle round it. The two with no
+    /// singular place answer the same and are never asked.
+    pub(crate) fn freed(&self) -> usize {
+        0
+    }
+
     /// Whether the parameterization says nothing at `at` — one place that
     /// every angle names.
     ///

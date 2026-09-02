@@ -55,10 +55,16 @@ const BOXED: usize = 16;
 /// how many rounds it narrows for.
 ///
 /// Each round keeps the bracket either side of the best reading, so the arc it
-/// searches shrinks by `2/SOUGHT` a round — sixteen and six leave a millionth
-/// of it, which is finer than the walk that laid the patch's own edge down.
+/// searches shrinks by `2/SOUGHT` a round.
+///
+/// **Sixteen to find the right dip and ten to close on it.** The first round has
+/// to land in the basin the true nearest place stands in, which is what the wide
+/// fan buys; after that the shrinking is what matters, and an eighth a round for
+/// ten rounds leaves a thousand-millionth of the arc. That is the figure the
+/// checking needs: an edge is held to [`PLACED`] of the surfaces it lies
+/// between, so a reading coarser than that could answer for no face at all.
 const SOUGHT: usize = 16;
-const ROUNDS: usize = 6;
+const ROUNDS: usize = 10;
 
 const _: () = assert!(
     SOUGHT.is_multiple_of(2),
@@ -234,6 +240,17 @@ impl Gusset {
         at.approx_eq(self.met(), PLACED)
     }
 
+    /// Which of the two parameters the tip leaves free.
+    ///
+    /// **The run along the ruling.** The tip stands at one angle and every run,
+    /// the ruling having closed to nothing there — where a cone's apex stands
+    /// at one height and every angle. See
+    /// [`Face::flatten`](crate::solid::topology::face::Face), which is the one
+    /// reader and writes that parameter twice.
+    pub(crate) fn freed(&self) -> usize {
+        1
+    }
+
     /// The patch's second edge, laid down in chords from its first edge round
     /// to the tip, and how far those chords stand from the edge itself.
     ///
@@ -394,8 +411,8 @@ impl Gusset {
     /// between the tiers — and what puts this patch in the fitted one although
     /// both of its joins are exact.
     ///
-    /// A hundred rulings a call, which is what a caller asking per correction
-    /// of a march should know it is spending.
+    /// A hundred and seventy rulings a call, which is what a caller asking per
+    /// correction of a march should know it is spending.
     pub(crate) fn nearest(&self, at: DVec3) -> DVec3 {
         let framing = self.framing();
         let [mut from, mut to] = framing.bounds;
@@ -756,9 +773,17 @@ impl Gusset {
             held[1]
         };
         let along = ruling.foot - ruling.head;
+        let reach = along.length_squared();
+        // **Every run names the tip**, the ruling having closed to nothing
+        // there, so the one that is read back is nought — a reader wanting the
+        // whole of what the place stands for asks [`Gusset::singular`], which
+        // is what says the parameters have nothing to divide.
         DVec2::new(
             axis.angle_of(ruling.head),
-            (at - ruling.head).dot(along) / along.length_squared(),
+            match reach == 0.0 {
+                true => 0.0,
+                false => (at - ruling.head).dot(along) / reach,
+            },
         )
     }
 

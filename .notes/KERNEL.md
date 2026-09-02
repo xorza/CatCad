@@ -1386,16 +1386,49 @@ and that reading is what `Curve::closed` answers for the arm, what holds a
 parameter at an end rather than carrying it round, and what the export's own
 closing flag says.
 
+**The route raises it, and the answer is a valid body.** `settle` splits on
+whether the two picks agree — one convexity crosses in an ellipse and leaves no
+face, one of each leaves the patch — and `Filled::Gusseted`, `Ending::Gusseted`
+and `Grown::Gusseted` carry it the rest of the way. The notch's step corner
+rounds at a reach of a half into eleven faces, genus 0, every corner where the
+arithmetic says, and `Checking` holds the whole of it.
+
+**Three readings had to grow to carry it, and each was a real gap.**
+
+- **`Face::flatten` doubled the wrong parameter.** A singular place leaves one
+  parameter free and holds the other, and until now every one of them was a
+  cone's apex or a sphere's pole — one height, every angle. A ruled patch's tip
+  is the other way about: one angle, every run along the ruling.
+  `Surface::freed` says which, and the writer varies that one.
+- **`Gusset::uv` divided by a ruling that had closed.** Every run names the tip,
+  so the one read back there is nought, and `Surface::singular` is what says the
+  parameters have nothing to divide.
+- **The nearest place was sought too coarsely to check against.** Sixteen angles
+  over six rounds left a millionth of the arc, where an edge is held to `PLACED`
+  of the surfaces it lies between. Ten rounds leave a thousand-millionth, at a
+  hundred and seventy rulings a call.
+
+**And the two joins are flagged as creases, which they are not.** The patch runs
+out tangent to each blend along its own edge, and the two face normals there
+agree to the last bits. What cannot see it is `Face::smooth`, which inverts both
+surfaces at a sampled place and holds the two answers to `ALIGNED`: a ruled patch
+inverts through an `acos` that loses half its digits on its own edge, so the
+reading is out by a hundred-millionth, and the walked side is sampled on a chord
+that lies on neither surface at all. The flag is self-consistent — the checking
+re-derives it the same way — so the body stands; what it costs is a hard line
+down each join in an export. **The reading wants a slack carrying what the
+sample can be off by**, which is the surface's own inversion and the edge's own
+stray, where today it carries a bare constant.
+
 **What is left:**
 
-- The caller for that filing, which is the route below.
-- The route in `Rounding` that raises the patch, which is the one test
-  `joining` refuses on today.
-- `Checking` over it, and the mesher, which reads a ruled surface more cheaply
-  than either surface it joins.
+- The slack `Face::smooth` reads a tangent join by, so a patch's two joins stop
+  claiming a crease.
+- The mesher over a face on one, which reads a ruled surface more cheaply than
+  either surface it joins.
 
 **The patch itself is worked out, and every corner of it is measured.**
-`Gusseted::of` reads a disagreeing pair off the plan: the filled blend first,
+`Planning::gusseting` reads a disagreeing pair off the plan: the filled blend first,
 which is what `Blend::outward` already says; the touch point from `Met::of`,
 which is where the two rails cross on the shared face; and the other two corners
 where each blend's rail on the face it does *not* share reaches the line the two

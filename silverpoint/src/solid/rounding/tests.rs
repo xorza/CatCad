@@ -527,12 +527,11 @@ fn a_pick_a_boolean_cut_into_pieces_is_one_blend() {
 /// **What a rounding cannot make is refused rather than guessed at**, which is
 /// the standing every unanswerable case in this kernel takes.
 ///
-/// Five, and each is a different thing being asked for: a reach that is no
+/// Four, and each is a different thing being asked for: a reach that is no
 /// blend at all; one so large the blend runs off the end of the edges it has to
 /// meet, which wants those edges rounded too; a pair of names with no edge
-/// between them; two picks meeting at a corner from opposite sides, which is a
-/// corner no rolling ball reaches from one side; and the rim of a rod, where
-/// the two offsets meet in a circle rather than a line and the blend is a torus.
+/// between them; and a fillet as wide as half the rod whose rim it runs down,
+/// where the torus pinches on its own axis.
 #[test]
 fn what_a_rounding_cannot_make_is_refused() {
     let cube = cube();
@@ -566,32 +565,6 @@ fn what_a_rounding_cannot_make_is_refused() {
         );
         assert!(into.is_empty(), "{what}: a refusal left half a body behind");
     }
-
-    // A corner where a reflex edge meets a convex one. Both cylinders stand a
-    // radius off the face they share and the two stand off it on opposite
-    // sides, so the pair never cross there — see [`Junction`].
-    let notched = notch();
-    let leaning = [
-        between(
-            &notched,
-            DVec3::new(2.0, 0.0, -2.0),
-            DVec3::new(2.0, 4.0, -2.0),
-        ),
-        between(
-            &notched,
-            DVec3::new(2.0, 0.0, -2.0),
-            DVec3::new(2.0, 0.0, -4.0),
-        ),
-    ];
-    assert!(
-        !rounding.round(
-            &Round::new(&leaning, 0.5, Bevel::Round, ROUND),
-            &notched,
-            &mut into
-        ),
-        "a corner a blend reaches from either side was answered",
-    );
-    assert!(into.is_empty(), "a refusal left half a body behind");
 
     // A fillet down a rim as wide as the rod's own half. The tube's centre
     // circle stands `radius - reach` out, so at half the radius it closes on
@@ -1917,22 +1890,27 @@ fn three_picks_meeting_on_a_body_a_boolean_cut_fill_the_corner_either_way() {
     assert!(into.exact(), "three planes crossing in a point stay exact");
 }
 
-/// **The patch two picks that do not agree leave is worked out**, though
-/// nothing raises it yet — `.notes/KERNEL.md` §9.6.
+/// **Two picks that do not agree about a corner leave a ruled patch between
+/// them**, where two that agree cross in an ellipse and leave no face at all.
 ///
-/// The notch's step corner at a reach of a half. The floor `z = −2` is the face
-/// both picks share: the fillet filled into the reflex edge below it stands its
-/// axis a reach *under* the floor and the round cut into the convex edge above
-/// stands its axis a reach *over* it, so the two axes stand a whole reach apart
-/// and the two cylinders touch at one place on the floor.
+/// The notch's step corner at a reach of a half. The floor is the face both
+/// picks share: the fillet filled into the reflex edge below it stands its axis
+/// a reach *under* the floor and the round cut into the convex edge above
+/// stands its axis a reach *over* it, so the two stand a whole reach apart and
+/// the cylinders touch at one place on the floor. `.notes/KERNEL.md` §9.6 is
+/// where no quadric is shown to fill what they leave.
 ///
-/// Every corner is hand-computed. The two rails on the floor are `y = 0.5` and
-/// `x = 1.5`, so they cross at `(1.5, 0.5, −2)`. The line the two unshared
-/// planes cross in is `x = 2, y = 0`; the fillet's rail on the face it does not
-/// share stands at `z = −2.5` and the round's at `z = −1.5`, so the patch's
-/// other two corners are `(2, 0, −2.5)` and `(2, 0, −1.5)`.
+/// Every corner of the patch is hand-computed. The two rails on the floor are
+/// `y = 0.5` and `x = 1.5`, so the touch point is `(1.5, 0.5, −2)`. The line
+/// the two unshared planes cross in is `x = 2, y = 0`; the fillet's rail on the
+/// face it does not share stands at `z = −2.5` and the round's at `z = −1.5`,
+/// so the patch's other two corners are `(2, 0, −2.5)` and `(2, 0, −1.5)`.
+///
+/// **And the answer is no longer exact.** The patch's edge on the round is
+/// walked, so the body carries what that walk strayed — §4.1's tier read off
+/// the answer rather than assumed about it.
 #[test]
-fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
+fn two_picks_that_do_not_agree_leave_a_ruled_patch() {
     let notched = notch();
     let picks = [
         between(
@@ -1946,55 +1924,50 @@ fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
             DVec3::new(0.0, 0.0, -2.0),
         ),
     ];
-    let mut planning = Planning::default();
+    let mut into = Body::default();
     assert!(
-        !planning.plan(&Round::new(&picks, 0.5, Bevel::Round, ROUND), &notched),
-        "a corner two picks do not agree about was answered",
+        Rounding::default().round(
+            &Round::new(&picks, 0.5, Bevel::Round, ROUND),
+            &notched,
+            &mut into,
+        ),
+        "a corner two picks do not agree about was refused",
     );
 
-    // The blends are worked out before the corner refuses, so what the pair
-    // leaves can be read off them.
-    let corner = DVec3::new(2.0, 0.0, -2.0);
-    let ends: [Swallow; 2] = array::from_fn(|blend| {
-        let at = planning.blends[blend].at.expect("a run with two ends");
-        let end = at
-            .iter()
-            .position(|&held| {
-                notched
-                    .topology()
-                    .vertex(held)
-                    .at
-                    .abs_diff_eq(corner, PLACED)
-            })
-            .expect("the blend runs to the step's corner");
-        Swallow { blend, end }
-    });
-    let gusseted = planning
-        .gusseting(notched.topology(), ends)
-        .expect("the pair leaves a patch");
-
-    assert!(
-        !planning.blends[gusseted.ends[0].blend].outward,
-        "the cut blend was taken for the filled one",
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "the notch is still a ball");
+    let topology = into.topology();
+    assert_eq!(
+        topology.faces().count(),
+        11,
+        "the notch's eight faces, a blend apiece and the patch between them",
     );
+    assert!(
+        !into.exact(),
+        "the patch's walked edge puts the answer in the fitted tier",
+    );
+    assert!(into.strays() > 0.0, "a walked edge that strays by nothing");
+
+    // The patch answers to the two picks that met, the filled one first.
+    let name = ROUND.grew(Grown::Gusseted([0, 1]));
+    let (raised, face) = topology
+        .faces()
+        .find(|(_, face)| face.name == name)
+        .expect("the pair raised a patch");
+    let Surface::Fitted(Fitted::Gusset(patch)) = face.surface else {
+        panic!("the patch does not lie on a ruled surface");
+    };
+
     let wanted = [
         DVec3::new(1.5, 0.5, -2.0),
         DVec3::new(2.0, 0.0, -2.5),
         DVec3::new(2.0, 0.0, -1.5),
     ];
-    for (made, want) in gusseted.made.into_iter().zip(wanted) {
-        assert!(made.abs_diff_eq(want, 1e-12), "{made} is not {want}");
-    }
-
-    // And the patch joins the two exactly: it closes at the touch point, its
-    // first edge starts at the far corner, and the ruling from there lands on
-    // the third.
-    let patch = gusseted.patch;
     assert!(
         patch.singular(wanted[0]),
         "the patch does not close at the tip"
     );
-    assert!(patch.from.abs_diff_eq(wanted[1], 1e-12));
+    assert!(patch.from.abs_diff_eq(wanted[1], 1e-12), "{}", patch.from);
     let [from, to] = patch.bounds();
     let landed = patch.at(DVec2::new(from, 1.0));
     assert!(landed.abs_diff_eq(wanted[2], 1e-9), "{landed}");
@@ -2012,58 +1985,49 @@ fn the_patch_two_disagreeing_picks_leave_is_worked_out() {
         );
     }
 
-    // The edge neither blend replaces is cut back to that far corner.
-    let carried = notched.topology().carried();
-    let edge = notched.topology().edge(gusseted.along);
-    let landed = edge.curve.at(gusseted.cut, carried);
-    assert!(
-        landed.abs_diff_eq(wanted[1], 1e-12),
-        "the third edge is cut back to {landed} rather than the far corner",
+    // Three sides, and the corners they run between are the three above.
+    let walk: Vec<_> = topology
+        .loops_of(face)
+        .flatten()
+        .map(|coedge| coedge.edge)
+        .collect();
+    assert_eq!(walk.len(), 3, "the patch is three-sided");
+    let mut corners: Vec<[i64; 3]> = walk
+        .iter()
+        .flat_map(|&edge| topology.edge(edge).ends(true))
+        .map(|end| keyed(topology.vertex(end).at))
+        .collect();
+    corners.sort_unstable();
+    corners.dedup();
+    let mut want: Vec<[i64; 3]> = wanted.map(keyed).into();
+    want.sort_unstable();
+    assert_eq!(
+        corners, want,
+        "the patch does not run between its own corners"
     );
 
-    // The patch's edge on the filled blend runs from the tip out to that same
-    // corner, and lies on the fillet and on the patch the whole way. Its own
-    // reading of how far off the patch a place stands is sought rather than
-    // solved, so a millionth of the arc is what it can promise.
-    for share in [0.0, 0.25, 0.5, 0.75, 1.0] {
-        let t = gusseted.bounds[0] + (gusseted.bounds[1] - gusseted.bounds[0]) * share;
-        let at = gusseted.first.at(t, carried);
-        assert!(
-            (patch.filled.axis.off(at) - 0.5).abs() < 1e-9,
-            "{at} is off the fillet",
-        );
-        assert!(
-            patch.off(at) < 1e-5,
-            "{at} is off the patch by {}",
-            patch.off(at)
-        );
-    }
-    for (bound, want) in gusseted.bounds.into_iter().zip([wanted[0], wanted[1]]) {
-        let at = gusseted.first.at(bound, carried);
-        assert!(at.abs_diff_eq(want, 1e-9), "{at} is not {want}");
-    }
+    // **All three read as creases, and two of them are not** — see
+    // `.notes/KERNEL.md` §9.6. The patch runs out tangent to each blend along
+    // its own edge, and the two normals agree to the last bits there; what
+    // cannot see it is the reading that sets the flag, which inverts both
+    // surfaces at a sampled place and holds the answers to `ALIGNED`. A ruled
+    // patch inverts through an `acos` that loses half its digits on its own
+    // edge, and the walked side is sampled on a chord that lies on neither
+    // surface at all.
+    let creases = walk
+        .iter()
+        .filter(|&&edge| !topology.edge(edge).artificial)
+        .count();
+    assert_eq!(creases, 3, "the flag on a patch's joins moved");
+    assert!(
+        walk.iter()
+            .all(|&edge| topology.edge(edge).between.contains(&raised)),
+        "an edge of the patch's own loop does not bound it",
+    );
+}
 
-    // And the straight side is laid down from the far corner to the third.
-    assert!(gusseted.side.origin.abs_diff_eq(wanted[1], 1e-12));
-    let reach = wanted[1].distance(wanted[2]);
-    assert!(gusseted.side.at(reach).abs_diff_eq(wanted[2], 1e-12));
-
-    // The edge on the cut blend is walked and filed as a run with *two ends*,
-    // which is what tells it from every other run the kernel files: it leaves
-    // the third corner, runs round the round, and stops at the tip.
-    let Curve::Marched(marched) = gusseted.second else {
-        panic!("the second edge was not filed as a run");
-    };
-    let runs = &planning.carried.marched;
-    assert!(!runs.strayed(marched.run).shut, "the second edge closes");
-    for (t, want) in [(0.0, wanted[2]), (TAU, wanted[0])] {
-        let at = runs.at(marched.run, t);
-        assert!(at.abs_diff_eq(want, 1e-9), "{at} at {t} is not {want}");
-    }
-    for (_, at) in runs.sampled(marched.run) {
-        assert!(
-            (patch.cut.axis.off(at) - 0.5).abs() < 1e-9,
-            "{at} is off the round",
-        );
-    }
+/// A place written down to the width the kernel places one at, so two readings
+/// of the same corner key alike.
+fn keyed(at: DVec3) -> [i64; 3] {
+    [at.x, at.y, at.z].map(|of| (of / PLACED).round() as i64)
 }

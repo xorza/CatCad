@@ -124,18 +124,25 @@ impl Face {
                 last = Some(uv);
                 continue;
             }
-            // The second parameter of a surface with a singular place is a
-            // height rather than an angle — a cone's apex and a sphere's poles
-            // are the whole of the case — so it is read as it comes and only
-            // the angle is put back twice.
-            let up = self.surface.uv(corner).y;
-            let before = last.or(behind).map_or(0.0, |uv| uv.x);
+            // **One parameter is free at such a place and the other is not**,
+            // and which is which is the surface's to say — [`Surface::freed`].
+            // A cone's apex stands at one height and every angle; a ruled
+            // patch's tip stands at one angle and every run along its ruling.
+            // The held one is read as it comes and the free one is put back
+            // twice, at what the corners either side of it stand at.
+            let freed = self.surface.freed();
+            let uv = self.surface.uv(corner);
+            let before = last.or(behind).map_or(0.0, |uv| uv[freed]);
             let after = (1..traced.len())
                 .map(|off| traced[(at + off) % traced.len()])
                 .find_map(|corner| self.parameters(corner, last))
-                .map_or(before, |uv| uv.x);
-            into.push(DVec2::new(before, up));
-            into.push(DVec2::new(after, up));
+                .map_or(before, |uv| uv[freed]);
+            for run in [before, after] {
+                into.push(match freed {
+                    0 => DVec2::new(run, uv.y),
+                    _ => DVec2::new(uv.x, run),
+                });
+            }
         }
         // Nothing laid leaves the turn unfilled: an empty box has its two ends
         // inverted, and the middle of that is no place at all.

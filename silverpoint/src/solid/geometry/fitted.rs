@@ -165,6 +165,20 @@ impl Fitted {
         }
     }
 
+    /// Which of the two parameters a singular place leaves free — see
+    /// [`Natural::freed`](super::natural::Natural).
+    ///
+    /// **The two arms part company here.** A torus has no singular place and is
+    /// never asked; a ruled patch's tip stands at one *angle* and every run
+    /// along the ruling, where every other surface in either tier that has one
+    /// leaves the angle free instead.
+    pub(crate) fn freed(&self) -> usize {
+        match self {
+            Self::Torus(_) => 0,
+            Self::Gusset(gusset) => gusset.freed(),
+        }
+    }
+
     /// Whether the parameterization says nothing at `at`.
     ///
     /// Never for a torus: both of its parameters are angles about a circle that

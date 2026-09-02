@@ -76,14 +76,10 @@ pub(super) struct Planning {
     pub(super) cornered: Vec<Cornered>,
     /// Every corner two of them meet at that they do not agree about, and the
     /// ruled patch that fills it.
-    #[allow(
-        dead_code,
-        reason = "the route in `Rounding` that raises the patch lands next"
-    )]
     pub(super) gusseted: Vec<Gusseted>,
     /// What fills each corner of the body more than one blend lands on, by
     /// slot — see [`Filled`].
-    filled: Vec<Option<Filled>>,
+    pub(super) filled: Vec<Option<Filled>>,
     /// Which blend ends land on each corner of the body, by slot.
     ///
     /// At most three, a corner any of them reaches having three edges — see
@@ -103,10 +99,6 @@ pub(super) struct Planning {
     chained: Vec<u32>,
     /// One patch's walked edge on its way into [`Planning::carried`] — see
     /// [`Planning::walked`], which is the one thing here that lays one down.
-    #[allow(
-        dead_code,
-        reason = "the route in `Rounding` that raises the patch lands next"
-    )]
     laying: Vec<DVec3>,
     taken: Vec<bool>,
     /// Which blend each edge of the body is a spine of, by slot.
@@ -396,14 +388,35 @@ impl Planning {
                 true
             }
             [first, second] => {
-                let Some(junction) =
-                    Self::joining(topology, &self.blends, &self.runs, [first, second])
-                else {
-                    return false;
-                };
+                // **Which filling a pair wants is whether the two agree.** Both
+                // cylinders stand a reach off the face they share; two picks of
+                // one convexity stand off it on the same side and cross in an
+                // ellipse, leaving no face at all, and a pick cut into the
+                // material beside one filled into the void stands off it on the
+                // other — so those two touch at a point and leave a patch. See
+                // [`Junction`] and [`Gusseted`].
+                let ends = [first, second];
+                let filled =
+                    match self.blends[first.blend].outward == self.blends[second.blend].outward {
+                        true => {
+                            let Some(junction) =
+                                Self::joining(topology, &self.blends, &self.runs, ends)
+                            else {
+                                return false;
+                            };
+                            self.junctions.push(junction);
+                            Filled::Junction(self.junctions.len() - 1)
+                        }
+                        false => {
+                            let Some(gusseted) = self.gusseting(topology, ends) else {
+                                return false;
+                            };
+                            self.gusseted.push(gusseted);
+                            Filled::Gusseted(self.gusseted.len() - 1)
+                        }
+                    };
                 self.swallowed[at.slot()] = Some(first);
-                self.filled[at.slot()] = Some(Filled::Junction(self.junctions.len()));
-                self.junctions.push(junction);
+                self.filled[at.slot()] = Some(filled);
                 true
             }
             [first, second, third] => {
@@ -467,6 +480,10 @@ impl Planning {
                     }),
                     Some(Filled::Corner(patch)) => Some(Ending::Cornered { corner: patch }),
                     Some(Filled::Star(star)) => Some(Ending::Starred { star }),
+                    Some(Filled::Gusseted(gusseted)) => Some(Ending::Gusseted {
+                        gusseted,
+                        filled: self.gusseted[gusseted].ends[0].blend == at,
+                    }),
                     None => self.across(topology, &blend, end, corner),
                 };
             }
@@ -830,10 +847,6 @@ impl Planning {
     /// other at the touch point, so nothing read there tells them apart. Only
     /// one of the two puts the first edge's own ruling on the far corner, and
     /// that is the reading taken.
-    #[allow(
-        dead_code,
-        reason = "the route in `Rounding` that raises the patch lands next"
-    )]
     pub(super) fn gusseting(
         &mut self,
         topology: &Topology,
@@ -906,10 +919,24 @@ impl Planning {
             let angle = branch::nearest(filled.axis.angle_of(middle), start);
             (0.0..=1.0).contains(&((angle - start) / (tip - start)))
         });
+        // **Which way the patch faces is the join's to say.** It runs out
+        // tangent to the filled blend along the whole of its first edge, so the
+        // two hold their material the same way there — see [`Face::smooth`],
+        // which is what the checking holds it against.
+        let middle = patch.at(DVec2::new((start + tip) / 2.0, 0.0));
+        let toward = match whole[0].outward {
+            true => 1.0,
+            false => -1.0,
+        };
+        let facing = whole[0].laid.normal(whole[0].laid.uv(middle)) * toward;
+        let outward = patch.normal(patch.uv(middle)).dot(facing) > 0.0;
         let second = self.walked(&patch, whole);
         Some(Gusseted {
             picks: whole.map(|blend| blend.pick),
             ends,
+            shared: sides,
+            outward,
+            across: pair[1].between[1 - sides[1]],
             at,
             patch,
             made: [met, from, onto],
@@ -934,10 +961,6 @@ impl Planning {
     ///
     /// Walked at [`CHORDED`], as a blend's own marched arc is, and trimmed
     /// afterwards by the bounds the edge takes.
-    #[allow(
-        dead_code,
-        reason = "the route in `Rounding` that raises the patch lands next"
-    )]
     fn walked(&mut self, patch: &Gusset, whole: [Blend; 2]) -> Curve {
         // **Neither end of a blend**, which is the point: a blend's two closing
         // arcs take nought and one, and this edge belongs to the pair rather

@@ -66,17 +66,26 @@ pub(super) struct Junction {
 /// between them is a ruled patch tangent to both along its own two edges.
 /// `.notes/KERNEL.md` §9.6 is where no quadric is shown to do the same job.
 #[derive(Debug, Clone, Copy)]
-#[allow(
-    dead_code,
-    reason = "the route in `Rounding` that raises the patch lands next"
-)]
 pub(super) struct Gusseted {
     /// The two ends meeting, the *filled* blend first — the one the patch's
     /// first edge lies on.
     pub(super) ends: [Swallow; 2],
+    /// Which of each blend's two faces the other also runs out onto, in step
+    /// with `ends` — what puts the touch point on the right side of each.
+    pub(super) shared: [usize; 2],
     /// The corner of the body they swallow between them.
     pub(super) at: VertexId,
     pub(super) patch: Gusset,
+    /// Whether the material lies where the patch's own normal points.
+    ///
+    /// **Read off the blend it joins rather than stated.** The patch is tangent
+    /// to both along its own two edges, so at either join the two faces must
+    /// hold their material the same way — and which way the patch's normal
+    /// happens to come out is the parameterization's business, not the body's.
+    pub(super) outward: bool,
+    /// The face the cut blend runs out onto that the filled one does not, which
+    /// is the face across the patch's straight side.
+    pub(super) across: FaceId,
     /// Its three corners: where the two blends touch, where the filled blend's
     /// rail on the face it does not share reaches the third edge's own line,
     /// and where the cut blend's reaches the same line.
@@ -107,6 +116,29 @@ pub(super) struct Gusseted {
     pub(super) second: Curve,
     /// Its straight side, laid down from the far corner towards the third.
     pub(super) side: Line,
+}
+
+/// What one ruled patch came to in the answer.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Gusseting {
+    /// Its three corners, in [`Gusseted::made`]'s own order.
+    pub(super) made: [VertexId; 3],
+    /// Its three sides: the edge on the filled blend, the one on the cut blend,
+    /// and the straight one between them.
+    ///
+    /// **They chain as they were laid**, the first running from the touch point
+    /// to the far corner, the straight one on to the third and the second back
+    /// to the touch point — so the patch's own loop is one bit rather than a
+    /// search. See [`Rounding::gusseted`].
+    pub(super) sides: [EdgeId; 3],
+}
+
+impl Gusseting {
+    /// Its straight side, which is the one a face other than the two blends
+    /// walks — see [`Rounding::line`].
+    pub(super) fn straight(self) -> EdgeId {
+        self.sides[2]
+    }
 }
 
 /// The corner three blend ends land on, before anything is put in it.

@@ -16,7 +16,7 @@ use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::named::{Named, Step};
-use crate::solid::rounding::corner::{Cornered, Joined, Pointed, Ringed};
+use crate::solid::rounding::corner::{Cornered, Gusseting, Joined, Pointed, Ringed};
 use crate::solid::rounding::planning::Planning;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
@@ -258,6 +258,15 @@ enum Ending {
     /// one of its sides and back down the leg on the other. [`Starred`] holds
     /// the whole of what the three leave.
     Starred { star: usize },
+    /// On one side of the patch two picks that do not agree about the corner
+    /// left there.
+    ///
+    /// **The one ending that is a face of the fitted tier.** [`Gusseted`] holds
+    /// the whole of what the two leave — three corners and three sides — and
+    /// each blend closes on the side of it that lies on its own cylinder.
+    /// `filled` says which of the pair this blend is, the patch's first edge
+    /// lying on the filled one.
+    Gusseted { gusseted: usize, filled: bool },
 }
 
 /// What fills a corner of the body that more than one blend lands on.
@@ -273,6 +282,8 @@ enum Filled {
     Corner(usize),
     /// The star three flat ones left — see [`Starred`].
     Star(usize),
+    /// The patch two that do not agree about it left — see [`Gusseted`].
+    Gusseted(usize),
 }
 
 /// Where a run crosses a corner of the body between two of its own spines.
@@ -404,6 +415,9 @@ pub struct Rounding {
     /// The face each corner patch raised, and everything else it came to.
     patched: Vec<FaceId>,
     ringed: Vec<Ringed>,
+    /// The same for each ruled patch two disagreeing picks left.
+    gusseted: Vec<FaceId>,
+    gusseting: Vec<Gusseting>,
     /// One loop on its way into the answer.
     walk: Vec<Coedge>,
     /// What every check a body owes runs in.
@@ -510,6 +524,18 @@ impl Rounding {
             );
             self.patched.push(raised);
         }
+        self.gusseted.clear();
+        for at in 0..self.planning.gusseted.len() {
+            let held = self.planning.gusseted[at];
+            let name = of.by.grew(Grown::Gusseted(held.picks));
+            let raised = Self::patch(
+                into,
+                name,
+                Surface::Fitted(Fitted::Gusset(held.patch)),
+                held.outward,
+            );
+            self.gusseted.push(raised);
+        }
     }
 
     /// The faces one blend raised, in the run's own order.
@@ -539,6 +565,11 @@ impl Rounding {
         for at in 0..self.planning.junctions.len() {
             let joined = self.join(topology, at, into);
             self.joined.push(joined);
+        }
+        self.gusseting.clear();
+        for at in 0..self.planning.gusseted.len() {
+            let gusseting = self.gusset(topology, at, into);
+            self.gusseting.push(gusseting);
         }
         self.ringed.clear();
         for at in 0..self.planning.cornered.len() {
@@ -744,6 +775,18 @@ impl Rounding {
             Ending::Against { junction, shared } => {
                 return self.joined[junction].made[usize::from(side != shared)];
             }
+            // The touch point where the rail runs out onto the face the two
+            // share, and this blend's own corner on the third edge's line
+            // where it runs out onto the face it does not.
+            Ending::Gusseted { gusseted, filled } => {
+                let which = usize::from(!filled);
+                let shared = self.planning.gusseted[gusseted].shared[which];
+                let seat = match side == shared {
+                    true => 0,
+                    false => 1 + which,
+                };
+                return self.gusseting[gusseted].made[seat];
+            }
             Ending::Across {
                 along,
                 cut,
@@ -869,6 +912,18 @@ impl Rounding {
             Ending::Against { junction, shared } => {
                 (self.joined[junction].arc, onward == (shared == 0))
             }
+            // **The two sides are laid opposite ways round**, which is what the
+            // second term reads: the filled blend's runs from the touch point
+            // out to its own corner, and the cut blend's is walked from its
+            // corner back to the touch point.
+            Ending::Gusseted { gusseted, filled } => {
+                let which = usize::from(!filled);
+                let shared = self.planning.gusseted[gusseted].shared[which];
+                (
+                    self.gusseting[gusseted].sides[which],
+                    (onward == (shared == 0)) == filled,
+                )
+            }
             Ending::Across {
                 across,
                 curve,
@@ -935,6 +990,60 @@ impl Rounding {
             )
         });
         Ringed { made, arcs }
+    }
+
+    /// Mint what one ruled patch leaves: its three corners, and the three
+    /// sides it is bounded by.
+    ///
+    /// **Two corners lie on no edge the body had** — the touch point, where two
+    /// rulings cross on the face both blends reach, and the cut blend's own,
+    /// which stands a reach past the body's corner on the third edge's line.
+    /// Both are exact. The third is where that edge is cut back to, and it
+    /// carries what the edge carried.
+    fn gusset(&mut self, topology: &Topology, at: usize, into: &mut Body) -> Gusseting {
+        let held = self.planning.gusseted[at];
+        let face = self.gusseted[at];
+        let faces = held.ends.map(|end| self.raised[end.blend]);
+        // **The ladder's top rung at each of the three**, on
+        // [`Rounding::ended`]'s own terms: the walked side is as wide as its
+        // own run strays and it ends at two of them, the third holding what the
+        // edge cut back there carried.
+        let strayed = held.second.strays(into.topology().carried());
+        let made = [
+            (held.made[0], strayed),
+            (held.made[1], topology.edge(held.along).tolerance),
+            (held.made[2], strayed),
+        ]
+        .map(|(at, tolerance)| into.topology_mut().add_vertex(Vertex { at, tolerance }));
+        self.trim(topology, held.along, held.at, held.cut, made[1]);
+        let across = self.made[held.across.slot()].expect(RAISED);
+        let reach = held.made[1].distance(held.made[2]);
+        Gusseting {
+            made,
+            sides: [
+                Self::arc(
+                    into,
+                    held.first,
+                    held.bounds,
+                    [made[0], made[1]],
+                    [faces[0], face],
+                ),
+                Self::arc(
+                    into,
+                    held.second,
+                    [0.0, TAU],
+                    [made[2], made[0]],
+                    [faces[1], face],
+                ),
+                Self::arc(
+                    into,
+                    Curve::Line(held.side),
+                    [0.0, reach],
+                    [made[1], made[2]],
+                    [across, face],
+                ),
+            ],
+        }
     }
 
     /// Mint what one junction leaves: its two corners, and the arc both blends
@@ -1026,6 +1135,11 @@ impl Rounding {
             let bounded = self.bounded(at);
             Self::outline(into, raised, &bounded);
         }
+        for at in 0..self.planning.gusseted.len() {
+            let raised = self.gusseted[at];
+            let sided = self.sided(at);
+            Self::outline(into, raised, &sided);
+        }
     }
 
     /// Give the face at `raised` the one loop `walk` names.
@@ -1067,13 +1181,28 @@ impl Rounding {
                     forward: coedge.forward,
                 }),
             }
+            let corner = topology.ends(coedge)[1];
+            // **A patch two disagreeing picks left has a side on this face**,
+            // between the cut blend's own rail and the edge cut back beside it
+            // — see [`Gusseted::side`]. The two stand a reach apart along the
+            // third edge's line, where an agreeing pair leaves them in one
+            // place and nothing to fill.
+            if let Some(Filled::Gusseted(gusseted)) = self.planning.filled[corner.slot()]
+                && self.planning.gusseted[gusseted].across == face
+            {
+                self.walk.push(Coedge {
+                    edge: self.gusseting[gusseted].straight(),
+                    forward: self.planning.spined[coedge.edge.slot()].is_none(),
+                });
+                continue;
+            }
             let next = walk[(at + 1) % walk.len()];
             if self.planning.spined[coedge.edge.slot()].is_some()
                 || self.planning.spined[next.edge.slot()].is_some()
             {
                 continue;
             }
-            let Some(swallow) = self.planning.swallowed[topology.ends(coedge)[1].slot()] else {
+            let Some(swallow) = self.planning.swallowed[corner.slot()] else {
                 continue;
             };
             let closes = self.minted[swallow.blend].closes[swallow.end] as usize;
@@ -1192,6 +1321,34 @@ impl Rounding {
         })
     }
 
+    /// The one loop of one ruled patch: its three sides, chained.
+    ///
+    /// **Wound off the blend it runs out of**, which is [`Rounding::wound`]'s
+    /// own argument one level up: the patch uses its first side the way the
+    /// filled blend's face does not. The three sides chain as they were laid —
+    /// out to the far corner, along the straight one to the third, and back
+    /// along the walked one — so one bit turns the whole loop and nothing here
+    /// searches for an order.
+    fn sided(&self, at: usize) -> [Coedge; 3] {
+        let held = self.planning.gusseted[at];
+        let end = held.ends[0];
+        // The filled blend's own coedge on that side, turned back: a loop is
+        // wound off the face it was cut from — see [`Rounding::wound`] — so the
+        // blend's own direction is what it closes with against how it walks.
+        let closes = (end.end == 1) == (held.shared[0] == 0);
+        let forward = closes == self.planning.blends[end.blend].walks;
+        // As laid: out along the first side to the far corner, along the
+        // straight one to the third, and back along the walked one.
+        let order = match forward {
+            true => [0usize, 2, 1],
+            false => [1, 2, 0],
+        };
+        array::from_fn(|nth| Coedge {
+            edge: self.gusseting[at].sides[order[nth]],
+            forward,
+        })
+    }
+
     /// Copy the edge at `id` and the corners it ends at, cut back where a blend
     /// asked, unless something already has.
     fn edge(&mut self, topology: &Topology, id: EdgeId, into: &mut Body) {
@@ -1256,6 +1413,14 @@ impl Rounding {
                     .contains(&self.planning.cornered[at].held.faces[0])
                 {
                     into.topology_mut().add_shelled(self.patched[at]);
+                }
+            }
+            for at in 0..self.planning.gusseted.len() {
+                if topology
+                    .faces_of(shell)
+                    .contains(&self.planning.gusseted[at].across)
+                {
+                    into.topology_mut().add_shelled(self.gusseted[at]);
                 }
             }
         });
@@ -1479,10 +1644,6 @@ fn tubed(laid: &Surface, made: [DVec3; 2]) -> Option<Curve> {
 /// `None` where they run alongside each other, which two edges of one face
 /// Where the line `rail` crosses the plane of `over`, or `None` where it
 /// runs along it.
-#[allow(
-    dead_code,
-    reason = "the route in `Rounding` that raises the patch lands next"
-)]
 pub(super) fn reaching(rail: Line, over: Surface) -> Option<DVec3> {
     let Surface::Natural(Natural::Plane(plane)) = over else {
         return None;

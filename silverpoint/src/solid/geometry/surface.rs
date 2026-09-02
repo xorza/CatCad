@@ -259,6 +259,24 @@ impl Surface {
                 .any(|half| self.narrowed(half, slack, splits - 1))
     }
 
+    /// Which of the two parameters a singular place leaves free.
+    ///
+    /// **What a reader writing such a corner twice varies.** A cone's apex
+    /// stands at one height and every angle; a ruled patch's tip stands at one
+    /// angle and every run along its ruling. See
+    /// [`Face::flatten`](crate::solid::topology::face::Face).
+    ///
+    /// One answer to a surface rather than one to a place: no surface here has
+    /// singular places of both kinds, and a reader asking about a place that is
+    /// not singular at all is asking the wrong question — [`Surface::singular`]
+    /// is the one that answers it.
+    pub(crate) fn freed(&self) -> usize {
+        match self {
+            Self::Natural(of) => of.freed(),
+            Self::Fitted(of) => of.freed(),
+        }
+    }
+
     /// Whether the parameterization says nothing at `at` — one place that
     /// every angle names.
     pub(crate) fn singular(&self, at: DVec3) -> bool {
