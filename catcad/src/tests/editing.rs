@@ -1128,3 +1128,36 @@ fn picking_a_step_offers_to_remove_it_and_everything_built_on_it() {
         "one undo did not put the whole cascade back",
     );
 }
+
+/// **A step picked with no sketch open is still offered a removal.**
+///
+/// The bar used to refuse everything below its dimension field whenever
+/// nothing was open, a sketch being what the field and the relations under it
+/// are stated against. A removal is stated against no sketch — it takes a step
+/// — so a document nobody had clicked into showed a bar with nothing on it,
+/// and went on showing one until something opened a drawing.
+#[test]
+fn a_step_picked_with_nothing_open_is_offered_a_removal() {
+    let mut raised = Raised::unopened();
+    assert!(
+        raised.models().open().is_none(),
+        "the app opens on no drawing, which is the whole of what this is about",
+    );
+    let steps: Vec<FeatureId> = raised.models().chosen().map(|(at, _)| at).collect();
+    let &last = steps.last().expect("the demo takes steps");
+
+    raised.press(internals::step(last));
+    raised.frame();
+    assert!(
+        raised.shows(internals::relation("Remove")),
+        "a step picked with nothing open was offered no way to remove it",
+    );
+
+    raised.press(internals::relation("Remove"));
+    raised.frame();
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps.len() - 1,
+        "the press took the step alone, or took nothing",
+    );
+}

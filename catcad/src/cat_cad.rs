@@ -111,6 +111,9 @@ pub struct CatCad {
     /// The room an export works in, kept for the reason every routine in the
     /// kernel keeps its own: the second one costs nothing.
     stepping: Stepping,
+    /// How many frames have been recorded, which is what every trace of one is
+    /// read against — see [`CatCad::record`].
+    frames: u64,
     /// How the document came to say what it says. Beside the document rather
     /// than in it: what is in one is what saving writes down, and the way here
     /// belongs to this run of the program.
@@ -218,6 +221,7 @@ impl CatCad {
         view.settle(&document, &build, &theme, &session, hud.gizmo());
         Self {
             document,
+            frames: 0,
             history: History::default(),
             intents: Intents::default(),
             build,
@@ -661,6 +665,14 @@ impl CatCad {
 
 impl App for CatCad {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+        // **What every event below is read against.** A widget's asking lands
+        // after everything drawn beside it has read what the widget was about
+        // to change, so which *frame* a reading was taken in is the whole
+        // question wherever the overlay looks stale — and a span is what makes
+        // the answer readable rather than inferred from the order of lines.
+        self.frames += 1;
+        let _drawn =
+            tracing::debug_span!(target: "catcad.frame", "frame", n = self.frames).entered();
         Panel::zstack()
             .auto_id()
             // The application root, as far as the keyboard is concerned, and

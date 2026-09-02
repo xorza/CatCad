@@ -35,6 +35,15 @@ impl Selection {
         self.picked.extend(what);
     }
 
+    /// Make this hold exactly what `other` holds.
+    ///
+    /// Keeps the room it already has, because the overlay does this several
+    /// times a frame — see [`Hud::following`](crate::hud::Hud).
+    pub(crate) fn copy_from(&mut self, other: &Selection) {
+        self.picked.clear();
+        self.picked.extend_from_slice(&other.picked);
+    }
+
     /// Add `what` to what is selected, if it is not already there.
     ///
     /// Idempotent, which is what lets it be an intent at all: a replayed pass

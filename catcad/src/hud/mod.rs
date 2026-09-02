@@ -5,7 +5,7 @@ use palantir::{Align, Background, Configure, InternedStr, Panel, Sizing, Spacing
 use std::hash::Hash;
 
 use crate::hud::cube::{Cube, Gizmo};
-use crate::intent::Intents;
+use crate::intent::{Choice, Intents};
 use crate::look::Theme;
 use crate::look::icons::Icons;
 use crate::model::models::Models;
@@ -58,6 +58,14 @@ pub(crate) struct Hud {
     /// What is picked out, sorted into what the bar can be asked about — kept
     /// across frames for its room, like the offers above it.
     picked: relations::Picked,
+    /// What is picked out, as this frame has it.
+    ///
+    /// **The session's answer with everything asked for since laid over it**,
+    /// and what every control here is handed in place of the session's own —
+    /// see [`Hud::following`].
+    ///
+    /// Kept across frames for its room, like the sort beside it.
+    picking: Selection,
     /// Every step a removal would take, while one is being offered and pointed
     /// at. Empty every other frame, and kept for its room like the two above.
     doomed: Vec<FeatureId>,
@@ -97,6 +105,7 @@ impl Hud {
     /// the status line wide enough to slide the tool bar out from under the
     /// pointer, so a click on Line armed nothing.
     pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        self.following(shown.selection, intents);
         // **Read once, before either drawer.** The bar offers the removal and
         // the card wears what it would take, and the two are drawn a call
         // apart — so a card that asked for itself could show a cascade the bar
@@ -104,7 +113,6 @@ impl Hud {
         //
         // Off the chip's own response, which is a frame behind like every
         // other: the wear and the chip's own highlight then arrive together.
-        self.picked.sort(shown.selection);
         self.doomed.clear();
         if let Some(step) = self.picked.removable(shown.models)
             && ui
@@ -114,6 +122,7 @@ impl Hud {
             shown.models.doomed_at(step, &mut self.doomed);
         }
         let chrome = &shown.theme.chrome;
+        let showing = shown.picking(&self.picking);
         // The document commands and the tools in one column rather than two
         // surfaces at one corner: pinned to the same edge, they would otherwise
         // be drawn over each other. The column carries the margin, so the two
@@ -126,21 +135,66 @@ impl Hud {
             .gap(chrome.gap)
             .background(Background::NONE)
             .show(ui, |ui| {
-                papers::show(ui, shown, intents);
-                rail::show(ui, shown, intents);
+                papers::show(ui, showing, intents);
+                rail::show(ui, showing, intents);
             });
-        recipe::show(ui, shown, &self.doomed, intents);
-        camera::show(ui, &mut self.cube, shown, intents);
-        readout::show(ui, shown);
+        self.following(shown.selection, intents);
+        recipe::show(ui, shown.picking(&self.picking), &self.doomed, intents);
+        self.following(shown.selection, intents);
+        camera::show(ui, &mut self.cube, shown.picking(&self.picking), intents);
+        self.following(shown.selection, intents);
+        readout::show(ui, shown.picking(&self.picking));
         relations::show(
             ui,
-            shown,
+            shown.picking(&self.picking),
             &mut self.offers,
             &self.picked,
             &mut self.draft,
             &mut self.reach,
             intents,
         );
+    }
+
+    /// Take up everything asked for so far, so that whatever is drawn next is
+    /// drawn from it.
+    ///
+    /// **Called before every control that can ask for anything.** A control
+    /// raises an [`Intent`](crate::intent::Intent), and the session answers it
+    /// at the frame's *second* apply — which is after every control has been
+    /// drawn. So `session` is what was picked before this frame's click, and a
+    /// control handed it is drawn as though the click had not happened: a
+    /// recipe row that does not come up picked, and a bar that has not heard
+    /// what the row picked.
+    ///
+    /// Three controls share the call before them rather than take one each:
+    /// the left column's pair, which is drawn inside one closure, and the
+    /// readout, which stands between the cube and the bar. None of the three
+    /// picks anything.
+    ///
+    /// Laid over from the top each time rather than followed on from where the
+    /// last call stopped, and that costs nothing a frame can measure: a frame
+    /// asks for one thing or two. Every [`Choice`] here names the answer it
+    /// wants rather than a move, so replaying the queue arrives where the
+    /// session will arrive, by the steps the session will take.
+    fn following(&mut self, session: &Selection, intents: &Intents) {
+        self.picking.copy_from(session);
+        for choice in intents.choices() {
+            // Every arm spelled rather than a rest, so a [`Choice`] added
+            // later cannot start saying what is picked without this being
+            // asked to answer it as well. What the session does with these two
+            // is the same call, and the two would otherwise part company in
+            // silence.
+            match *choice {
+                Choice::Select(what) => self.picking.select(what),
+                Choice::Include(what) => self.picking.include(what),
+                Choice::Ask(_)
+                | Choice::Set { .. }
+                | Choice::Suggest { .. }
+                | Choice::Close
+                | Choice::Hold(_) => {}
+            }
+        }
+        self.picked.sort(&self.picking);
     }
 
     /// Where the orientation gizmo landed and what the pointer is on it, for
@@ -211,6 +265,17 @@ pub(crate) struct Shown<'a> {
     pub(crate) selection: &'a Selection,
 }
 
+impl<'a> Shown<'a> {
+    /// This, with what the frame has picked in place of what the session still
+    /// holds — see [`Hud::following`].
+    fn picking(self, picked: &'a Selection) -> Self {
+        Self {
+            selection: picked,
+            ..self
+        }
+    }
+}
+
 /// The ids a harness clicks the overlay through.
 ///
 /// **Names rather than positions.** These used to be hand-measured pixel
@@ -247,5 +312,56 @@ pub(crate) mod internals {
     #[cfg(test)]
     pub(crate) fn step(at: FeatureId) -> WidgetId {
         recipe::step_id(at)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::part::Part;
+
+    /// **The overlay draws from the session's answer with this frame's asking
+    /// laid over it.**
+    ///
+    /// The session does not move until the frame's second apply, which is
+    /// after every control has been drawn — so a control drawn from it is
+    /// drawn as though this frame's click had not happened.
+    ///
+    /// The session is empty throughout, so every answer below is the inbox's
+    /// alone.
+    #[test]
+    fn the_overlay_reads_what_this_frame_asked_for_and_not_the_session() {
+        let mut hud = Hud::default();
+        let session = Selection::default();
+        let mut intents = Intents::default();
+
+        hud.following(&session, &intents);
+        assert!(hud.picking.picked().is_empty(), "nothing was asked for");
+
+        intents.push(Choice::Select(Some(Part::Growing)));
+        hud.following(&session, &intents);
+        assert_eq!(hud.picking.picked(), [Part::Growing]);
+
+        intents.push(Choice::Include(Part::Turning));
+        hud.following(&session, &intents);
+        assert_eq!(hud.picking.picked(), [Part::Growing, Part::Turning]);
+
+        // Laid over from the top each time, so a second reading of the same
+        // inbox is the same answer — which is what lets every control take one
+        // without the overlay tracking how far it has read.
+        hud.following(&session, &intents);
+        assert_eq!(hud.picking.picked(), [Part::Growing, Part::Turning]);
+
+        // A later `Select` replaces rather than adds, exactly as the session
+        // will answer it — the two follow one rule, spelled in
+        // [`Selection::select`].
+        intents.push(Choice::Select(Some(Part::Turning)));
+        hud.following(&session, &intents);
+        assert_eq!(hud.picking.picked(), [Part::Turning]);
+
+        // What everything else in the inbox comes to here: nothing.
+        intents.push(Choice::Close);
+        hud.following(&session, &intents);
+        assert_eq!(hud.picking.picked(), [Part::Turning]);
     }
 }

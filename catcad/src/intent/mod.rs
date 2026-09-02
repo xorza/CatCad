@@ -323,6 +323,21 @@ impl Intents {
         self.queue.iter().cloned()
     }
 
+    /// Everything the [`Session`](crate::session::Session) has been asked for
+    /// so far, in order.
+    ///
+    /// By reference where [`Intents::iter`] hands out clones, because a reader
+    /// that only *looks* must not pay what a clone costs: two intents carry a
+    /// [`Profile`], and a walk that lifted one out would reach the heap on a
+    /// path the record pass allocates nothing on. See
+    /// [`Hud::following`](crate::hud::Hud).
+    pub(crate) fn choices(&self) -> impl Iterator<Item = &Choice> {
+        self.queue.iter().filter_map(|intent| match intent {
+            Intent::Choice(choice) => Some(choice),
+            _ => None,
+        })
+    }
+
     /// The `nth` thing asked for, or `None` past the end.
     ///
     /// The way in for a reader that has to let go of the inbox between one

@@ -100,17 +100,27 @@ pub(super) fn show(
     let roundable = picked.roundable();
     let blendable = picked.blendable(models);
     let open = models.open();
-    match open {
-        Some(model) => model.offers(selection.picked(), offers),
+    // The drawing an offer is stated against, taken where the offers are
+    // gathered rather than asked for again below — a chip that looked the name
+    // up for itself would be a second condition on a list this one already
+    // decided.
+    let constraining = match open {
+        Some(model) => {
+            model.offers(selection.picked(), offers);
+            Some(model.of())
+        }
         // Cleared rather than left, because it is kept between frames: what the
         // last open sketch admitted is not what a document being looked at
         // admits, and the walk below reads this list whether or not anything
         // refilled it.
-        None => offers.clear(),
-    }
+        None => {
+            offers.clear();
+            None
+        }
+    };
     let dimension = open.and_then(|model| picked.resizable(model));
-    let region = open.and_then(|_| picked.growable());
-    let spinning = open.and_then(|_| picked.spinnable());
+    let region = open.and_then(|_| picked.growable(models));
+    let spinning = open.and_then(|_| picked.spinnable(models));
     // **What the bar holds besides the offers**, asked twice: once to decide
     // whether it is worth drawing at all, and once to decide whether the offers
     // want a divider above them. Two lists kept by hand drift the moment an
@@ -123,6 +133,12 @@ pub(super) fn show(
         || removable.is_some()
         || roundable.is_some()
         || blendable.is_some();
+    tracing::trace!(
+        target: "catcad.overlay",
+        offers = offers.len(),
+        besides,
+        "what the bar has to show",
+    );
     if offers.is_empty() && !besides {
         return;
     }
@@ -140,6 +156,13 @@ pub(super) fn show(
         reach.0 = stated;
     }
     let theme = shown.theme;
+    // **Nothing below returns, and no chip asks anything its reading has not
+    // already answered.** One rule in two halves. A chip drawn under a
+    // condition stricter than the one that put it in `besides` is a chip the
+    // bar made room for and never drew, and a `return` in the middle does that
+    // to every chip under it at once — including the ones that had nothing to
+    // do with the condition. So a reading carries what its chip needs, and what
+    // a chip cannot show sits in a block rather than behind a gate.
     Pill::hstack(theme, "relations")
         .align(Align::BOTTOM)
         .show(ui, |ui| {
@@ -200,14 +223,11 @@ pub(super) fn show(
                     intents.push(Step::Release);
                 }
             }
-            let Some(sketch) = open.map(Model::of) else {
-                return;
-            };
             if let Some(resizable) = dimension {
                 let edited = scrub(ui, draft, "dimension", notation);
                 if edited.changed {
                     intents.push(Change::Resize {
-                        sketch,
+                        sketch: resizable.sketch,
                         constraint: resizable.constraint,
                         to: *draft,
                     });
@@ -223,7 +243,6 @@ pub(super) fn show(
             // builds rather than states.
             if let Some(growable) = region
                 && offering(ui, shown.icons, theme, marked::EXTRUDE)
-                && let Some(model) = models.at(growable.sketch)
             {
                 // Asks rather than builds. The solid appears at no depth at all
                 // and the form beside it decides how far it goes.
@@ -233,7 +252,7 @@ pub(super) fn show(
                 // [`Model::profile`]. The list reaches the heap on the frame
                 // the chip is pressed and on no other.
                 intents.push(Choice::Ask(Some(Opening::Extrude {
-                    profile: model.profile(growable.regions),
+                    profile: growable.model.profile(growable.regions),
                 })));
             }
             // Asks rather than builds, as the extrude above does — the ring
@@ -242,10 +261,9 @@ pub(super) fn show(
             // to the model.
             if let Some(spinnable) = spinning
                 && offering(ui, shown.icons, theme, marked::REVOLVE)
-                && let Some(model) = models.at(spinnable.sketch)
             {
                 intents.push(Choice::Ask(Some(Opening::Revolve {
-                    profile: model.profile(spinnable.regions),
+                    profile: spinnable.model.profile(spinnable.regions),
                     axis: spinnable.axis,
                 })));
             }
@@ -265,23 +283,28 @@ pub(super) fn show(
             {
                 intents.push(Change::DeleteStep { step });
             }
-            if !offers.is_empty() && besides {
-                pill::divider(ui, theme, "offers");
-            }
-            for &constraint in offers.iter() {
-                if offered(ui, shown.icons, theme, constraint) {
-                    // **Two answers, and which one a chip gives follows from
-                    // what it is short of.** A relation says something the
-                    // drawing can work out for itself, so pressing it states it
-                    // outright. A dimension already knows its number and is
-                    // short of somewhere to put it, so it goes into the
-                    // pointer's hands.
-                    intents.push(match constraint {
-                        constraint if let Some(placing) = Dimensioning::placing(constraint) => {
-                            Intent::from(Choice::Hold(Tool::Dimension(placing)))
-                        }
-                        constraint => Change::Constrain { sketch, constraint }.into(),
-                    });
+            // The offers, and the one name every one of them is stated
+            // against. A block rather than a gate that returns, by the rule
+            // stated where this closure opens.
+            if let Some(sketch) = constraining {
+                if !offers.is_empty() && besides {
+                    pill::divider(ui, theme, "offers");
+                }
+                for &constraint in offers.iter() {
+                    if offered(ui, shown.icons, theme, constraint) {
+                        // **Two answers, and which one a chip gives follows from
+                        // what it is short of.** A relation says something the
+                        // drawing can work out for itself, so pressing it states it
+                        // outright. A dimension already knows its number and is
+                        // short of somewhere to put it, so it goes into the
+                        // pointer's hands.
+                        intents.push(match constraint {
+                            constraint if let Some(placing) = Dimensioning::placing(constraint) => {
+                                Intent::from(Choice::Hold(Tool::Dimension(placing)))
+                            }
+                            constraint => Change::Constrain { sketch, constraint }.into(),
+                        });
+                    }
                 }
             }
         });
@@ -470,6 +493,7 @@ impl Picked {
                     .constraint(id)
                     .value()
                     .map(|value| Resizable {
+                        sketch: model.of(),
                         constraint: id,
                         value,
                     })
@@ -477,25 +501,30 @@ impl Picked {
             .flatten()
     }
 
-    /// The regions picked out, if regions of one drawing are all that is.
-    fn growable(&self) -> Option<Growable<'_>> {
-        let sketch = self.sketch?;
+    /// The regions picked out, if regions of one live drawing are all that is.
+    ///
+    /// Answers with the drawing rather than its handle, so the chip that grows
+    /// a solid has nothing left to look up — see [`show`].
+    fn growable<'a>(&'a self, models: Models<'a>) -> Option<Growable<'a>> {
+        let model = models.at(self.sketch?)?;
         let alone = self.only(Wanted {
             regions: true,
             ..Wanted::default()
         });
         (alone && !self.regions.is_empty()).then_some(Growable {
-            sketch,
+            model,
             regions: &self.regions,
         })
     }
 
     /// The regions picked out and the line to spin them about, if what is
-    /// picked is those and one segment of the same drawing.
+    /// picked is those and one segment of the same live drawing.
     ///
     /// **Which was clicked first says nothing**, which is what sorting bought.
-    fn spinnable(&self) -> Option<Spinnable<'_>> {
-        let sketch = self.sketch?;
+    ///
+    /// Answers with the drawing, like [`Picked::growable`] above it.
+    fn spinnable<'a>(&'a self, models: Models<'a>) -> Option<Spinnable<'a>> {
+        let model = models.at(self.sketch?)?;
         let alone = self.only(Wanted {
             regions: true,
             entities: true,
@@ -508,7 +537,7 @@ impl Picked {
             return None;
         };
         Some(Spinnable {
-            sketch,
+            model,
             regions: &self.regions,
             axis,
         })
@@ -608,8 +637,13 @@ struct Wanted {
 }
 
 /// A dimension the bar can scrub, and the number it states as it stands.
+///
+/// Carries the drawing it is a dimension of, as [`Growable`] and [`Spinnable`]
+/// carry theirs: a chip must ask nothing its reading has already answered —
+/// see [`show`].
 #[derive(Debug, Clone, Copy)]
 struct Resizable {
+    sketch: FeatureId,
     constraint: ConstraintId,
     value: f64,
 }
@@ -627,18 +661,18 @@ struct Blendable {
 /// The regions the bar can grow a solid off.
 ///
 /// Both halves, because a region is only a region of the arrangement it was
-/// walked out of — see [`Part::Region`] — so the sketch they belong to travels
+/// walked out of — see [`Part::Region`] — so the drawing they belong to travels
 /// with them rather than being looked up again at the press.
 #[derive(Debug, Clone, Copy)]
 struct Growable<'a> {
-    sketch: FeatureId,
+    model: Model<'a>,
     regions: &'a [usize],
 }
 
 /// The regions the bar can spin a solid off, and the line to spin them about.
 #[derive(Debug, Clone, Copy)]
 struct Spinnable<'a> {
-    sketch: FeatureId,
+    model: Model<'a>,
     regions: &'a [usize],
     axis: SegmentId,
 }
