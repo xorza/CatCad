@@ -385,10 +385,35 @@ pub(crate) struct Walked<'a> {
 impl Chorded for Walked<'_> {
     type At = DVec3;
 
+    /// **The curve's own count, and what either face it lies between asks for
+    /// on top of it.**
+    ///
+    /// A curve is chorded by how far a chord of it strays from the curve, which
+    /// is right about the *edge* and says nothing about the faces either side:
+    /// a grid finer than the chords holds a triangle wider than a cell, and the
+    /// boundary is the one run no pass may cut — see [`Face::crossed`], where
+    /// that is argued.
+    ///
+    /// **Both faces, and both coedges answer alike.** The reading is over the
+    /// edge and the pair it lies between, neither of which knows which side is
+    /// asking, so the two faces lay the same corners down and no face gains one
+    /// its neighbour lacks.
+    ///
+    /// **A marched run keeps its own count**, whatever a face would like. It is
+    /// its chords rather than a curve they approximate, so a step between two
+    /// of them lands on a chord and off both surfaces — see
+    /// [`Curve::divisible`].
     fn steps(&self, sagitta: f64) -> usize {
-        self.topology
-            .edge(self.coedge.edge)
-            .steps(sagitta, self.topology.carried())
+        let carried = self.topology.carried();
+        let edge = self.topology.edge(self.coedge.edge);
+        let steps = edge.steps(sagitta, carried);
+        if !edge.curve.divisible() {
+            return steps;
+        }
+        edge.between
+            .iter()
+            .map(|&at| self.topology.face(at).crossed(edge, sagitta, carried))
+            .fold(steps, usize::max)
     }
 
     fn ends(&self) -> [DVec3; 2] {

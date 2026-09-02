@@ -5,9 +5,10 @@ becomes a body built by a sequence of operations, over an exact boundary
 representation written here.
 
 `silverpoint/src/solid/` holds the geometry, the topology, the validity checker,
-the extrusion, the revolve, the mesher, both tiers of surface intersection and
-the boolean. CatCad draws, picks, joins, cuts and intersects bodies. **§9 is
-what is left, and the order to take it in.**
+the extrusion, the revolve, the mesher, both tiers of surface intersection, the
+boolean, the rounding and the STEP export. CatCad draws, picks, joins, cuts,
+intersects, rounds and writes out bodies. **§9 is every milestone and the order
+they were taken in, and none of them is outstanding.**
 
 This is a design, not a record. A decision keeps its reason; what it cost to
 reach is in the diff.
@@ -525,12 +526,48 @@ surface here derives the whole of it.
 
 The face's own boundary is never cut, a corner on an edge being one the face
 across it does not have — except where a side has collapsed to a point, a cone's
-apex or a sphere's pole, there being no face across a point to disagree. **Two
-surfaces lose by that rule**: a sphere, whose cell is a chord over the square
-root of two while its meridians still arrive chorded at the whole width; and a
-ruled patch, whose straight side is a whole ruling arriving as a single chord
-because a line is exact however coarsely it is cut. §9.6 measures what the
-second costs and names the one rule that would mend both.
+apex or a sphere's pole, there being no face across a point to disagree.
+
+**So an edge arrives chorded as finely as the finer of its two faces asks**,
+which is what a boundary owes a middle no pass may cut it into. `Face::crossed`
+counts the cells of that face's own grid the edge covers, `Walked::steps` takes
+the greater of that and the curve's own count, and both faces read the same edge
+and the same pair — so neither lays down a corner its neighbour lacks, which is
+the whole reason a boundary is left alone. **From the edge's two ends**, which
+is the whole of it wherever the parameter does not turn back: a ruling and a
+plane section read exactly, and one that doubles back or closes reads short,
+where the curve's own count is what is left. So the rule only ever asks for
+more.
+
+**A marched run keeps its own count**, whatever a face would like. It is its
+chords rather than a curve they stand for, so a step between two of them lands
+on a chord and off both surfaces — `Curve::divisible` is that reading.
+
+**What it mends is the ruled patch**, whose straight side is a whole ruling
+arriving as a single chord because a line is exact however coarsely it is cut.
+Its own rule asks for one piece where the grid wants seventy-two. Measured at a
+reach of a half, the worst triangle went from `7.6e-3` at every sagitta to
+`5.5e-3`, `6.9e-4` and `5.3e-4` at a hundredth, a thousandth and a
+ten-thousandth — the last being the `3.9e-4` its walked edge carries and no
+finer. **A face on it also covers `0.4362` where it used to cover `0.4470`**,
+and a quadrature over the surface's own parameters agrees with the new one: the
+coarse boundary was not merely rough, it was two and a half per cent too large.
+
+**A sphere gains a little and had nothing to mend.** Its cell is a chord over
+the square root of two while its meridians arrive chorded at the whole width, so
+a run of its boundary does reach over more than a cell — but `Refining` asks a
+condemned triangle outright, and `Natural::straying` for a sphere is the true
+distance rather than a bound, so none of them was ever past the sagitta.
+Measured on a ball of radius one: `0.99` of the sagitta before and `0.89` after,
+for nineteen per cent more triangles.
+
+**And it costs a remesh time.** A face asks its surface for the grid once per
+edge per trace, and a ruled patch's `strides` is a doubling probe rather than a
+division — so the notched body above remeshes in `9.0 ms` at a sagitta of a
+ten-thousandth where it took `6.1 ms`, an eighth of which is the extra triangles
+and the rest the reading. It falls on an edit rather than on an orbit, the
+picture being gated on what it was made from, and at the sagitta a camera asks
+for at arm's length the whole body is about a millisecond.
 `Surface::singular` says where, and `Face::flatten` writes such a corner twice,
 at the angles its two neighbours round the loop stand at — so anything a caller
 holds one of per traced corner has to be doubled the same way, or it slides at
@@ -1133,14 +1170,14 @@ on has to be one. Names come out in the order the faces were made, so tags are
 stable across a rewrite. Vertex normals come from the surface, not from the
 mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
-## 9. What is left, in order
+## 9. The milestones, in the order they were taken
 
-**The order is §10's first rule applied.** A case a document can already reach
-comes before one nothing produces, whatever either costs — a refusal a user
-meets is worse than a routine nobody has written.
+**The order was §10's first rule applied.** A case a document can already reach
+came before one nothing produces, whatever either cost — a refusal a user meets
+is worse than a routine nobody has written.
 
-**M0 through M7 are in the tree**, and the reason each piece works is in the
-code that does it. What they came to:
+**M0 through M8 are in the tree, and nothing is left on this list.** The reason
+each piece works is in the code that does it. What they came to:
 
 - **M6a** — a boolean over a surface whose parameters run out. A ball and a cone
   can be cut, poles and apexes included, and a meeting the face's own parameters
@@ -1157,9 +1194,12 @@ code that does it. What they came to:
   classification.
 - **M7** — fillet, chamfer and STEP. §7.5 is the routine; `Stepping` is the
   export.
+- **M8** — the corner two picks do not agree about, which §9.6 argues in full.
+  It also grew §7.2 a rule: an edge is chorded as finely as the finer of its two
+  faces asks, rather than as finely as its own curve does.
 
-So the plane row of §7.3's table has no gap in it, and §9.6 — the corner two
-picks do not agree about — is in the tree with it.
+So the plane row of §7.3's table has no gap in it. What is left of the kernel is
+what §11 says it costs and what the two refusals below say cannot exist.
 
 **Two refusals stand outside all of it, and they are one shape.** A bitangent
 plane on a torus cuts Villarceau's two circles, which cross at both places it
@@ -1458,35 +1498,34 @@ cut blend's unshared face across it, so the patch's normal swings from one
 blend's to the other's along it. The notch's step corner comes back one crease
 and two joins where it came back three creases.
 
-**The mesher cuts a face on one, and what it cuts follows the patch as far as
-the boundary lets it.** Every corner lands on the patch to within what the body
-says it strays — an inside corner is evaluated on the surface, and a boundary
-corner is a place on a chord of the walked second edge, which is what the body's
-exactness is measured by anyway. The area falls at every step of the chording
-and settles on `0.44699` — measured rather than argued, a ruling between two
-chords having nothing to say it could not read long.
+**The mesher cuts a face on one, and what it cuts follows the patch.** Every
+corner lands on it to within what the body says it strays — an inside corner is
+evaluated on the surface, and a boundary corner is a place on a chord of the
+walked second edge, which is what the body's exactness is measured by anyway.
 
-**What it does not do is hold every triangle to the sagitta, and the reason is
-`Refining`'s rather than this surface's.** A face's boundary may not be cut, and
-the patch's **straight side is a whole ruling that arrives as one chord** — a
-line being exact however coarsely it is cut. So the triangle carrying it reaches
-across every cell of the run, no pass may divide it, and `strip` lays the pieces
-beside it down as a fan off its low end. Measured at a reach of a half that
-leaves `7.6e-3`, which does not move with the sagitta because neither the
-straight side nor the walked edge beside it does. It is what §7.2 already says a
-sphere loses by, one surface further on.
+**And the straight side is what made §7.2 grow a rule.** It is a whole ruling
+and a line is exact however coarsely it is cut, so its own count is one piece
+where the patch's grid wants seventy-two — and a face's boundary is the one run
+no pass may cut. So an edge is now chorded as finely as the finer of its two
+faces asks, which is §7.2's, and it mends this surface rather than being a patch
+of it.
 
-**What would mend it is one rule rather than a patch of this surface**: an edge
-chorded as finely as the *finer of the two faces it lies between* wants, rather
-than as finely as its own curve does. Both faces see the same pair, so both
-would lay the same corners down and neither would gain a corner its neighbour
-lacks — which is the whole reason a boundary is left alone today. It would mend
-the sphere by the same stroke. It changes what every face in the kernel is
-traced at, so it is named here and left to §7.2.
+**What is left after it is the walked edge**, which cannot be laid down again.
+A triangle carrying one of its chords is as wide as that chord, so the mesh
+settles at what the *body* declares rather than at what was asked for. Measured
+at a reach of a half: `5.5e-3` of a sagitta of a hundredth, `6.9e-4` of a
+thousandth and `5.3e-4` of a ten-thousandth, the last being the `3.9e-4` the
+walk carries. Before the rule it was `7.6e-3` at all three.
+
+**And the area was wrong by two and a half per cent.** A face on the patch
+covers `0.4362`, where the coarse boundary read `0.4470` and read it stably
+enough to look converged. A quadrature over the surface's own parameters agrees
+with the new number, which is what says the mesh follows the surface rather than
+merely repeating itself.
 
 **And the cost is a doubly curved surface's, not a blend's.** At a sagitta of a
-ten-thousandth the patch is 148 cells round by 71 along the ruling and comes out
-46,457 triangles, against the 87 and 96 of the two blends it joins — a blend
+ten-thousandth the patch is 148 cells round by 72 along the ruling and comes out
+52,407 triangles, against the 87 and 96 of the two blends it joins — a blend
 being a cylinder, which rules one way and needs no line across it, where a
 ruling that twists wants a grid. The floor is `span·|d′|/(4·sagitta)` cells
 whatever the grid, the twist term alone, so no split of the sagitta between the

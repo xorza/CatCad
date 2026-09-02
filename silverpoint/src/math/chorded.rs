@@ -20,9 +20,12 @@ pub(crate) trait Chorded {
     /// How many chords the curve is worth, flattened no further than `sagitta`
     /// from it.
     ///
-    /// Straight is exact however coarsely it is cut, so only a round curve is
-    /// asked — see [`arc::chords`](crate::math::arc::chords), which is where
-    /// the rule lives.
+    /// **How far a chord strays is the floor rather than the whole answer**,
+    /// and what else is asked is the implementor's. Straight is exact however
+    /// coarsely it is cut — see [`arc::chords`](crate::math::arc::chords),
+    /// which is where that half of the rule lives. An edge of a body is asked
+    /// for more where a face it lies between is cut into cells finer than its
+    /// own chords, straight or not.
     fn steps(&self, sagitta: f64) -> usize;
 
     /// The stored places the walk starts and finishes at, in that order.

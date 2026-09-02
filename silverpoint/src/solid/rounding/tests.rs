@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::Plane;
+use crate::math::chorded::Chorded;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::Boolean;
@@ -16,6 +17,7 @@ use crate::solid::build::builder::Extrusion;
 use crate::solid::build::revolving::{MOST, Revolution};
 use crate::solid::build::sector::Sector;
 use crate::solid::mesh::{Mesher, Patch};
+use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -2052,21 +2054,27 @@ fn keyed(at: DVec3) -> [i64; 3] {
 /// mesh is as true as the edge it was cut between, which is §4.1's tier read
 /// off a triangulation.
 ///
-/// **And it converges**, the area falling at every step of the chording and
-/// settling on `0.44699`. Falling rather than rising is measured rather than
-/// argued here: the patch's two edges are chorded inside themselves, which is
-/// where a reading short of the truth comes from, and nothing says a ruling
-/// between two such chords could not read long.
+/// **And it converges on an area a second reading agrees with.** The mesh
+/// falls at every step of the chording and settles near `0.4362`; a quadrature
+/// over the surface's own parameters, which reaches the same number from a
+/// direction a traced boundary does not, comes to `0.43622`. Falling rather
+/// than rising is measured rather than argued — nothing says a ruling between
+/// two chords could not read long.
 ///
-/// **What it does not do is hold every triangle to the sagitta**, and the
-/// reason is `Refining`'s own — a face's boundary may not be cut, a corner put
-/// on an edge being one the face across it does not have. The patch's straight
-/// side is a whole ruling and arrives as *one* chord, a line being exact
-/// however coarsely it is cut, so the triangle carrying it reaches across every
-/// cell of the run and no pass may divide it. Measured at a reach of a half
-/// that leaves `7.6e-3`, which does not move with the sagitta because neither
-/// the straight side nor the walked edge beside it does. It is the same thing
-/// §7.2 says a sphere loses by, one surface further on.
+/// **And it holds every triangle to the sagitta down to what the walked edge
+/// costs.** A face's boundary may not be cut, so an edge arrives chorded as
+/// finely as the finer of its two faces asks — see
+/// [`Walked::steps`](crate::solid::topology::Walked). The patch's straight side
+/// is a whole ruling and a line is exact however coarsely it is cut, so its own
+/// rule asks for one chord where the grid wants seventy-one; that is the run
+/// this rule mends.
+///
+/// **What is left is the second edge**, which is a marched run and cannot be
+/// laid down again. A triangle carrying one of its chords is as wide as that
+/// chord, so the mesh settles at what the *body* says it strays rather than at
+/// what was asked for. Measured at a reach of a half: `5.5e-3` of a sagitta of
+/// a hundredth, `6.9e-4` of a thousandth, and `5.3e-4` of a ten-thousandth —
+/// the last of which is the `3.9e-4` the walk carries and no finer.
 #[test]
 fn a_face_on_a_ruled_patch_is_cut_into_triangles_that_follow_it() {
     let into = gusseted();
@@ -2111,7 +2119,7 @@ fn a_face_on_a_ruled_patch_is_cut_into_triangles_that_follow_it() {
         }
     }
     assert!(
-        (wide - 7.6e-3).abs() < 1e-3,
+        (wide - 5.5e-3).abs() < 1e-3,
         "the patch's coarsest triangle moved: {wide}",
     );
 
@@ -2132,9 +2140,18 @@ fn a_face_on_a_ruled_patch_is_cut_into_triangles_that_follow_it() {
         );
         last = area;
     }
+    // **Against a second reading rather than against a number this mesh once
+    // gave.** A quadrature over the patch's own parameters covers the same
+    // surface without tracing a boundary at all, so the two agreeing is the
+    // mesh being right rather than being the same as it was.
+    let quadrature = integrated(face);
     assert!(
-        (last - 0.44699).abs() < 1e-4,
-        "the patch covers {last} where the chording says 0.44699",
+        (last - quadrature).abs() < 1e-3,
+        "the mesh covers {last} where a quadrature says {quadrature}",
+    );
+    assert!(
+        (quadrature - 0.43622).abs() < 1e-4,
+        "the quadrature moved: {quadrature}",
     );
 }
 
@@ -2148,4 +2165,111 @@ fn covered(patch: &Patch) -> f64 {
             (b - a).cross(c - a).length() * 0.5
         })
         .sum()
+}
+
+/// **An edge arrives chorded as finely as the finer of its two faces asks**,
+/// which is what a boundary owes a middle no pass may cut it into.
+///
+/// The patch's three edges are the whole of the rule in one face.
+///
+/// - **The straight side is a ruling and a line, so its own rule asks for one
+///   chord** however fine the sagitta — straight is exact however coarsely it is
+///   cut. The patch's grid wants a cell for every `0.0140514` of the run along
+///   the ruling, and the side covers the whole of it, so seventy-two is what it
+///   is laid down in.
+/// - **The first edge is an ellipse**, chorded at forty-seven by its own major
+///   semi-axis, where the patch's own angle wants a hundred and forty-eight —
+///   `1.5707963 / 0.0106135`, its whole turn over its own step.
+/// - **The second edge is a marched run and keeps its thirty-two.** It is its
+///   chords rather than a curve they stand for, so a step between two of them
+///   lands on a chord and off both surfaces — see [`Curve::divisible`].
+///
+/// **And every edge of the body answers alike from both sides**, which is the
+/// one thing that lets a face ask for more at all: a count that differed by
+/// side would leave one face holding a corner its neighbour has not got.
+#[test]
+fn an_edge_is_laid_down_as_finely_as_either_face_it_lies_between_asks() {
+    let into = gusseted();
+    let topology = into.topology();
+    let name = ROUND.grew(Grown::Gusseted([0, 1]));
+    let (raised, face) = into.patches(name).next().expect("the pair raised a patch");
+    let Surface::Fitted(Fitted::Gusset(patch)) = face.surface else {
+        panic!("the patch does not lie on a ruled surface");
+    };
+
+    let strides = patch.strides(SAGITTA);
+    assert!(
+        (strides - DVec2::new(0.0106135, 0.0140514))
+            .abs()
+            .max_element()
+            < 1e-6,
+        "the patch's own grid moved: {strides}",
+    );
+    let [from, to] = patch.bounds();
+    let wanted = [
+        (1.0 / strides.y).ceil() as usize,
+        ((to - from).abs() / strides.x).ceil() as usize,
+    ];
+    assert_eq!(wanted, [72, 148], "the cells the patch asks for moved");
+
+    let mut counted = Vec::new();
+    for (at, edge) in topology.edges() {
+        // Both sides of every edge, which is the claim the rule stands on.
+        let both: Vec<usize> = edge
+            .between
+            .iter()
+            .map(|&of| {
+                let coedge = topology
+                    .loops_of(topology.face(of))
+                    .flatten()
+                    .find(|coedge| coedge.edge == at)
+                    .copied()
+                    .expect("a face on an edge is a face that walks it");
+                topology.walked(coedge).steps(SAGITTA)
+            })
+            .collect();
+        assert_eq!(both[0], both[1], "an edge is laid down two ways");
+        if edge.between.contains(&raised) {
+            counted.push((edge.steps(SAGITTA, topology.carried()), both[0]));
+        }
+    }
+    counted.sort_unstable();
+    assert_eq!(
+        counted,
+        [(1, 72), (32, 32), (47, 148)],
+        "the patch's own three edges are not laid down as its grid asks",
+    );
+}
+
+/// How much area `face` covers, summed over its own parameters.
+///
+/// **A second reading of the one number**, and the reason it is worth having:
+/// a mesh reads an area off a boundary somebody traced, where this reads it off
+/// the surface. The two agreeing says the mesh follows the surface; a mesh held
+/// against its own last answer says only that nothing moved.
+///
+/// Coarse, because it is only ever compared against a mesh to a thousandth:
+/// this grid reads `0.43622` where two thousand by two hundred and fifty reads
+/// `0.43611`.
+fn integrated(face: &Face) -> f64 {
+    const ACROSS: usize = 200;
+    const ALONG: usize = 25;
+
+    let Surface::Fitted(Fitted::Gusset(patch)) = face.surface else {
+        panic!("the quadrature is written for a ruled patch");
+    };
+    let [from, to] = patch.bounds();
+    let at = |iu: usize, iv: usize| {
+        let u = from + (to - from) * iu as f64 / ACROSS as f64;
+        patch.at(DVec2::new(u, iv as f64 / ALONG as f64))
+    };
+    let mut area = 0.0;
+    for iu in 0..ACROSS {
+        for iv in 0..ALONG {
+            let (a, b) = (at(iu, iv), at(iu + 1, iv));
+            let (c, d) = (at(iu + 1, iv + 1), at(iu, iv + 1));
+            area += ((b - a).cross(c - a).length() + (c - a).cross(d - a).length()) * 0.5;
+        }
+    }
+    area
 }

@@ -161,6 +161,22 @@ impl Curve {
         }
     }
 
+    /// Whether it can be laid down at a finer step than its own rule asks for.
+    ///
+    /// **Every curve that is written down can.** A chord count is a division of
+    /// its own parameter, so any number of them lands on the curve. A marched
+    /// run cannot: it *is* its chords, and a step between two of them lands on
+    /// the chord rather than on the curve — see
+    /// [`Marchings::steps`](super::marchings::Marchings), which hands back what
+    /// it has whatever is asked.
+    ///
+    /// What asks is a face wanting its own boundary finer than the curve does
+    /// — see [`Face::crossed`](crate::solid::topology::face::Face), which is
+    /// the whole of why this is a question.
+    pub(crate) fn divisible(&self) -> bool {
+        !matches!(self, Self::Marched(_))
+    }
+
     /// Whether two edges meeting at a corner are pieces of the one curve.
     ///
     /// **Asked of a pair that already shares a place**, which is what lets it

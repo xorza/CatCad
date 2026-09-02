@@ -47,23 +47,23 @@ use glam::{DVec2, DVec3};
 /// to the same sagitta by [`chords`](crate::math::arc::chords), so no edge of
 /// such a face reaches over a whole cell.
 ///
-/// **A sphere loses by it.** Its cell is that same widest chord over the square
-/// root of two, a triangle inside one having to fit the chord corner to corner
-/// rather than side to side, while its meridians still arrive chorded at the
-/// whole width. A run of its own boundary then reaches over more than a cell,
-/// and the triangle carrying that run has no corner the grid can offer to bring
-/// it inside one: the window such a corner would fall in is narrower than a
-/// cell. What the counting asks for there cannot be had.
+/// **A sphere is where the counting alone runs out.** Its cell is that same
+/// widest chord over the square root of two, a triangle inside one having to
+/// fit the chord corner to corner rather than side to side, so a run of its
+/// boundary reaching over more than a cell is the ordinary case rather than the
+/// exception. What saves it is the outright reading below: a sphere's own
+/// [`Surface::straying`] is the true distance rather than a bound, so a
+/// condemned triangle that does not actually stray is left where it is.
+/// Measured on a ball of radius one, no triangle ever stood past the sagitta.
 ///
-/// **A ruled patch loses by it further**, and for a sharper reason: its
-/// straight side is a whole ruling and arrives as *one* chord, a line being
-/// exact however coarsely it is cut. So the triangle carrying that side reaches
-/// across every cell of the run, no pass may divide it, and [`Refining::strip`]
-/// lays the pieces beside it down as a fan off its low end. Measured on a
-/// corner blended at a reach of a half, that leaves a face standing `7.6e-3`
-/// off its surface whatever sagitta is asked for. `.notes/KERNEL.md` §9.6 is
-/// where the number is taken and where the one rule that would mend both this
-/// and the sphere is named.
+/// **And what a boundary arrives at is not the curve's own count.** An edge is
+/// laid down as finely as
+/// the finer of its two faces asks — see
+/// [`Walked::steps`](crate::solid::topology::Walked) — so a face whose grid is
+/// finer than the chords its own boundary would take says so, and both faces
+/// say it alike. Without it a ruled patch's straight side arrives as *one*
+/// chord, a line being exact however coarsely it is cut, and the triangle
+/// carrying it reaches across every cell of the run.
 ///
 /// So **a triangle the counting condemns is asked outright how far it strays**,
 /// and one already within the sagitta is left alone — see [`Refining::strays`].

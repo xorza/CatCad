@@ -8,6 +8,7 @@ use crate::solid::geometry::carried::Carried;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::named::Named;
+use crate::solid::topology::edge::Edge;
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
@@ -150,6 +151,53 @@ impl Face {
             let laid: Bounds<DVec2> = into[began..].iter().copied().collect();
             *about = Some(laid.middle());
         }
+    }
+
+    /// How many pieces this face's grid asks `edge` be laid down in, so that no
+    /// piece of it reaches over more than one cell.
+    ///
+    /// **What a face's boundary owes its own middle.**
+    /// [`Refining`](crate::solid::mesh) cuts every side reaching over more than
+    /// a cell, and a side the *boundary* holds is the one it may not cut — a
+    /// corner put on an edge being one the face across it does not have. So a
+    /// run arriving wider than a cell holds the triangle carrying it wider than
+    /// a cell, however finely the middle of the face is cut.
+    ///
+    /// **Asked of the edge and answered by both its faces alike**, which is
+    /// what lets the answer be used at all: the two faces read the same edge
+    /// and the same pair, so neither lays down a corner its neighbour lacks.
+    /// See [`Walked::steps`](crate::solid::topology::Walked), where the two are
+    /// taken together.
+    ///
+    /// **From the two ends, which is the whole of it wherever the parameter
+    /// does not turn back.** A ruling, a plane section and every curve running
+    /// one way round a surface read exactly. One that doubles back reads short,
+    /// and a closed one reads nothing at all — its two ends being one place. In
+    /// both the curve's own count is what is left, which is what a boundary
+    /// arrives at today, so this only ever asks for more.
+    ///
+    /// A parameter that a singular end leaves free says nothing there — see
+    /// [`Surface::freed`] — so that axis is passed over rather than read off an
+    /// angle the surface picked arbitrarily.
+    pub(crate) fn crossed(&self, edge: &Edge, sagitta: f64, carried: &Carried) -> usize {
+        let ends = edge.bounds.map(|at| edge.curve.at(at, carried));
+        let loose = ends.iter().any(|&at| self.surface.singular(at));
+        let [from, to] = ends.map(|at| self.surface.uv(at));
+        let to = self.surface.carried(to, from);
+        // The cone's own, and read off both ends: its cells are the ring at the
+        // far end of what is being measured, which is the finer of the two.
+        let reach = from.y.abs().max(to.y.abs());
+        let step = self.surface.strides(reach, sagitta);
+        debug_assert!(
+            step.cmpgt(DVec2::ZERO).all(),
+            "{step} is no grid to count an edge against",
+        );
+        let freed = self.surface.freed();
+        (0..2)
+            .filter(|&axis| !loose || axis != freed)
+            .map(|axis| ((to[axis] - from[axis]).abs() / step[axis]).ceil() as usize)
+            .max()
+            .expect("a singular place frees one parameter of two, never both")
     }
 
     /// Which parameters `corner` stands at, carried on from `last` in whichever
