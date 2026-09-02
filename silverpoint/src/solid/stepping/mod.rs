@@ -31,6 +31,7 @@ use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::vertexed::{PATCHED, Patched};
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -421,6 +422,9 @@ impl Stepping {
     fn surface(&mut self, of: &Surface, sagitta: f64, into: &mut String) -> u32 {
         match of {
             Surface::Fitted(Fitted::Gusset(gusset)) => self.netted(gusset, sagitta, into),
+            Surface::Fitted(Fitted::Vertexed(vertexed)) => {
+                self.gridded(&vertexed.patched().expect(PATCHED), sagitta, into)
+            }
             Surface::Natural(Natural::Plane(plane)) => {
                 let placed = self.placement(Axis::new(plane.origin, plane.normal(), plane.x), into);
                 let made = self.opened(into);
@@ -513,40 +517,84 @@ impl Stepping {
     /// one patch would want one net only if they were also asked for at one
     /// sagitta, and a body holds a handful of these.
     fn netted(&mut self, of: &Gusset, sagitta: f64, into: &mut String) -> u32 {
-        // Taken out and put back, so the walk writes into this type's own room
-        // while the writing below holds the rest of it.
+        let from = self.walked(
+            |net| {
+                of.netted(sagitta, net);
+            },
+            into,
+        );
+        self.splined(from, RULING, "RULED_SURF", into)
+    }
+
+    /// One corner patch, as the net it goes out as.
+    ///
+    /// **A grid where a ruled patch is two rulings**, the corner patch bending
+    /// both ways — see [`Patched::netted`], which lays it out to the sagitta
+    /// asked for.
+    fn gridded(&mut self, of: &Patched, sagitta: f64, into: &mut String) -> u32 {
+        let mut across = 0;
+        let from = self.walked(
+            |net| {
+                across = of.netted(sagitta, net);
+            },
+            into,
+        );
+        self.splined(from, across, "UNSPECIFIED", into)
+    }
+
+    /// Walk a surface into this type's own room and write the places out,
+    /// answering where in `gathered` they start.
+    ///
+    /// **Taken out and put back**, so the walk writes into that room while the
+    /// writing holds the rest of this type.
+    fn walked(&mut self, walk: impl FnOnce(&mut Vec<DVec3>), into: &mut String) -> usize {
         let mut net = std::mem::take(&mut self.net);
-        of.netted(sagitta, &mut net);
+        net.clear();
+        walk(&mut net);
         let from = self.gathered.len();
         for &at in &net {
             let place = self.point(at, into);
             self.gathered.push(place);
         }
         self.net = net;
-        let rulings = (self.gathered.len() - from) / RULING;
-        // Two rulings at the very least, or the multiplicities below spell a
-        // knot vector the places do not fill.
-        debug_assert!(rulings > 1, "a net of {rulings} rulings spans nothing");
+        from
+    }
+
+    /// The places gathered from `from` on, as the bilinear B-spline surface
+    /// they go out as, `across` of them to the row.
+    ///
+    /// **Degree one either way, which is what makes it honest**: the entity
+    /// claims exactly what was laid down and no more.
+    fn splined(&mut self, from: usize, across: usize, form: &str, into: &mut String) -> u32 {
+        let held = self.gathered.len() - from;
+        debug_assert_eq!(held % across, 0, "a row of the net lost an end");
+        let down = held / across;
+        // Two rows and two columns at the very least, or the multiplicities
+        // below spell a knot vector the places do not fill.
+        debug_assert!(
+            down > 1 && across > 1,
+            "a net of {down} by {across} spans nothing",
+        );
         let made = self.opened(into);
         into.push_str("B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(");
-        let (rows, over) = self.gathered[from..].as_chunks::<RULING>();
-        debug_assert!(over.is_empty(), "a ruling of the net lost an end");
-        for (ruling, pair) in rows.iter().enumerate() {
-            if ruling > 0 {
+        for (at, row) in self.gathered[from..].chunks(across).enumerate() {
+            if at > 0 {
                 into.push(',');
             }
             into.push('(');
-            listed(into, pair);
+            listed(into, row);
             into.push(')');
         }
-        into.push_str("),.RULED_SURF.,.F.,.F.,.U.,");
-        doubled(into, rulings);
+        into.push_str("),.");
+        into.push_str(form);
+        into.push_str(".,.F.,.F.,.U.,");
+        doubled(into, down);
         into.push(',');
-        doubled(into, RULING);
+        doubled(into, across);
         into.push(',');
-        counted(into, rulings);
+        counted(into, down);
         into.push(',');
-        counted(into, RULING);
+        counted(into, across);
         into.push_str(",.UNSPECIFIED.)");
         shut(into);
         self.gathered.truncate(from);

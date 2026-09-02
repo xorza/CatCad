@@ -14,6 +14,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::vertexed::Vertexed;
 use crate::solid::rounding::{Blend, PAIRED, SEATED, Spine, Swallow, crossed};
 use crate::solid::topology::Topology;
 use crate::solid::topology::edge::EdgeId;
@@ -214,6 +215,42 @@ impl Trihedral {
             .position(|end| end.blend == at)
             .expect(SEATED)
     }
+}
+
+/// The patch put in at a corner where three round picked edges met that do
+/// *not* agree about it.
+///
+/// **Set back where the sphere is not.** Three picks that agree leave a hole a
+/// sphere spans; three that do not leave one nothing already written reaches,
+/// so the three blends stop short of the corner and a patch spans what they
+/// leave. `.notes/VERTEX-BLENDS.md` is where every other family is ruled out.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Vertexing {
+    pub(super) held: Trihedral,
+    /// The face each neighbouring pair of ends shares: `shared[i]` is the one
+    /// both [`Trihedral::ends`]`[i]` and `[i + 1]` run out onto.
+    pub(super) shared: [FaceId; 3],
+    /// What the patch lies on.
+    pub(super) laid: Vertexed,
+    /// Where each blend stops, on each of the two faces it divides — see
+    /// [`Opened::made`](crate::solid::geometry::vertexed::Opened), whose order
+    /// this keeps.
+    pub(super) made: [[DVec3; 2]; 3],
+    /// The three picks that met there, in order — see
+    /// [`Grown::Cornered`](crate::Grown).
+    pub(super) picks: [u32; 3],
+}
+
+/// What one corner patch came to in the answer.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Spanned {
+    /// The corner where each blend stops on each of its two faces, in
+    /// [`Vertexing::made`]'s own order.
+    pub(super) made: [[VertexId; 2]; 3],
+    /// The cross section each blend closes on, in the ends' own order.
+    pub(super) crossed: [EdgeId; 3],
+    /// The spring each shared face carries, in [`Vertexing::shared`]'s order.
+    pub(super) sprung: [EdgeId; 3],
 }
 
 /// The patch put in at a corner where three round picked edges met.

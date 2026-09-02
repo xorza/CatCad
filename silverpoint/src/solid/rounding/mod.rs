@@ -16,7 +16,7 @@ use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::named::{Named, Step};
-use crate::solid::rounding::corner::{Cornered, Gusseting, Joined, Pointed, Ringed};
+use crate::solid::rounding::corner::{Cornered, Gusseting, Joined, Pointed, Ringed, Spanned};
 use crate::solid::rounding::planning::Planning;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
@@ -259,6 +259,13 @@ enum Ending {
     /// one of its sides and back down the leg on the other.
     /// [`Starred`](corner::Starred) holds the whole of what the three leave.
     Starred { star: usize },
+    /// On the cross section the blend stops at, where three picks that do not
+    /// agree about the corner set each other back.
+    ///
+    /// **One edge and no arc across.** The blend is cut off square to its own
+    /// spine a setback from the corner, and what spans the six such ends is one
+    /// patch — see [`Vertexing`](corner::Vertexing).
+    Vertexed { at: usize },
     /// On one side of the patch two picks that do not agree about the corner
     /// left there.
     ///
@@ -287,6 +294,9 @@ enum Filled {
     /// The patch two that do not agree about it left — see
     /// [`Gusseted`](corner::Gusseted).
     Gusseted(usize),
+    /// The patch three that do not agree about it left — see
+    /// [`Vertexing`](corner::Vertexing).
+    Vertexed(usize),
 }
 
 /// Where a run crosses a corner of the body between two of its own spines.
@@ -421,6 +431,9 @@ pub struct Rounding {
     /// The same for each ruled patch two disagreeing picks left.
     gusseted: Vec<FaceId>,
     gusseting: Vec<Gusseting>,
+    /// The same for each corner patch three disagreeing picks left.
+    spanned: Vec<FaceId>,
+    spanning: Vec<Spanned>,
     /// One loop on its way into the answer.
     walk: Vec<Coedge>,
     /// What every check a body owes runs in.
@@ -534,6 +547,21 @@ impl Rounding {
             let raised = Self::patch(into, name, held.laid, held.outward);
             self.gusseted.push(raised);
         }
+        // **Named as the sphere beside it is**, both being the corner three
+        // picks met at — see [`Grown::Cornered`], which names the picks and not
+        // the surface.
+        //
+        // **And facing out.** The patch is a height over the plane the three
+        // faces' own normals add to, and each of those points out of the
+        // material — so the patch's own normal does too.
+        self.spanned.clear();
+        for at in 0..self.planning.vertexed.len() {
+            let held = self.planning.vertexed[at];
+            let name = of.by.grew(Grown::Cornered(held.picks));
+            let laid = Surface::Fitted(Fitted::Vertexed(held.laid));
+            let raised = Self::patch(into, name, laid, true);
+            self.spanned.push(raised);
+        }
     }
 
     /// The faces one blend raised, in the run's own order.
@@ -578,6 +606,11 @@ impl Rounding {
         for at in 0..self.planning.starred.len() {
             let pointed = self.point(at, into);
             self.pointed.push(pointed);
+        }
+        self.spanning.clear();
+        for at in 0..self.planning.vertexed.len() {
+            let spanned = self.span(at, into);
+            self.spanning.push(spanned);
         }
         // The corners a run leaves where it crosses one of the body's own, on
         // which the pieces of its rulings end.
@@ -770,6 +803,18 @@ impl Rounding {
                 let starred = self.planning.starred[star];
                 return self.pointed[star].met[starred.on[starred.held.which(blend)][side]];
             }
+            // Where this blend stops on the face its rail runs out onto. The
+            // first of the two stands on the face *before* the blend and the
+            // second on the face after — see
+            // [`Opened::made`](crate::solid::geometry::vertexed::Opened).
+            Ending::Vertexed { at } => {
+                let held = self.planning.vertexed[at];
+                let which = held.held.which(blend);
+                let face = self.planning.blends[blend]
+                    .tip(&self.planning.runs, end)
+                    .between[side];
+                return self.spanning[at].made[which][usize::from(face == held.shared[which])];
+            }
             Ending::Against { junction, shared } => {
                 return self.joined[junction].made[usize::from(side != shared)];
             }
@@ -899,6 +944,21 @@ impl Rounding {
                 }
                 return;
             }
+            // The cross section runs from the blend's end on the face before
+            // it to its end on the face after, which is this blend's own first
+            // side only where the two orders agree.
+            Ending::Vertexed { at } => {
+                let held = self.planning.vertexed[at];
+                let which = held.held.which(blend);
+                let first = self.planning.blends[blend]
+                    .tip(&self.planning.runs, end)
+                    .between[0];
+                let before = held.shared[(which + 2) % 3];
+                (
+                    self.spanning[at].crossed[which],
+                    onward == (first == before),
+                )
+            }
             // The patch's arc runs from the touch point on this blend's first
             // face to the one on its second.
             Ending::Cornered { corner } => (
@@ -988,6 +1048,55 @@ impl Rounding {
             )
         });
         Ringed { made, arcs }
+    }
+
+    /// Mint what one corner patch leaves: the six corners its blends stop at,
+    /// the three cross sections they stop on, and the three springs the faces
+    /// between them carry.
+    ///
+    /// **Every one of the nine is exact.** A cross section is a plane section
+    /// of a cylinder and a spring is a plane section of the sphere the six
+    /// corners stand on, so both are circles the kernel already writes — the
+    /// patch is the one fitted thing here. See
+    /// `.notes/VERTEX-BLENDS.md`.
+    fn span(&mut self, at: usize, into: &mut Body) -> Spanned {
+        let held = self.planning.vertexed[at];
+        let face = self.spanned[at];
+        let opened = held.laid.opened().expect(SPANNED);
+        let made = held.made.map(|pair| {
+            pair.map(|at| {
+                into.topology_mut().add_vertex(Vertex {
+                    at,
+                    tolerance: EXACT,
+                })
+            })
+        });
+        let crossed = array::from_fn(|which| {
+            let side = held.laid.crossed(&opened, which);
+            Self::arc(
+                into,
+                Curve::Circle(side.circle),
+                side.bounds,
+                made[which],
+                [self.raised[held.held.ends[which].blend], face],
+            )
+        });
+        let sprung = array::from_fn(|which| {
+            let side = held.laid.sprung(&opened, which);
+            let after = (which + 1) % 3;
+            Self::arc(
+                into,
+                Curve::Circle(side.circle),
+                side.bounds,
+                [made[which][1], made[after][0]],
+                [self.made[held.shared[which].slot()].expect(RAISED), face],
+            )
+        });
+        Spanned {
+            made,
+            crossed,
+            sprung,
+        }
     }
 
     /// Mint what one ruled patch leaves: its three corners, and the three
@@ -1138,6 +1247,32 @@ impl Rounding {
             let sided = self.sided(at);
             Self::outline(into, raised, &sided);
         }
+        for at in 0..self.planning.vertexed.len() {
+            let raised = self.spanned[at];
+            let spanned = self.spanning(at);
+            Self::outline(into, raised, &spanned);
+        }
+    }
+
+    /// The one loop of one corner patch, as the patch walks it.
+    ///
+    /// **Chained as they were laid and nothing searched.** A cross section runs
+    /// from the blend's end on the face before it to its end on the face after,
+    /// and the spring on that face runs on to where the next blend stops — so
+    /// the six alternate and close, and every one is walked the way it was
+    /// minted.
+    fn spanning(&self, at: usize) -> [Coedge; 6] {
+        let spanned = self.spanning[at];
+        array::from_fn(|step| {
+            let back = 5 - step;
+            Coedge {
+                edge: match back % 2 {
+                    0 => spanned.crossed[back / 2],
+                    _ => spanned.sprung[back / 2],
+                },
+                forward: false,
+            }
+        })
     }
 
     /// Give the face at `raised` the one loop `walk` names.
@@ -1185,6 +1320,25 @@ impl Rounding {
             // — see [`Gusseted::side`]. The two stand a reach apart along the
             // third edge's line, where an agreeing pair leaves them in one
             // place and nothing to fill.
+            // **A corner patch three disagreeing picks left has a spring on
+            // this face**, between the two blends' own stopped rails — where a
+            // sphere leaves the face one corner and no side at all. Walked the
+            // way it was laid where this face arrives along the first of the
+            // two blends it runs between.
+            if let Some(Filled::Vertexed(spanned)) = self.planning.filled[corner.slot()]
+                && let Some(which) = self.planning.vertexed[spanned]
+                    .shared
+                    .iter()
+                    .position(|&held| held == face)
+            {
+                let ends = self.planning.vertexed[spanned].held.ends;
+                let arriving = self.planning.spined[coedge.edge.slot()].map(|held| held.blend);
+                self.walk.push(Coedge {
+                    edge: self.spanning[spanned].sprung[which],
+                    forward: arriving == Some(ends[which].blend),
+                });
+                continue;
+            }
             if let Some(Filled::Gusseted(gusseted)) = self.planning.filled[corner.slot()]
                 && self.planning.gusseted[gusseted].across == face
             {
@@ -1421,6 +1575,14 @@ impl Rounding {
                     into.topology_mut().add_shelled(self.gusseted[at]);
                 }
             }
+            for at in 0..self.planning.vertexed.len() {
+                if topology
+                    .faces_of(shell)
+                    .contains(&self.planning.vertexed[at].shared[0])
+                {
+                    into.topology_mut().add_shelled(self.spanned[at]);
+                }
+            }
         });
     }
 }
@@ -1592,6 +1754,9 @@ const RAISED: &str = "every face of the body was raised";
 /// A blend with no ends is a blend on a run that closes, and every reader of an
 /// end asks only of the others.
 const ENDED: &str = "a run that ends carries the two corners it ends at";
+
+/// What a corner patch planned at a corner no patch spans would be.
+const SPANNED: &str = "a corner patch was planned where none spans";
 
 /// A closed blend lies on a torus or a cone, both of which the arc across it is
 /// written down for — see [`Blend::laid`].

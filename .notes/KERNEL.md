@@ -1043,8 +1043,8 @@ same junction where two of them meet. `Bevel` is the one field that tells them
 apart, and **the crease flag is read rather than stated** — `Face::smooth` at
 every edge the rounding mints, which is what the checking holds it against.
 
-**A corner three *rounds* do not agree about is refused, and what it wants is a
-patch rather than a wider tier.** Every one of the three blends is a cylinder of
+**A corner three *rounds* do not agree about wants a patch rather than a wider
+tier.** Every one of the three blends is a cylinder of
 the one reach, so nothing here asks for a radius that moves. What is missing is
 the corner: the sphere the agreeing triple leaves stands on all three axes at
 once, and three axes that do not agree have no common point to stand on. Each
@@ -1060,7 +1060,7 @@ boundary is one curve across each cylinder, running between the two of those
 places that lie on it. Which is the *same* three places the flat corner runs
 its legs from, the bevel moving no corner:
 `three_chamfers_that_do_not_agree_leave_a_star` holds them at four reaches,
-and a round corner would want a patch where that one wants a point.
+and a round corner puts a patch where that one puts a point.
 
 **And the pair that agrees cannot close the hole either.** Two blends that agree
 cross in an ellipse, and the arc of it they take runs to where the edge neither
@@ -1108,18 +1108,27 @@ cut's own surface stands between `0.897` and `0.982` off the floor cut's axis
 where the reach is `1`. A place inside a cylinder has no tangent line to it, so
 those rulings do not exist.
 
-**So the corner is not a job for anything already written.** A patch through the
-three corners, tangent along all three sides, is a surface of its own — and one
-that gives up the closed-form inversion and the bounded ray the ruled family
-buys by being ruled. That is §4.7's own contract, so what it costs is a decision
-about the tier rather than about the corner. What the field puts there instead,
-and what it would take to write one here, is
+**So the corner is not a job for anything already written, and what answers it
+is a surface of its own.** `Vertexed` stops all three blends short of the corner
+by a setback, and spans the six ends that leaves with one face: three cross
+sections and three springs, the springs arcs of one sphere about the corner. The
+face is a height over the plane the three shared faces' normals add to, blended
+from six local expansions — so it is tangent to each blend along its cross
+section and to each face along its spring, and it gives up the closed-form
+inversion and the bounded ray the ruled family buys by being ruled. That is
+§4.7's own contract, paid deliberately. The field calls this a setback vertex
+blend; what it took to write one here is
 [`VERTEX-BLENDS.md`](VERTEX-BLENDS.md).
 
-**That argument is the ball's and not the chamfer's**: three planes cross at a
-point however each of them was cut, so the flat triple is a star like any other
-and only the round one is turned away. The disagreeing pair is answered either
-way, §7.7.
+**Twelve faces, thirty edges and twenty corners**, which Euler holds to a ball —
+the notch's eight faces and a blend apiece is eleven, the same count the
+chamfered answer has, and the patch is the twelfth.
+`three_rounds_that_do_not_agree_leave_a_patch` holds them at two reaches.
+
+**The argument above is the ball's and not the chamfer's**: three planes cross
+at a point however each of them was cut, so the flat triple is a star like any
+other and only the round one needs a face. The disagreeing pair is answered
+either way, §7.7.
 
 **Where three flat picks meet, the corner is a star and holds no face.** A
 chamfer is a plane, so the three cross at one point — one linear system, exact,

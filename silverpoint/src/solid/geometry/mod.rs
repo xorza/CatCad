@@ -34,6 +34,7 @@ pub(crate) mod saddle;
 pub(crate) mod sphere;
 pub(crate) mod surface;
 pub(crate) mod torus;
+pub(crate) mod vertexed;
 
 #[cfg(test)]
 mod tests;

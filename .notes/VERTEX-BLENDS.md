@@ -205,9 +205,16 @@ notch's step corner the two square faces take `22.6°` where the reflex one take
 and setbacks: the six ends read one distance to the last bit, every spring lies
 on its own face exactly, and each face has a way round that stays on it.
 
+**Written, and held by its own rows.** `solid::geometry::vertexed` carries the
+opening: the six places off the rails, the one distance they stand at, and the
+two refusals — a corner whose blends do not agree about that distance, and a
+setback of the rail's own offset, which puts the two places on a face together
+and leaves no spring. It is gated until the patch reads it, and says so.
+
 **A corner whose blends do not share a `d` is not this build.** Where the three
 dihedrals differ the six ends stand at three distances, no one sphere holds
-them, and the springs want a rule that interpolates instead. Every corner whose
+them, and the springs want a rule that interpolates instead — which is the
+refusal `Vertexed::opened` makes. Every corner whose
 faces meet square shares a `d`, which is the corner in the issue log and every
 corner an extrusion raises.
 
@@ -237,61 +244,205 @@ face between — an inflection along the spring, not a touch. Every one-sided
 family is out with it: a torus meets a plane along a circle from one side only,
 and so does anything else that merely rests on one.
 
-**The split is three quads and not six.** Join every other corner of the hexagon
-to a middle — the three where a spring ends and a cross arc begins — and what
-falls out is three four-sided pieces, each carrying one whole spring, one whole
-cross arc, and two curves in to the middle. Each piece then takes the tangency
-of one blend and one face and nothing else, and the three meet across the
-internal curves. That is the setback split the literature builds a vertex blend
-over, at `n = 3`.
+**And it is a graph over a sphere, which is what removes every difficulty
+above.** Write the patch `c + ρ(ω)·ω` for a unit direction `ω` about a centre
+`c`: its domain is that sphere's own two angles, so it needs no hexagonal domain
+and no split into quads; its face is the hexagonal *region* of that domain,
+trimmed as every face here is trimmed; and there are no seams, so no curve with
+a tangent prescribed at both ends and no vertex enclosure to satisfy. `uv` is
+then the direction of `at − c`, inverted the way a sphere is — closed form, and
+§4.7's Newton solve is not even spent.
 
-**What it owes the tier**: `at` and `normal` in closed form off the pieces;
-tangency along the boundary exactly, which the construction gives rather than
-fits; `uv` by the Newton solve §4.7 already pays for; `met_by` and `straying`
-measured over its own extent, each carrying its bound.
+**And there is no such `c`.** A graph about a place reads its normal as
+`ρω − ∇ρ`, so along the radial it reads `ρ` and never nought — which means the
+patch's own normal has to keep one sign against the way the centre looks at it,
+all the way round the boundary. The corner fails outright: the radial at a
+spring lies *in* the face that spring is on, so both ends of the floor's spring
+read `0.000` against its normal. And nowhere else answers either. Searched over
+41³ places out to three reaches of the notch's step corner, the best margin any
+centre reaches is `−0.203`, and the best of them is the corner itself.
 
-**And it is the whole of the work left.** `Gusset` is eleven hundred lines of
-surface and a thousand of tests for a patch with *two* sides of tangency; this
-one has six and a split besides. Nothing before it is worth writing until it
-stands, because a setback nothing reads and an opening with no face to raise are
-both dead.
+**So the patch is no graph over any sphere.** Its normals swing too far between
+the fill's side and the cuts', and no one place sees them all on one side. `uv`
+does not come out in closed form that way, and §4.7's Newton solve is what the
+surface costs after all.
 
-### 4 — what reads it
+**Held on the notch's step corner**: the boundary stands between `1.0212` and
+`1.1180` from the corner where the six places stand `1.1180`, so every ray from
+the corner meets it once; the nearest two of the six directions are `36.9°`
+apart; and no two places of the boundary share a direction.
 
-`Checking` holds every loop as a boundary of its own face in that face's
-parameters, and the smooth flag at every edge the rounding mints — so the patch
-is held to its own tangency by the checker that already exists. `Stepping`
-writes a `Gusset` as a chorded net, and an n-sided patch goes out the same way.
-The mesher reads `strides` and `straying`, which the patch supplies.
+**But it is a graph over a *plane*, and that is what the surface is.** The
+condition is weaker than the sphere's and it holds: the patch takes a blend's
+normal along each cross section and a face's along each spring, so what its
+normal does over the whole boundary is swing between the three faces — and their
+sum is the direction that swing leans about. Read on the notch's step corner,
+the whole boundary stands `1/√3` against it at worst, and a search over four
+hundred thousand directions finds none better than the three faces' own sum.
 
-### 5 — what it retires
+**Which buys the contract back.** A place inverts by flattening on to that
+plane, so `uv` is closed form; the domain is the plane's own two, so no hexagon
+is wanted and no split into quads; and there are no seams, so no curve with a
+tangent at both ends and no vertex enclosure. The face is the hexagonal *region*
+of the domain, trimmed as every face here is, and its six sides are circles the
+kernel already writes.
 
-A setback vertex blend answers more than the corner it was built for: unequal
-reaches meeting at a vertex, a corner of four edges, and the pinch a large reach
-makes of a small face. Each of those is a refusal in §7.5's list today.
+**So what was left to write was a scalar, and it is written.** The height
+carries a value and its *whole* gradient along each of the six sides — a height
+field faces `(−h_x, −h_y, 1)` in its own plane's frame, so a normal prescribed
+along a side fixes both readings of the gradient there and not just the one
+across. `Vertexed::heighted` writes that down and `Patched` blends it: each side
+carries its own reading to a place inside, weighed by one over the square of how
+far that side stands from it in the plane. A place *on* a side reads that side's
+own numbers back, the other five weighing nothing against them.
 
-## 6. What not to do
+**Held on the notch's step corner.** The patch meets every one of its six sides
+in place and in facing to `1e-12`, which is the tangency the whole corner exists
+for; it reads its own parameters back off any place; and walked from the middle
+out to each of the six corners it keeps facing the way its own plane does, so
+the domain names one place of it and not two.
 
-**Do not add a fourth bespoke exact surface.** Three corner topologies have each
-been answered with one, and the fourth has no such answer — that is what §2
-proves four ways over. A fifth topology would ask the same question again.
+**A footing is walked and not solved.** A circle flattens to an ellipse and the
+nearest place on one is a quartic, so the blend finds each side's own footing by
+a fan of twenty-four angles and forty halvings — `Gusset::nearest`'s own shape,
+and the tier's own habit.
 
-**Do not fill the hole with a plane.** It is exact, cheap and wrong: a flat
-facet in a rounded corner reads wrongly, and §7.7 already declines it for the
-disagreeing pair by building a tangent patch instead.
+**And it owes the tier nothing more.** `solid::geometry::vertexed` answers every
+question `Fitted` asks: `at` lifts a domain place by the blended height and `uv`
+flattens on to the plane, both closed form; `normal` reads the height's own
+gradient by a central difference at a millionth of the reach, so it is always
+the gradient of the height the patch actually has; `met_by` walks the stretch of
+a ray that runs within two reaches of the corner and closes on each sign change
+by halving, which is the counted answer stage 0 admits; and `off`, `nearest`,
+`fills`, `spans`, `wavering`, `straying`, `strides` and the STEP net are read
+over the patch's own extent, as this tier's other arm already reads its own.
 
-**Do not run two ruled halves into each other.** Their shared ruling exists and
-lands, but the sweep past it does not: §2's fourth proof is what that costs.
+**It is a `Fitted` arm and it is small enough to be one.** A `Surface` is copied
+by value on every path a frame walks, so the patch holds three *lines* and three
+normals rather than three cylinders and three planes — the three blends sharing
+one reach and none of them wanting a frame, and all three faces running through
+the corner. That keeps `Surface` inside what the largest arm may stand over the
+rest.
 
-## 7. Read alongside
+### 4 — the rounding that raises one
 
-- ACIS Blending component documentation, on vertex blends of mixed convexity
-  and the n-sided vertex blend surface:
-  <http://www-isl.ece.arizona.edu/ACIS-docs/PDF/BLND/01CMP.PDF>
-- *Geometric construction for setback vertex blending*, Computer-Aided Design:
-  <https://www.sciencedirect.com/science/article/pii/S001044859600070X>
-- *Joining smooth patches around a vertex to form a Ck surface*, CAGD:
-  <https://www.sciencedirect.com/science/article/abs/pii/016783969290032K>
-- *Overlap patches: a new scheme for interpolating curve networks with n-sided
-  regions*, CAGD:
-  <https://www.sciencedirect.com/science/article/abs/pii/016783969190046E>
+**What is left, and it is topology rather than geometry.** The planning has to
+carry a corner the picks disagree about instead of refusing it, and the minting
+has to put six corners, six edges and one face where the refusal is now.
+
+**The planning.** `Trihedral::of` already answers for the corner; what follows
+it is `Trihedral::outward` refusing. Where it does, build a `Vertexed` instead:
+the three axes are the blends' own, pointed away from the corner off each edge's
+far end; the three normals are the shared faces' own, out of the material;
+`shared[i]` is the face that `ends[i]` and `ends[i + 1]` both divide, the one
+their two `Spine::between` pairs have in common. The reach is the blends'; the
+setback is *twice* it, one reach being where the springs vanish.
+`Vertexed::opened` is then the refusal for a corner this does not span, and the
+answer is a `Filled::Vertexed` beside the star and the sphere.
+
+**The minting**, on `Rounding::ring`'s own shape. Six corners from
+`Opened::made`; three cross sections, each between one blend's face and the
+patch's; three springs, each between one of the three faces and the patch's. A
+blend closes on its own cross section where it closes on an arc today —
+`Ending::Vertexed`, read by `Rounding::closes` — and `Rounding::ended` gives its
+rail's corner as `made[i][0]` where the rail's face is the one before it and
+`made[i][1]` where it is the one after. `Rounding::line` puts each spring into
+its own face's loop at the corner, which is where the ruled patch's straight
+side already goes in.
+
+**The face faces out.** The patch's own plane normal is the three faces' normals
+added, each out of the material — so the patch's normal is too, and `outward` is
+true.
+
+**The winding is what to hold to `Checking`.** Every loop of every face is
+re-derived there against the face's own parameters, so a spring or a cross
+section walked the wrong way is caught rather than shipped.
+
+**Written, and one thing short of standing.** `Planning::vertexing`,
+`Rounding::span` and the loop that walks the six are in, and the body they build
+passes `Checking` outright — every coedge paired, every loop bounding its own
+face, the shells and the genus all as they should be. The patch's own loop runs
+the six *backwards*, which is the one bit the winding turned out to want.
+
+**What it fails is the mesh.** A face is cut into cells to a stride and every
+triangle is then held within a sagitta of the surface, and the patch's own
+straying does not fall under one however finely the cells are cut — not at a
+stride halved ten times, and not with the triangle probed at a hundred places.
+Two things are likely in it, and neither is measured yet: the blend is a
+weighted sum of six footings and a footing *jumps* where the nearest place on a
+side changes branch, which is a kink no cell size mends; and the domain runs
+over the whole plane, so a cell the trimming leaves along the boundary reads the
+blend where it is extrapolating rather than interpolating.
+
+**The footing is closed form now, and one of the two is mended.** A circle
+flattens to `A + B·cos θ + C·sin θ`, so a place of that ellipse reads
+`(cos θ, sin θ)` in the basis `B` and `C` — and taking the bearing of `uv` in
+that basis hands back the side's own parameter where `uv` stands on the side. No
+walk, no jump, and a mesh of one patch that ran to seventy seconds runs in five.
+
+**And each side is held to its own stretch.** A circle runs on past its side and
+its flattened image runs on through the middle of the opening, so a place inside
+could stand *on* the continuation of a side it is nowhere near and the blend
+would snap to that side's reading. Clamped, the reading comes to nought on the
+side and nowhere else.
+
+**The patch is smooth now, and the ridge that stopped it is named.** A place
+whose bearing leaves a side's stretch is held to whichever of the two ends is
+nearer, and half a turn from the arc's middle the nearer end changes over — so
+the held place stands as far either way and leans the other. That is a ridge,
+and the springs run far enough round their own circle that the ridge crossed
+the opening. Measured on it, the second difference of the height doubled at
+every halving of the step, which is a gradient that jumps.
+
+**Two changes close it.** A side's height and slope are read where the bearing
+puts it on that side's *circle*, which moves smoothly and runs on past the
+side's own ends, while how far the side stands is read from the place held to
+its stretch — so the run past the ends weighs less without kinking the reading.
+And a side's weight now tapers to nothing over a margin beyond either end, that
+margin held short of the turnover, so the ridge stands where nothing weighs.
+
+**The readings say it worked.** The height's second difference is bounded and
+settled at every place probed — about `0.8` and `4.2` in the two parameters, the
+same from four scattered places. The worst triangle now strays `3.61e-2`,
+`1.28e-2`, `3.91e-3`, `1.07e-3` and `2.83e-4` as the cell halves: ratios `2.81`,
+`3.28`, `3.64`, `3.80`, converging on `4`. That is `h²`, which is what a smooth
+surface owes a mesh.
+
+**Two more things stood between the patch and a body, and both are closed.** A
+mesh lays its grid over the box the opening bounds, and that box came off the
+six corners — but every side is an arc, and an arc stands off its own chord, so
+the box left out a rim of the opening. The rim is where the patch bends
+hardest. The box is now solved off the six arcs rather than walked: a flattened
+circle is `m + a·cos θ + u·sin θ`, so it reaches furthest where `tan θ = u/a` in
+each coordinate, and the two ends stand in for whichever of those four turns the
+stretch does not reach.
+
+**And the three springs share a centre, which is the corner itself.** That
+centre falls on the opening's own rim, and a bearing taken about it means
+nothing there — every place of the circle is as near as every other, so the
+reading spins and the patch bent by thousands beside it. A side is now hushed as
+a place approaches its own flattened middle, by a ratio of polynomials whose
+zero is of the fourth order — which is what leaves the product of the hush and
+the spinning reading flat. That one change took the corner from unmeshable to
+meshed, and the test from `224 s` to `5 s`.
+
+**The stride is worked out and no longer searched for.** A quadratic stands off
+the plane through a triangle's three corners by at most an eighth of its
+curvature times the longest side squared, and a cell's longest side is its
+diagonal — so the straying is `κ·stride²/4` and the stride that holds it to the
+sagitta is `√(4·sagitta/κ)`. The curvature is read off differences over a walk
+of the six sides and in toward the middle by squares, the walk clustered where
+the patch bends most. A search over cells reads what the grid does at one stride
+and says nothing about the next, and it cost a walk of the whole opening at
+every halving.
+
+**What the answer is.** Three rounds that do not agree about a corner now leave
+twelve faces, thirty edges and twenty corners, which Euler holds to a ball: the
+notch's eight faces and a blend apiece is eleven, the same count the chamfered
+answer has, and the patch is the twelfth — where three chamfers leave a point on
+three legs.
+
+**What it costs.** The patch's whole frame is worked out again at every surface
+query, the six sides and their flattened circles included, and the curvature
+walk runs once for each stride the mesher asks for. That is what holds the one
+test to ten seconds a reach in a debug build.

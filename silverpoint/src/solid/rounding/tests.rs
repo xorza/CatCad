@@ -2485,18 +2485,62 @@ fn three_chamfers_that_do_not_agree_leave_a_star() {
                  chamfers cross on the face they share",
             );
         }
+    }
+}
 
-        // **And the round is still refused there.** A sphere between three
-        // blends stands a reach off all three faces on one side, and a corner
-        // whose picks name two sides has none for it to be on.
-        let mut rounded = Body::default();
+/// **Three rounds that do not agree about a corner leave a patch between
+/// them.** No ball sweeps that corner — a sphere between three blends stands a
+/// reach off all three faces on one side, and a corner whose picks name two
+/// sides has none for it to be on. What spans it instead is the setback patch:
+/// each blend stops short of the corner, and the six ends that leaves are the
+/// sides of one face. See `.notes/VERTEX-BLENDS.md`.
+///
+/// **Twelve faces, thirty edges and twenty corners**, which Euler holds to a
+/// ball. The notch's eight faces and a blend apiece is eleven, the same count
+/// the chamfered answer has, and the patch is the twelfth — where three
+/// chamfers leave a point on three legs. The patch's six sides are the three
+/// blends' own cross sections and the three springs those cross sections' ends
+/// leave on the faces between them.
+#[test]
+fn three_rounds_that_do_not_agree_leave_a_patch() {
+    let notched = notch();
+    let corner = DVec3::new(2.0, 0.0, -2.0);
+    let picks = [
+        between(&notched, corner, DVec3::new(2.0, 4.0, -2.0)),
+        between(&notched, corner, DVec3::new(0.0, 0.0, -2.0)),
+        between(&notched, corner, DVec3::new(2.0, 0.0, -4.0)),
+    ];
+    for reach in [0.25, 0.5] {
+        let mut into = Body::default();
         assert!(
-            !Rounding::default().round(
+            Rounding::default().round(
                 &Round::new(&picks, reach, Bevel::Round, ROUND),
                 &notched,
-                &mut rounded,
+                &mut into,
             ),
-            "a sphere was fitted at a corner three rounds do not agree about",
+            "a corner three rounds do not agree about was refused at {reach}",
+        );
+
+        assert_eq!(into.reckoning().genus, 0, "the notch is still a ball");
+        // The patch is fitted where every other surface here is natural, which
+        // is the tier §4.1 charges the corner — see `.notes/VERTEX-BLENDS.md`.
+        assert!(!into.exact(), "the patch is not an exact surface");
+
+        let topology = into.topology();
+        assert_eq!(
+            topology.faces().count(),
+            12,
+            "the notch's eight faces, a blend apiece and the patch between",
+        );
+        assert_eq!(topology.edges().count(), 30);
+        assert_eq!(topology.vertices().count(), 20);
+
+        // The patch stands clear of the corner, every one of its six sides
+        // being a setback out along a blend or a spring between two of those.
+        assert_eq!(
+            legs(&into, corner),
+            0,
+            "the corner itself is gone at {reach}",
         );
     }
 }

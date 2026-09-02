@@ -21,12 +21,15 @@ use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
+use crate::solid::geometry::vertexed::Vertexed;
 use crate::solid::keyed::Keyed;
 use crate::solid::meeting::Meeting;
 use crate::solid::meeting::marching::Marching;
 use crate::solid::named::Named;
 use crate::solid::rounding;
-use crate::solid::rounding::corner::{Cornered, Gusseted, Junction, Met, Starred, Trihedral};
+use crate::solid::rounding::corner::{
+    Cornered, Gusseted, Junction, Met, Starred, Trihedral, Vertexing,
+};
 use crate::solid::rounding::{
     Bevel, Blend, Crossing, CutBack, Ending, Filled, Picked, Placed, Round, Run, Spine, Swallow,
     Trim,
@@ -77,6 +80,9 @@ pub(super) struct Planning {
     /// Every corner two of them meet at that they do not agree about, and the
     /// ruled patch that fills it.
     pub(super) gusseted: Vec<Gusseted>,
+    /// Every corner three of them meet at that they do not agree about, and
+    /// the patch that fills it.
+    pub(super) vertexed: Vec<Vertexing>,
     /// What fills each corner of the body more than one blend lands on, by
     /// slot — see [`Filled`].
     pub(super) filled: Vec<Option<Filled>>,
@@ -360,6 +366,7 @@ impl Planning {
         self.junctions.clear();
         self.cornered.clear();
         self.gusseted.clear();
+        self.vertexed.clear();
         self.starred.clear();
         self.filled.clear();
         self.filled.resize(topology.vertex_slots(), None);
@@ -434,14 +441,27 @@ impl Planning {
                 // cylinders leave a patch between them and three planes leave a
                 // point.
                 let filled = match of.bevel {
+                    // **The sphere first and the setback after.** A corner
+                    // the three agree about is a ball's own answer; one they do
+                    // not is a hole no ball sweeps, and what spans it is a
+                    // patch that stops all three short — see
+                    // [`Planning::vertexing`] and `.notes/VERTEX-BLENDS.md`.
                     Bevel::Round => {
-                        let Some(corner) =
-                            Self::cornering(topology, &self.blends, &self.runs, three, at)
-                        else {
-                            return false;
-                        };
-                        self.cornered.push(corner);
-                        Filled::Corner(self.cornered.len() - 1)
+                        match Self::cornering(topology, &self.blends, &self.runs, three, at) {
+                            Some(corner) => {
+                                self.cornered.push(corner);
+                                Filled::Corner(self.cornered.len() - 1)
+                            }
+                            None => {
+                                let Some(held) =
+                                    Self::vertexing(topology, &self.blends, &self.runs, three, at)
+                                else {
+                                    return false;
+                                };
+                                self.vertexed.push(held);
+                                Filled::Vertexed(self.vertexed.len() - 1)
+                            }
+                        }
                     }
                     Bevel::Flat => {
                         let Some(star) =
@@ -492,6 +512,7 @@ impl Planning {
                         gusseted,
                         filled: self.gusseted[gusseted].ends[0].blend == at,
                     }),
+                    Some(Filled::Vertexed(at)) => Some(Ending::Vertexed { at }),
                     None => self.across(topology, &blend, end, corner),
                 };
             }
@@ -1250,6 +1271,89 @@ impl Planning {
             outward,
             picks,
             made,
+        })
+    }
+
+    /// The patch three picks that do not agree about the corner `at` leave
+    /// there, or `None` where they leave nothing a body can hold.
+    ///
+    /// **Set back rather than run to the corner.** Three blends that agree
+    /// leave a hole a sphere spans; three that do not leave one no ball sweeps
+    /// at all — so each stops on a cross section of itself a setback from the
+    /// corner, and one patch spans the six ends that leaves. Every family that
+    /// was tried and failed is in `.notes/VERTEX-BLENDS.md`.
+    ///
+    /// **Twice the reach, because one reach is where it vanishes.** A blend's
+    /// rail already stands a reach off its edge along each face, so at a
+    /// setback of one the two ends on a face fall together and the spring
+    /// between them spans nothing — which is the corner as it stands with no
+    /// setback at all.
+    fn vertexing(
+        topology: &Topology,
+        blends: &[Blend],
+        runs: &[Spine],
+        ends: [Swallow; 3],
+        at: VertexId,
+    ) -> Option<Vertexing> {
+        let held = Trihedral::of(blends, runs, ends)?;
+        // The sphere answers a corner the three agree about, and this is the
+        // other one — see [`Planning::cornering`].
+        held.outward(blends).is_none().then_some(())?;
+        let corner = topology.vertex(at).at;
+        let mut reach = 0.0;
+        let mut axes = [Line {
+            origin: DVec3::ZERO,
+            direction: DVec3::X,
+        }; 3];
+        for (which, axis) in axes.iter_mut().enumerate() {
+            let Surface::Natural(Natural::Cylinder(cylinder)) = blends[held.ends[which].blend].laid
+            else {
+                return None;
+            };
+            reach = cylinder.radius;
+            // **Pointed away from the corner**, which a cylinder does not say
+            // and the setback is measured along: the edge under the blend runs
+            // to its own far end, and the axis runs beside it.
+            let edge = topology.edge(held.tips[which].edge);
+            let far = match edge.from == at {
+                true => edge.to,
+                false => edge.from,
+            };
+            let away = topology.vertex(far).at - corner;
+            *axis = Line {
+                origin: cylinder.axis.origin,
+                direction: cylinder.axis.direction * cylinder.axis.direction.dot(away).signum(),
+            };
+        }
+        let mut facing = [DVec3::ZERO; 3];
+        let mut shared = [held.faces[0]; 3];
+        for which in 0..3 {
+            let after = (which + 1) % 3;
+            let &face = held.tips[which]
+                .between
+                .iter()
+                .find(|face| held.tips[after].between.contains(face))?;
+            shared[which] = face;
+            let between = topology.face(face);
+            facing[which] = between.normal(between.surface.uv(corner));
+        }
+        let laid = Vertexed {
+            axes,
+            facing,
+            at: corner,
+            reach,
+            setback: reach * 2.0,
+        };
+        let opened = laid.opened()?;
+        laid.patched()?;
+        let mut picks = ends.map(|end| blends[end.blend].pick);
+        picks.sort_unstable();
+        Some(Vertexing {
+            held,
+            shared,
+            laid,
+            made: opened.made,
+            picks,
         })
     }
 

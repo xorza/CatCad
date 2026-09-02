@@ -7,6 +7,7 @@ use crate::solid::buckets::Key;
 use crate::solid::geometry::gusset::Gusset;
 use crate::solid::geometry::surface::Crossings;
 use crate::solid::geometry::torus::Torus;
+use crate::solid::geometry::vertexed::{PATCHED, Vertexed};
 use glam::{BVec2, DVec2, DVec3};
 
 /// One of the surfaces past the quadrics.
@@ -34,6 +35,9 @@ use glam::{BVec2, DVec2, DVec3};
 pub(crate) enum Fitted {
     Torus(Torus),
     Gusset(Gusset),
+    /// The patch a corner three picks do not agree about is filled with — see
+    /// [`Vertexed`], and `.notes/VERTEX-BLENDS.md`.
+    Vertexed(Vertexed),
 }
 
 impl Fitted {
@@ -52,6 +56,7 @@ impl Fitted {
                 .float(torus.minor)
                 .done(),
             Self::Gusset(gusset) => gusset.key(),
+            Self::Vertexed(vertexed) => vertexed.key(),
         }
     }
 
@@ -60,6 +65,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.at(uv),
             Self::Gusset(gusset) => gusset.at(uv),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).at(uv),
         }
     }
 
@@ -69,6 +75,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.uv(at),
             Self::Gusset(gusset) => gusset.uv(at),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).uv(at),
         }
     }
 
@@ -78,6 +85,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.normal(uv),
             Self::Gusset(gusset) => gusset.normal(uv),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).normal(uv),
         }
     }
 
@@ -90,6 +98,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.met_by(from, way).widened(),
             Self::Gusset(gusset) => gusset.met_by(from, way),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).met_by(from, way),
         }
     }
 
@@ -108,6 +117,9 @@ impl Fitted {
         match self {
             Self::Torus(_) => None,
             Self::Gusset(gusset) => Some(gusset.spans(fills, slack)),
+            Self::Vertexed(vertexed) => {
+                Some(vertexed.patched().expect(PATCHED).spans(fills, slack))
+            }
         }
     }
 
@@ -116,6 +128,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => torus.off(at),
             Self::Gusset(gusset) => gusset.off(at),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).off(at),
         }
     }
 
@@ -133,6 +146,7 @@ impl Fitted {
         match self {
             Self::Torus(_) => self.at(self.uv(at)),
             Self::Gusset(gusset) => gusset.nearest(at),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).nearest(at),
         }
     }
 
@@ -144,7 +158,7 @@ impl Fitted {
     /// and neither surviving the move.
     pub(crate) fn offset(&self, _by: f64) -> Option<Self> {
         match self {
-            Self::Torus(_) | Self::Gusset(_) => None,
+            Self::Torus(_) | Self::Gusset(_) | Self::Vertexed(_) => None,
         }
     }
 
@@ -155,7 +169,7 @@ impl Fitted {
     /// one of a ruled patch is no better written down.
     pub(crate) fn walked(&self, _at: DVec3, _way: DVec3, _by: f64) -> Option<DVec3> {
         match self {
-            Self::Torus(_) | Self::Gusset(_) => None,
+            Self::Torus(_) | Self::Gusset(_) | Self::Vertexed(_) => None,
         }
     }
 
@@ -170,6 +184,8 @@ impl Fitted {
         match self {
             Self::Torus(_) => 0,
             Self::Gusset(gusset) => gusset.freed(),
+            // A height over a plane is singular nowhere, so nothing asks.
+            Self::Vertexed(_) => 0,
         }
     }
 
@@ -184,6 +200,9 @@ impl Fitted {
         match self {
             Self::Torus(_) => false,
             Self::Gusset(gusset) => gusset.singular(at),
+            // A height over a plane closes nowhere, so no place of it names a
+            // parameter twice.
+            Self::Vertexed(_) => false,
         }
     }
 
@@ -202,6 +221,7 @@ impl Fitted {
         match self {
             Self::Torus(torus) => off / torus.minor.min(torus.major - torus.minor),
             Self::Gusset(gusset) => gusset.wavering(at, off),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).wavering(at, off),
         }
     }
 
@@ -229,6 +249,7 @@ impl Fitted {
                     + torus.minor * arc::bulge(arc::spread(corners.map(|uv| uv.y)))
             }
             Self::Gusset(gusset) => gusset.straying(corners),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).straying(corners),
         }
     }
 
@@ -260,6 +281,7 @@ impl Fitted {
                 arc::widest(torus.minor, sagitta / 2.0),
             ),
             Self::Gusset(gusset) => gusset.strides(sagitta),
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).strides(sagitta),
         }
     }
 
@@ -275,6 +297,9 @@ impl Fitted {
             // Every ruling has both ends on the boundary, so a face lies inside
             // its convex hull and the boundary's own box holds it.
             Self::Gusset(_) => boundary,
+            // Blended off its own boundary and free to stand off it in the
+            // middle, so the patch is walked rather than reasoned about.
+            Self::Vertexed(vertexed) => vertexed.patched().expect(PATCHED).fills(),
         }
     }
 
@@ -288,6 +313,7 @@ impl Fitted {
         match self {
             Self::Torus(_) => BVec2::TRUE,
             Self::Gusset(gusset) => gusset.round(),
+            Self::Vertexed(_) => BVec2::FALSE,
         }
     }
 }
