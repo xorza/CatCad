@@ -1,7 +1,7 @@
 //! The recipe, down the right edge: a row per step, in the order they build.
 
 use palantir::{
-    Align, Background, Color, Configure, Corners, FontWeight, HAlign, InternedStr, Panel, Rect,
+    Align, Background, Configure, Corners, FontWeight, HAlign, InternedStr, Panel, Rect, RgbaF32,
     Sense, Sizing, Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 
@@ -284,13 +284,13 @@ fn caption(
     theme: &Theme,
     salt: &'static str,
     text: &'static str,
-    color: Color,
+    color: RgbaF32,
     margin: Spacing,
 ) {
     let style = TextStyle {
         color,
         font_size_px: theme.chrome.caption_text,
-        weight: FontWeight::Bold,
+        weight: FontWeight::BOLD,
         ..TextStyle::default()
     };
     Text::new(text)

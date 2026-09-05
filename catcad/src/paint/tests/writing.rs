@@ -181,7 +181,7 @@ fn every_relation_is_named_both_ways_and_every_mark_has_a_glyph() {
             .rasterize(glyph.raster_key)
             .unwrap_or_else(|| panic!("{mark:?} for {constraint:?} has no glyph"));
         assert!(
-            image.placement.width > 0 && image.placement.height > 0,
+            image.size.x > 0 && image.size.y > 0,
             "{mark:?} for {constraint:?} rasterized to nothing",
         );
     }

@@ -1,7 +1,7 @@
 //! What a drawing and the solids beside it are painted in.
 
 use glam::Vec3;
-use palantir::Color;
+use palantir::RgbaF32;
 use silverpoint::Freedom;
 
 use crate::look::palette::Palette;
@@ -9,7 +9,7 @@ use crate::timeline::feature::World;
 
 /// Everything that decides how the geometry itself looks.
 ///
-/// **Linear-RGB triples, not [`Color`]**, because that is what aperture shades
+/// **Linear-RGB triples, not [`RgbaF32`]**, because that is what aperture shades
 /// and strokes with, and almost all of this is drawn by aperture. What palantir
 /// wants of it — the handful the corner *reports* in, and the ground the window
 /// is cleared to — comes through [`tint`], a reinterpretation rather than a
@@ -216,14 +216,14 @@ impl Geometry {
 
 /// One of the drawing's colours, as palantir takes it.
 ///
-/// A reinterpretation rather than a conversion: [`Color`] holds straight-alpha
+/// A reinterpretation rather than a conversion: [`RgbaF32`] holds straight-alpha
 /// linear RGB, which is what every triple above already is. Writing one through
-/// [`Color::rgb`] instead would linearise a number that is linear and come out
+/// [`RgbaF32::srgb`] instead would linearise a number that is linear and come out
 /// dark.
 ///
 /// The overlay's own colours never come through here — it states those as
-/// [`Color`] outright. This is for the handful the corner *reports* in, so the
+/// [`RgbaF32`] outright. This is for the handful the corner *reports* in, so the
 /// readout's amber is the drawing's amber and not a second one chosen to match.
-pub(crate) const fn tint(shade: Vec3) -> Color {
-    Color::linear_rgb(shade.x, shade.y, shade.z)
+pub(crate) const fn tint(shade: Vec3) -> RgbaF32 {
+    RgbaF32::new(shade.x, shade.y, shade.z, 1.0)
 }

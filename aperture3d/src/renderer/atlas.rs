@@ -151,10 +151,10 @@ impl GlyphAtlas {
         let image = glyphs.rasterize(glyph)?;
         // Colour glyphs are dropped rather than drawn wrong: the sheet is a
         // single coverage channel, and a drawing's text is digits and symbols.
-        if image.kind != ContentType::Mask {
+        if image.content != ContentType::Mask {
             return None;
         }
-        let (width, height) = (image.placement.width, image.placement.height);
+        let (width, height) = (image.size.x, image.size.y);
         if width == 0 || height == 0 {
             return None;
         }
@@ -162,15 +162,15 @@ impl GlyphAtlas {
             self.full = true;
             return None;
         };
-        self.blit(at.x, at.y, width, height, &image.data);
+        self.blit(at.x, at.y, width, height, image.data);
         self.dirty = true;
         Some(Slot {
             x: at.x,
             y: at.y,
             width,
             height,
-            left: image.placement.left,
-            top: image.placement.top,
+            left: image.bearing.x,
+            top: image.bearing.y,
         })
     }
 

@@ -1,6 +1,6 @@
 //! What the overlay is drawn in, and the sizes it is built on.
 
-use palantir::Color;
+use palantir::RgbaF32;
 
 use crate::look::palette::Palette;
 
@@ -22,7 +22,7 @@ pub(crate) struct Chrome {
     /// ground *and* over a lit solid it happens to sit on. Nothing is blurred:
     /// palantir composites a flat fill, and translucency alone is what keeps the
     /// drawing faintly readable through the chrome.
-    pub(crate) pill: Color,
+    pub(crate) pill: RgbaF32,
     /// The same slab, for a pill standing on the drawing rather than at the
     /// edge of the view.
     ///
@@ -31,24 +31,24 @@ pub(crate) struct Chrome {
     /// form stands on the very solid it is about, and one lit face behind a
     /// word is enough to lose the word. Short of opaque still, so what the form
     /// asks about stays faintly there under it.
-    pub(crate) pill_over: Color,
+    pub(crate) pill_over: RgbaF32,
     /// The hairline round a pill.
     ///
     /// Faint, because it is not there to be seen: what separates a pill from the
     /// drawing is the fill, and this only keeps the edge from dissolving where
     /// the two meet at the same value.
-    pub(crate) pill_edge: Color,
+    pub(crate) pill_edge: RgbaF32,
     /// The rule between two groups sharing one pill.
     ///
     /// Stronger than the edge above, and that is why it is its own colour. This
     /// one *is* there to be seen — it carries the distinction between a chip
     /// that draws and a chip that acts on the drawing — and a rule at the edge's
     /// weight reads as a gap rather than as a division.
-    pub(crate) rule: Color,
+    pub(crate) rule: RgbaF32,
 
     /// A control at rest, and under the pointer.
-    pub(crate) chip: Color,
-    pub(crate) chip_lit: Color,
+    pub(crate) chip: RgbaF32,
+    pub(crate) chip_lit: RgbaF32,
     /// A control being pressed.
     ///
     /// **Nothing this crate draws wears it.** A chip has three states and none
@@ -56,7 +56,7 @@ pub(crate) struct Chrome {
     /// which is why a held control reads as held rather than as pushed. It is
     /// here because palantir's surface ladder has a third rung, and a widget
     /// this crate does not draw is still a widget the theme has to answer for.
-    pub(crate) chip_active: Color,
+    pub(crate) chip_active: RgbaF32,
     /// What a control wears while what it stands for is held.
     ///
     /// **An inversion rather than an accent, and that is the whole reason it is
@@ -69,27 +69,27 @@ pub(crate) struct Chrome {
     ///
     /// It is also what palantir is handed as its accent and its focus ring, so
     /// the one rule reaches the widgets this crate does not draw itself.
-    pub(crate) chip_held: Color,
+    pub(crate) chip_held: RgbaF32,
     /// The ink on a held control — the pill's own dark, so the inversion is
     /// complete rather than a light fill under a light mark.
-    pub(crate) on_held: Color,
+    pub(crate) on_held: RgbaF32,
     /// What palantir rings a widget the keyboard has reached with.
     ///
     /// Its own colour rather than [`Chrome::chip_held`], which it currently
     /// equals. The two answer different questions — one is what a control wears
     /// while what it stands for is held, the other is where typing would go —
     /// and a palette that wanted to tell them apart could.
-    pub(crate) focus: Color,
+    pub(crate) focus: RgbaF32,
 
     /// A control's ink at rest, and lit.
-    pub(crate) ink: Color,
-    pub(crate) ink_lit: Color,
+    pub(crate) ink: RgbaF32,
+    pub(crate) ink_lit: RgbaF32,
     /// The ink of something that cannot be used.
     ///
     /// Here for the reason [`Chrome::chip_active`] is: this crate draws nothing
     /// dark — a control that could not act is not recorded at all — and
     /// palantir's own widgets have a disabled state whichever way that goes.
-    pub(crate) ink_dim: Color,
+    pub(crate) ink_dim: RgbaF32,
 
     /// A piece of the orientation cube, and the piece the pointer is on.
     ///
@@ -98,8 +98,8 @@ pub(crate) struct Chrome {
     /// in the world, so which face reads bright follows from where the cube has
     /// been turned to. A ladder of fixed tints would be a cube whose faces
     /// swapped shades as it came round.
-    pub(crate) cube_low: Color,
-    pub(crate) cube_high: Color,
+    pub(crate) cube_low: RgbaF32,
+    pub(crate) cube_high: RgbaF32,
 
     /// The side of a square control, in logical pixels.
     ///

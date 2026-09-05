@@ -244,8 +244,8 @@ const MARK_SIZE: f32 = 13.0;
 /// [`Mark::rise`](crate::paint::marks::mark::Mark) reads it once per mark on
 /// the drawing, every frame.
 pub(crate) const MARK_FONT: GlyphFont = GlyphFont {
-    family: FontFamily::Mono,
-    weight: FontWeight::Bold,
+    family: FontFamily::MONO,
+    weight: FontWeight::BOLD,
     ..GlyphFont::new(MARK_SIZE)
 };
 

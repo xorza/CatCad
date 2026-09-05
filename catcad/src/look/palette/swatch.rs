@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::look;
 use glam::Vec3;
-use palantir::Color;
+use palantir::RgbaF32;
 use serde::de::{Error, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// **Bytes rather than floats**, and that is the whole of why the type exists.
 /// A palette is authored, read and diffed as hex — `#7adcf3` is what the source
 /// says and what a person checks against it — and a float triple does not come
-/// back as the hex it was written as. [`palantir::Color`] quantises to
+/// back as the hex it was written as. [`palantir::RgbaF32`] quantises to
 /// sRGB through a cubic inverse that is good to one count per channel, which is
 /// one count too many for a value that has to survive a round trip unchanged.
 ///
@@ -29,16 +29,16 @@ impl Swatch {
     ///
     /// Linearised on the way, because the file states sRGB — what a person
     /// authors and what every other target of this palette receives — and
-    /// [`Color`] holds linear. A value written into the fields unconverted
+    /// [`RgbaF32`] holds linear. A value written into the fields unconverted
     /// renders bright.
-    pub(crate) const fn color(self) -> Color {
-        Color::hex(self.0)
+    pub(crate) const fn color(self) -> RgbaF32 {
+        RgbaF32::hex(self.0)
     }
 
     /// This colour as aperture takes it.
     ///
     /// The same linearisation and then a reinterpretation, since a shade the
-    /// renderer strokes with is the three channels [`Color`] already holds.
+    /// renderer strokes with is the three channels [`RgbaF32`] already holds.
     pub(crate) const fn ink(self) -> Vec3 {
         look::ink(self.color())
     }
@@ -47,7 +47,7 @@ impl Swatch {
     ///
     /// Alpha is straight and is not gamma-encoded, so it is the one channel
     /// that passes through the conversion untouched.
-    pub(crate) const fn fade(self, alpha: u8) -> Color {
+    pub(crate) const fn fade(self, alpha: u8) -> RgbaF32 {
         self.color().with_alpha(alpha as f32 / 255.0)
     }
 
@@ -112,7 +112,7 @@ pub(crate) mod internals {
         /// against: the target is encoded sRGB, and everything the overlay
         /// paints flat lands on it as the very bytes here — so a comparison in
         /// this currency is exact where one in
-        /// [`Color`](palantir::Color)'s would be a comparison of two
+        /// [`RgbaF32`](palantir::RgbaF32)'s would be a comparison of two
         /// approximations.
         ///
         /// Nothing the application itself draws needs this. The theme takes
@@ -221,7 +221,7 @@ mod tests {
     fn a_faded_swatch_keeps_its_colour_and_takes_the_alpha_straight() {
         let swatch: Swatch = ron::from_str("\"#7adcf3\"").unwrap();
         let faded = swatch.fade(0x80);
-        let Color { r, g, b, a } = faded;
+        let RgbaF32 { r, g, b, a } = faded;
         assert_eq!(Vec3::new(r, g, b), swatch.ink());
         // Straight, not gamma-encoded: 0x80 is 128/255 and stays there.
         assert!((a - 128.0 / 255.0).abs() < 1e-6, "{a}");

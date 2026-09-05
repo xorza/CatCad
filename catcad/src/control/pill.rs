@@ -1,7 +1,7 @@
 //! The translucent slab a group of controls stands on.
 
 use palantir::{
-    Align, Background, Color, Configure, Corners, Panel, Sense, Sizing, Spacing, Stroke, Ui,
+    Align, Background, Configure, Corners, Panel, RgbaF32, Sense, Sizing, Spacing, Stroke, Ui,
 };
 
 use crate::look::Theme;
@@ -133,7 +133,7 @@ fn run(theme: &Theme) -> f32 {
 /// which stretches to a parent's inner extent: a pill hugs the chips on it, so
 /// there is no extent to stretch against and the rule arrives with no length at
 /// all. Stated outright, it has one.
-pub(crate) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Color) {
+pub(crate) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: RgbaF32) {
     laid(ui, salt, Sizing::fixed(width), height, color);
 }
 
@@ -142,11 +142,11 @@ pub(crate) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Colo
 /// For the far side of a rule the words on it divide: how much room the letters
 /// took is the shaper's answer, so the arm after them is the one length here
 /// that cannot be stated.
-pub(crate) fn filling_line(ui: &mut Ui, salt: &str, height: f32, color: Color) {
+pub(crate) fn filling_line(ui: &mut Ui, salt: &str, height: f32, color: RgbaF32) {
     laid(ui, salt, Sizing::FILL, height, color);
 }
 
-fn laid(ui: &mut Ui, salt: &str, width: Sizing, height: f32, color: Color) {
+fn laid(ui: &mut Ui, salt: &str, width: Sizing, height: f32, color: RgbaF32) {
     Panel::hstack()
         .id_salt(salt)
         .size((width, Sizing::fixed(height)))

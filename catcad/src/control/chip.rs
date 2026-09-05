@@ -1,7 +1,7 @@
 //! One square control standing on a pill.
 
 use palantir::{
-    Align, Background, Color, Configure, Corners, FontFamily, FontWeight, Panel, Rect, Sense,
+    Align, Background, Configure, Corners, FontFamily, FontWeight, Panel, Rect, RgbaF32, Sense,
     Sizing, Spacing, Text, TextStyle, Tooltip, Ui, WidgetId,
 };
 
@@ -40,7 +40,7 @@ enum Says {
     Held,
     /// What pressing it will do, in a colour of its own. See
     /// [`Wearing::answer`].
-    Means(Color),
+    Means(RgbaF32),
 }
 
 /// A control on a pill: a rounded slab carrying one mark, with a tooltip.
@@ -99,7 +99,7 @@ impl Chip {
 
     /// What pressing it does, for a chip that carries an answer rather than a
     /// setting — a form's confirm and its cancel.
-    pub(crate) fn answers(mut self, means: Color) -> Self {
+    pub(crate) fn answers(mut self, means: RgbaF32) -> Self {
         self.says = Says::Means(means);
         self
     }
@@ -150,7 +150,7 @@ impl Chip {
 ///
 /// Rasterized at the exact physical size this rect lands on, so the mark is
 /// pixel-crisp at every display scale rather than a scaled copy of one size.
-fn icon(ui: &mut Ui, icons: &Icons, theme: &Theme, glyph: Glyph, tint: Color) {
+fn icon(ui: &mut Ui, icons: &Icons, theme: &Theme, glyph: Glyph, tint: RgbaF32) {
     let chrome = &theme.chrome;
     let inset = (chrome.chip_side - chrome.icon) * 0.5;
     ui.add_shape(
@@ -167,12 +167,12 @@ fn icon(ui: &mut Ui, icons: &Icons, theme: &Theme, glyph: Glyph, tint: Color) {
 /// [`MARK_FONT`](crate::paint::MARK_FONT). One face for the two places a
 /// relation's symbol appears, so a chip and the mark it states cannot come out
 /// as two different characters.
-fn lettering(ui: &mut Ui, theme: &Theme, text: &'static str, color: Color) {
+fn lettering(ui: &mut Ui, theme: &Theme, text: &'static str, color: RgbaF32) {
     let style = TextStyle {
         color,
         font_size_px: theme.chrome.chip_text,
-        family: FontFamily::Mono,
-        weight: FontWeight::Bold,
+        family: FontFamily::MONO,
+        weight: FontWeight::BOLD,
         ..TextStyle::default()
     };
     Text::new(text)

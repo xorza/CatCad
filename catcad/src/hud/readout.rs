@@ -44,7 +44,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
     // own style rather than beside it, so the two cannot come out at different
     // sizes.
     let heading = TextStyle {
-        weight: FontWeight::Bold,
+        weight: FontWeight::BOLD,
         ..figure
     };
     Pill::hstack(theme, "readout")

@@ -1,6 +1,6 @@
 //! What a form's own two answers are drawn in.
 
-use palantir::Color;
+use palantir::RgbaF32;
 
 use crate::look::palette::Palette;
 
@@ -28,8 +28,8 @@ pub(crate) struct Answers {
     /// Carried on the ink at rest and on the fill only under the pointer, which
     /// is what keeps them off the geometry until the frame they matter in — see
     /// [`Wearing::answer`](crate::look::wearing::Wearing::answer).
-    pub(crate) goes: Color,
-    pub(crate) stops: Color,
+    pub(crate) goes: RgbaF32,
+    pub(crate) stops: RgbaF32,
 }
 
 impl Answers {

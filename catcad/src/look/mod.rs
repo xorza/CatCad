@@ -22,7 +22,7 @@ pub(crate) mod wearing;
 
 use std::cell::OnceCell;
 
-use palantir::{Color, Spacing, TextStyle};
+use palantir::{RgbaF32, Spacing, TextStyle};
 
 use crate::look::answers::Answers;
 use crate::look::chrome::Chrome;
@@ -68,18 +68,18 @@ pub(crate) struct Theme {
 /// A theme colour as the renderer takes one: linear RGB, with the alpha
 /// dropped.
 ///
-/// The overlay is drawn in palantir's own [`Color`] and the scene in a bare
+/// The overlay is drawn in palantir's own [`RgbaF32`] and the scene in a bare
 /// vector, so a colour spent on both crosses here. The one statement of it —
 /// [`Swatch::ink`](crate::look::palette::swatch::Swatch::ink) is a palette
 /// entry taking the same step and comes through here to take it.
-pub(crate) const fn ink(color: Color) -> glam::Vec3 {
+pub(crate) const fn ink(color: RgbaF32) -> glam::Vec3 {
     glam::Vec3::new(color.r, color.g, color.b)
 }
 
 /// What a colour composites to over what is behind it, and how far apart the
 /// two land.
 ///
-/// [`Color`] holds linear RGB, which is what the luminance coefficients want, so
+/// [`RgbaF32`] holds linear RGB, which is what the luminance coefficients want, so
 /// neither step needs a transfer function. An opaque top composites to itself,
 /// so one rule covers the chip ladder and the two translucent hairlines both.
 ///
@@ -89,7 +89,7 @@ pub(crate) const fn ink(color: Color) -> glam::Vec3 {
 /// [`Wearing::answer`](crate::look::wearing::Wearing::answer) — and a rule that
 /// chose an ink by one measure while the check judged it by another would be
 /// two measures of one thing.
-pub(crate) fn separation(top: Color, under: Color) -> f32 {
+pub(crate) fn separation(top: RgbaF32, under: RgbaF32) -> f32 {
     let flat = under.lerp(top, top.a);
     let (lit, dark) = (luminance(flat), luminance(under));
     (lit.max(dark) + 0.05) / (lit.min(dark) + 0.05)
@@ -101,7 +101,7 @@ pub(crate) fn separation(top: Color, under: Color) -> f32 {
 /// lifted to *land* on a floor is solved from this, and a second spelling of
 /// the coefficients would be a lift that missed the floor the check then
 /// applied.
-pub(crate) fn luminance(color: Color) -> f32 {
+pub(crate) fn luminance(color: RgbaF32) -> f32 {
     0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
 }
 
@@ -126,7 +126,7 @@ pub(crate) const MARK: f32 = 3.0;
 /// Solved rather than stepped: luminance is linear in the channels and a lerp is
 /// linear in its share, so the lift that lands exactly on the floor is one
 /// division. A colour already clear of it is left alone.
-pub(crate) fn reading_on(ink: Color, under: Color, toward: Color) -> Color {
+pub(crate) fn reading_on(ink: RgbaF32, under: RgbaF32, toward: RgbaF32) -> RgbaF32 {
     // **Past the floor rather than onto it.** A lift solved to land exactly on
     // it lands a rounding either side, and a mark reading at 2.9999 is one the
     // check calls faint. A twentieth is far below what an eye can tell apart
@@ -443,7 +443,7 @@ mod tests {
             // *goes* or *stops* is that the channel the palette leaned on is
             // still the one this leans on.
             let resting = Wearing::answer(theme, means, false).ink;
-            let leans = |it: Color| match it.r >= it.g {
+            let leans = |it: RgbaF32| match it.r >= it.g {
                 true => "red",
                 false => "green",
             };

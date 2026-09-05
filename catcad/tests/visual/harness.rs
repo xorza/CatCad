@@ -38,7 +38,7 @@ pub(crate) struct Frame {
 
 impl Frame {
     /// One pixel, as the 8-bit **sRGB** the target was encoded to — not
-    /// linear, and so not a [`palantir::ColorU8`], whose channels are.
+    /// linear, and so not a [`palantir::RgbaU8`], whose channels are.
     pub(crate) fn pixel(&self, at: UVec2) -> [u8; 4] {
         self.image.get_pixel(at.x, at.y).0
     }

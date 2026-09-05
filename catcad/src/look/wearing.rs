@@ -1,6 +1,6 @@
 //! What a control on the overlay is filled and inked with, by what it is doing.
 
-use palantir::{AnimSlot, Animatable, Color, Ui, WidgetId};
+use palantir::{AnimSlot, Animatable, RgbaF32, Ui, WidgetId};
 
 use crate::look;
 use crate::look::Theme;
@@ -45,8 +45,8 @@ pub(crate) struct Standing {
 /// as the decision it is rather than as a coincidence.
 #[derive(Debug, Clone, Copy, PartialEq, Animatable)]
 pub(crate) struct Wearing {
-    pub(crate) fill: Color,
-    pub(crate) ink: Color,
+    pub(crate) fill: RgbaF32,
+    pub(crate) ink: RgbaF32,
 }
 
 impl Wearing {
@@ -74,7 +74,7 @@ impl Wearing {
     ///
     /// Never held, which is why it is not an arm of [`Wearing::of`]: a confirm
     /// is over the moment it is pressed, where a tool in hand stays in hand.
-    pub(crate) fn answer(theme: &Theme, means: Color, hovered: bool) -> Self {
+    pub(crate) fn answer(theme: &Theme, means: RgbaF32, hovered: bool) -> Self {
         let chrome = &theme.chrome;
         match hovered {
             true => Self {
@@ -105,7 +105,7 @@ impl Wearing {
     /// Judged by [`look::separation`], which is what the theme's own floors are
     /// checked with — so the ink this picks and the check that grades it cannot
     /// be two measures of one thing.
-    fn on_fill(chrome: &Chrome, fill: Color) -> Color {
+    fn on_fill(chrome: &Chrome, fill: RgbaF32) -> RgbaF32 {
         let [lit, dark] = [chrome.ink_lit, chrome.on_held];
         match look::separation(lit, fill) >= look::separation(dark, fill) {
             true => lit,
@@ -156,7 +156,7 @@ impl Wearing {
             theme,
             picked,
             hovered,
-            Color::TRANSPARENT,
+            RgbaF32::TRANSPARENT,
             theme.chrome.chip,
             ink,
         )
@@ -178,9 +178,9 @@ impl Wearing {
         theme: &Theme,
         held: bool,
         hovered: bool,
-        resting: Color,
-        lifted: Color,
-        resting_ink: Color,
+        resting: RgbaF32,
+        lifted: RgbaF32,
+        resting_ink: RgbaF32,
     ) -> Self {
         let chrome = &theme.chrome;
         match (held, hovered) {
