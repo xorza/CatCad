@@ -179,7 +179,7 @@ fn row(ui: &mut Ui, icons: &Icons, theme: &Theme, showing: Row) -> bool {
     } = showing;
     let chrome = &theme.chrome;
     let id = step_id(at);
-    let hovered = ui.response_for(id).hovered;
+    let hovered = ui.response_for(id).hovered();
     let standing = Standing {
         picked,
         hovered,

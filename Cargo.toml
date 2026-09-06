@@ -4,10 +4,10 @@ members = [
     "aperture3d",
     "catcad",
     "common",
-    "palantir",
-    "palantir/anim-derive",
     "silverpoint",
 ]
+
+exclude = ["palantir"]
 default-members = ["catcad"]
 
 [workspace.package]

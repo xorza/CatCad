@@ -160,7 +160,7 @@ impl Cube {
         let seen = Seen::of(theme, camera);
         let under = state
             .pointer_local
-            .filter(|_| state.hovered)
+            .filter(|_| state.hovered())
             .and_then(|at| seen.facet_at(Vec2::new(at.x, at.y), &mut self.ring, &mut self.flat));
         self.light(theme, under);
         // The rect the pane is drawn into, which is a frame behind: the overlay

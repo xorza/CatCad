@@ -60,7 +60,7 @@ impl Raised {
 
     /// Whether the overlay reports `id` as under the pointer.
     pub(crate) fn hovers(&mut self, id: WidgetId) -> bool {
-        self.response(id).hovered
+        self.response(id).hovered()
     }
 
     /// What the overlay last reported about `id`, read out of a fresh frame.

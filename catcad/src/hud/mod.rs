@@ -117,7 +117,7 @@ impl Hud {
         if let Some(step) = self.picked.removable(shown.models)
             && ui
                 .response_for(relations::relation_id(relations::REMOVE))
-                .hovered
+                .hovered()
         {
             shown.models.doomed_at(step, &mut self.doomed);
         }

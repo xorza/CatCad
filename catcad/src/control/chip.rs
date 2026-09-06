@@ -107,7 +107,7 @@ impl Chip {
     /// Draw it, and say whether it was pressed.
     pub(crate) fn show(self, ui: &mut Ui, icons: &Icons, theme: &Theme) -> bool {
         let chrome = &theme.chrome;
-        let hovered = ui.response_for(self.id).hovered;
+        let hovered = ui.response_for(self.id).hovered();
         let wearing = match self.says {
             Says::Nothing => Wearing::chip(theme, false, hovered),
             Says::Held => Wearing::chip(theme, true, hovered),

@@ -280,3 +280,64 @@ fn a_ghost_behind_a_solid_is_drawn_through_it_where_a_solid_would_be_hidden() {
          is shown through",
     );
 }
+
+/// **A view reaches the compositor opaque**, so nothing behind it shows
+/// through the edges its antialiasing softened.
+///
+/// The overlay passes report their coverage in alpha — `alpha_to_coverage` is
+/// how a stroke gets a soft edge — and that coverage lands in the target's
+/// alpha channel unless the pass is told to leave the channel alone. Palantir
+/// reads a view's target as premultiplied colour, so an edge that kept a
+/// coverage there is an edge the page behind the view shows through.
+///
+/// Asked with the ink the same colour as the ground: every pixel is that one
+/// colour whatever the coverage, and anything the page contributed is a pixel
+/// that is neither. The same stroke in another colour is what says the uniform
+/// frame was drawn rather than missed.
+#[test]
+fn an_antialiased_edge_does_not_let_the_page_through() {
+    /// Black, which is where the page behind the view shows up strongest: the
+    /// sRGB curve is steepest at zero, so the little of a dark theme surface
+    /// that a soft edge lets through still reads ten levels clear of it.
+    const GROUND: Vec3 = Vec3::ZERO;
+    const GROUND_SRGB: [i32; 3] = [0, 0, 0];
+    /// Far enough from the ground in every channel that a stroke wearing it
+    /// cannot be mistaken for one that was not drawn.
+    const INK: Vec3 = Vec3::new(0.8, 0.1, 0.1);
+
+    let gpu = headless_test_gpu();
+    let mut view = Framed::new(&gpu, square_on());
+    view.ground(GROUND);
+
+    fn stroke(view: &mut Framed<'_>, color: Vec3) {
+        view.edit(|scene| {
+            scene.clear();
+            // Diagonal, so the stroke's own edges fall between pixels and the
+            // pass has a partial coverage to report. An axis-aligned one would
+            // land on whole pixels and never ask the question.
+            scene.curves.push(
+                Curve::segment(Vec3::new(-1.0, -0.7, 0.0), Vec3::new(1.0, 0.7, 0.0))
+                    .width(9.0)
+                    .colored(color),
+            );
+        });
+        view.paint(1.0);
+    }
+
+    stroke(&mut view, INK);
+    assert_ne!(
+        view.middle(),
+        GROUND_SRGB,
+        "the stroke reached no pixel, so the frame below proves nothing",
+    );
+
+    stroke(&mut view, GROUND);
+    if let Some(stray) = view.stray(GROUND_SRGB) {
+        panic!(
+            "a stroke the colour of the ground it is drawn on left {:?} at {} \
+             — the page behind the view, through an edge the view was not \
+             opaque at",
+            stray.pixel, stray.at,
+        );
+    }
+}

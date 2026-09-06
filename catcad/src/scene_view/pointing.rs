@@ -2,7 +2,7 @@
 
 use aperture::{Camera, Viewport};
 use glam::{Vec2, Vec3};
-use palantir::{ButtonPhase, Drag, PointerWake, ResponseState, Ui};
+use palantir::{ButtonPhase, Drag, PointerWake, ResponseState, Ui, ZoomFactor};
 
 use crate::document::Document;
 use crate::drawing::Drawing;
@@ -148,7 +148,7 @@ impl Pointing {
         // press on something the pointer is not over is not a press on it. What
         // resolves against a plane wants the bare one, because a drag that
         // outruns the view keeps hold of what it grabbed — see [`aimed::landing`].
-        let over = aimed.filter(|_| response.hovered);
+        let over = aimed.filter(|_| response.hovered());
 
         // Where the pointer is aiming on the sketch's own plane. **One ray,
         // asked once**, and read by everything a frame decides against it: what
@@ -342,9 +342,9 @@ impl Pointing {
 
         // Pinching apart asks for a bigger picture, which is the eye coming in
         // — so the factor is inverted on the way to a distance.
-        if scroll.zoom != 1.0 {
+        if scroll.zoom != ZoomFactor::ONE {
             intents.push(Change::Dolly {
-                factor: 1.0 / scroll.zoom,
+                factor: 1.0 / scroll.zoom.get(),
             });
         }
     }

@@ -204,7 +204,16 @@ impl Pipelines<'_> {
                         blend: spec.blend.or_else(|| {
                             translucent(spec.opacity).then_some(wgpu::BlendState::ALPHA_BLENDING)
                         }),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        // The view is opaque, and the alpha channel is where
+                        // it says so: the pass clears to a ground with `a = 1`
+                        // and covers every pixel. Left writable, the channel
+                        // would carry a stroke's `alpha_to_coverage` coverage
+                        // and a glyph's soft ink instead, resolved against
+                        // that 1 into a number that is neither — and palantir
+                        // reads a view's target as premultiplied colour, so
+                        // every antialiased edge would then let the widget
+                        // behind the view through.
+                        write_mask: wgpu::ColorWrites::COLOR,
                     })],
                 }),
                 primitive: wgpu::PrimitiveState {

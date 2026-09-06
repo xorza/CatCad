@@ -51,6 +51,13 @@ pub(super) struct Ink {
     pub(super) max: UVec2,
 }
 
+/// A pixel the frame holds where a test expected another.
+#[derive(Debug)]
+pub(super) struct Stray {
+    pub(super) at: UVec2,
+    pub(super) pixel: [i32; 3],
+}
+
 /// The whole frame, RGBA a byte a channel, as the target holds it — which is
 /// sRGB-encoded, the pass having written linear colour into an sRGB target.
 ///
@@ -104,6 +111,30 @@ fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
     drop(mapped);
     readback.unmap();
     pixels
+}
+
+/// One texel's colour, dropping the alpha channel no test here reads: what a
+/// pass wrote there is the compositor's business, and the frame is opaque by
+/// the time it is read back.
+fn rgb(texel: &[u8; 4]) -> [i32; 3] {
+    [
+        i32::from(texel[0]),
+        i32::from(texel[1]),
+        i32::from(texel[2]),
+    ]
+}
+
+/// Where the texel at `index` sits on the frame, and back again.
+///
+/// The two directions together, because a walk over the buffer and a read of
+/// one pixel are the same arithmetic in opposite orders, and the pair drifting
+/// apart would put a readback answer at the wrong place on the frame.
+fn position_of(index: usize) -> UVec2 {
+    UVec2::new(index as u32 % FRAME.x, index as u32 / FRAME.x)
+}
+
+fn index_of(at: UVec2) -> usize {
+    (at.y * FRAME.x + at.x) as usize
 }
 
 /// A headless view a frame is painted into, and what that frame inked.
@@ -186,16 +217,16 @@ impl<'a> Framed<'a> {
             min: UVec2::splat(u32::MAX),
             max: UVec2::ZERO,
         };
-        for (at, pixel) in frame_pixels(self.gpu, &self.target)
+        for (index, texel) in frame_pixels(self.gpu, &self.target)
             .as_chunks::<4>()
             .0
             .iter()
             .enumerate()
         {
-            if pixel[0].max(pixel[1]).max(pixel[2]) <= LIT {
+            if texel[0].max(texel[1]).max(texel[2]) <= LIT {
                 continue;
             }
-            let at = UVec2::new(at as u32 % FRAME.x, at as u32 / FRAME.x);
+            let at = position_of(index);
             ink.count += 1;
             ink.min = ink.min.min(at);
             ink.max = ink.max.max(at);
@@ -221,13 +252,48 @@ impl<'a> Framed<'a> {
     /// The same, anywhere on the frame — for a test asking where a boundary
     /// fell rather than what one thing came out.
     pub(super) fn pixel(&self, at: UVec2) -> [i32; 3] {
-        let pixels = frame_pixels(self.gpu, &self.target);
-        let start = ((at.y * FRAME.x + at.x) * 4) as usize;
-        [
-            i32::from(pixels[start]),
-            i32::from(pixels[start + 1]),
-            i32::from(pixels[start + 2]),
-        ]
+        rgb(&frame_pixels(self.gpu, &self.target).as_chunks::<4>().0[index_of(at)])
+    }
+
+    /// The pixel furthest from `want`, if the frame holds one that misses it.
+    ///
+    /// The furthest rather than the first, so a failure names the strongest
+    /// evidence there is rather than whichever pixel raster order reached
+    /// soonest.
+    ///
+    /// One readback for the whole frame, where [`Self::pixel`] is one for one
+    /// pixel: this asks its question of every pixel there is, and asking it
+    /// through that would copy the frame back as many times.
+    ///
+    /// A channel is allowed to miss by one. The colour is carried linear into
+    /// the view's own target, decoded again by the composite that reads it,
+    /// and encoded a second time into the frame, so a byte can come back one
+    /// off what it went in as. Anything a pass got wrong is worth more.
+    pub(super) fn stray(&self, want: [i32; 3]) -> Option<Stray> {
+        /// What the two sRGB round trips between the pass and the readback
+        /// can cost a channel.
+        const SLACK: i32 = 1;
+
+        let miss = |stray: &Stray| {
+            stray
+                .pixel
+                .iter()
+                .zip(want)
+                .map(|(got, want)| (got - want).abs())
+                .max()
+                .unwrap()
+        };
+        frame_pixels(self.gpu, &self.target)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+            .map(|(index, texel)| Stray {
+                at: position_of(index),
+                pixel: rgb(texel),
+            })
+            .max_by_key(&miss)
+            .filter(|stray| miss(stray) > SLACK)
     }
 
     /// What `text` inks, as the only thing in the scene, at one physical pixel

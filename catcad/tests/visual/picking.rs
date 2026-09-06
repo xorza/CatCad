@@ -101,7 +101,7 @@ impl Raised {
 
     /// Hand the app one event, and paint the frame that answers it.
     fn sent(&mut self, event: InputEvent) {
-        self.host.ui().on_input(event);
+        self.host.on_input(event);
         self.frame();
     }
 }
