@@ -1,9 +1,7 @@
 //! What the solve made of the drawing, at the bottom left.
 
-use palantir::{
-    Align, Background, Configure, Corners, FontWeight, HAlign, InternedStr, Panel, Sizing, Text,
-    TextInput, TextStyle, TextWrap, Ui, VAlign,
-};
+use palantir::prelude::*;
+use palantir::{FontWeight, InternedStr, TextInput, TextWrap};
 
 use crate::control::pill::Pill;
 use crate::hud::Shown;

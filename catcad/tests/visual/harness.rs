@@ -11,7 +11,8 @@ use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
-use palantir::{App, Configure, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
+use palantir::prelude::*;
+use palantir::{GpuView, OffscreenHost, wgpu};
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use std::sync::{OnceLock, mpsc};
@@ -303,7 +304,7 @@ pub(crate) fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
-    host.frame_offscreen(&target, 1.0, app);
+    host.frame(&target, 1.0, app);
     // Read back after the record pass rather than before it, and rebuilt from
     // nothing the caller said: the app hands its renderer a camera while
     // recording, so this is the one moment the renderer holds the camera the

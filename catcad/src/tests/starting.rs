@@ -14,7 +14,7 @@ use crate::timeline::FeatureId;
 use crate::timeline::feature::{Feature, World};
 use crate::tool::Tool;
 use glam::Vec3;
-use palantir::Key;
+use palantir::prelude::*;
 
 /// The plane the demo's `world` is, as the drawing reads it.
 fn world_plane(raised: &Raised, world: World) -> FeatureId {

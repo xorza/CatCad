@@ -16,10 +16,9 @@
 //! the form is about, and what pressing Enter means.
 
 use glam::Vec2;
-use palantir::{
-    Align, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Spacing, Text,
-    TextEdit, TextRun, TextStyle, TextWrap, Ui, VAlign, WidgetId,
-};
+use palantir::prelude::*;
+use palantir::widget::TextRun;
+use palantir::{ClickOutside, TextWrap};
 use silverpoint::{Entity, Operation, Sector, SegmentId};
 
 use crate::control::chip::Chip;
@@ -1085,7 +1084,7 @@ impl Prompt {
                 // focus is palantir's, and losing it is how clicking away
                 // cancels.
                 if opening {
-                    ui.request_focus(Some(id));
+                    ui.set_focus(id);
                 }
                 let shown = TextEdit::new(&mut fields[0].draft)
                     .id(id)
@@ -1182,7 +1181,7 @@ impl Prompt {
                 let held =
                     (0..fields.len()).any(|nth| ui.focused_id() == Some(Self::field_id(nth)));
                 if (opening || (!blurs && !held)) && !fields.is_empty() {
-                    ui.request_focus(Some(Self::field_id(0)));
+                    ui.set_focus(Self::field_id(0));
                 }
                 // **The overlay's own slab, at the overlay's own width.** A form
                 // used to float on the drawing with nothing under it, so what
@@ -1261,15 +1260,7 @@ impl Prompt {
                                             .id(Self::field_id(nth))
                                             .style(&dressed.field)
                                             .select_all_on_focus()
-                                            // Cloned because
-                                            // [`TextEdit::placeholder`] takes a
-                                            // `Cow<'static, str>` and this
-                                            // string is the form's, not the
-                                            // program's — a borrow cannot
-                                            // satisfy that lifetime. One short
-                                            // string a frame, and the only way
-                                            // in.
-                                            .placeholder(field.suggested.clone())
+                                            .placeholder(&field.suggested)
                                             .text_align(Align::CENTER)
                                             .size((Sizing::FILL, Sizing::HUG))
                                             .show(ui),

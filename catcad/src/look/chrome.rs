@@ -1,6 +1,6 @@
 //! What the overlay is drawn in, and the sizes it is built on.
 
-use palantir::RgbaF32;
+use palantir::prelude::*;
 
 use crate::look::palette::Palette;
 

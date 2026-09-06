@@ -2,7 +2,8 @@
 
 use aperture::{Camera, Viewport};
 use glam::{Vec2, Vec3};
-use palantir::{ButtonPhase, Drag, PointerWake, ResponseState, Ui, ZoomFactor};
+use palantir::prelude::*;
+use palantir::{ButtonPhase, Drag, PointerWake, ResponseState, ZoomFactor};
 
 use crate::document::Document;
 use crate::drawing::Drawing;
@@ -232,7 +233,7 @@ impl Pointing {
         // turned with the same button whatever is in hand. Palantir decides
         // which of the two a gesture was, and a drag suppresses the click it
         // began as — so dragging a point leaves the selection alone.
-        if response.left.clicked() {
+        if response.clicked() {
             // Picked afresh rather than read off `hovered`, which is what the
             // *last* frame's settle found: a click can land on the first frame
             // the pointer reached something, and what was under it before that
@@ -250,7 +251,7 @@ impl Pointing {
                 .map(|under| under.part);
             clicked(
                 Click {
-                    double: response.left.double_clicked(),
+                    double: response.double_clicked(),
                     adding,
                     under,
                     at: landing,

@@ -1,9 +1,7 @@
 //! The recipe, down the right edge: a row per step, in the order they build.
 
-use palantir::{
-    Align, Background, Configure, Corners, FontWeight, HAlign, InternedStr, Panel, Rect, RgbaF32,
-    Sense, Sizing, Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
-};
+use palantir::prelude::*;
+use palantir::{FontWeight, InternedStr, TextWrap};
 
 use crate::build::bodied::Built;
 use crate::control::pill::{self, Pill};
@@ -223,7 +221,7 @@ fn row(ui: &mut Ui, icons: &Icons, theme: &Theme, showing: Row) -> bool {
                 .margin(Spacing::new(ROW_ICON + chrome.gap, 0.0, 0.0, 0.0))
                 .show(ui);
         });
-    row.response.left.clicked()
+    row.response.clicked()
 }
 
 /// How far the rollback bar stands clear of the card's inner edge.

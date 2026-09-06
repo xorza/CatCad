@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::look;
 use glam::Vec3;
-use palantir::RgbaF32;
+use palantir::prelude::*;
 use serde::de::{Error, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 

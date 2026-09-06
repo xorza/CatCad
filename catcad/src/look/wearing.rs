@@ -1,6 +1,7 @@
 //! What a control on the overlay is filled and inked with, by what it is doing.
 
-use palantir::{AnimSlot, Animatable, RgbaF32, Ui, WidgetId};
+use palantir::prelude::*;
+use palantir::widget::{AnimSlot, Animatable};
 
 use crate::look;
 use crate::look::Theme;

@@ -22,7 +22,7 @@ pub(crate) mod wearing;
 
 use std::cell::OnceCell;
 
-use palantir::{RgbaF32, Spacing, TextStyle};
+use palantir::prelude::*;
 
 use crate::look::answers::Answers;
 use crate::look::chrome::Chrome;

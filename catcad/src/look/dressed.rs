@@ -2,7 +2,8 @@
 
 use std::rc::Rc;
 
-use palantir::{AnimSpec, StatefulLook, TextEditTheme, TextStyle};
+use palantir::prelude::*;
+use palantir::{AnimSpec, StatefulLook, TextEditTheme};
 
 use crate::look::Theme;
 // The one face the theme does not yet own: a mark's font is the *drawing's*, and

@@ -2,7 +2,7 @@
 
 use aperture::{Aim, Camera, Viewport};
 use glam::{Vec2, Vec3};
-use palantir::Rect;
+use palantir::prelude::*;
 
 /// The camera and the room it is answered in, read together.
 ///

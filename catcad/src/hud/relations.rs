@@ -1,6 +1,6 @@
 //! What can be asked of what is picked out, along the bottom.
 
-use palantir::{Align, Configure, DragValue, Ui, WidgetId};
+use palantir::prelude::*;
 use silverpoint::{Bevel, Constraint, ConstraintId, Entity, Named, SegmentId};
 
 use crate::control::chip::Chip;

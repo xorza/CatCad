@@ -6,7 +6,7 @@ use crate::look::Theme;
 use crate::scene_view::pointing::ZOOM_RATE;
 use crate::scene_view::tests::harness::{RaisedView, open_markers};
 use glam::Vec2;
-use palantir::PointerButton;
+use palantir::prelude::*;
 
 /// Dragging a datum slides it along the line it is offset on, carrying what is
 /// drawn on it and touching neither the open sketch nor the camera.

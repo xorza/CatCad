@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use palantir::{IconId, IconSet, IconShape, IconTable, Ui};
+use palantir::prelude::*;
+use palantir::widget::IconShape;
+use palantir::{IconId, IconSet, IconTable};
 
 /// One icon of the set, named for what it stands for rather than for what it
 /// draws.

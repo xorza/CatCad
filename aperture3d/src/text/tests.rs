@@ -45,7 +45,7 @@ fn label() -> Text {
 /// to that edge, and out on both it is the diagonal to the corner — which is
 /// what says the box is being measured rather than its centre.
 /// Measure a whole batch, the way `flatten_texts` does one run at a time.
-fn measure_each(texts: &[Text], glyphs: &mut palantir::TextGlyphs<'_>) {
+fn measure_each(texts: &[Text], glyphs: &mut palantir::widget::TextGlyphs<'_>) {
     for text in texts {
         text.measure(glyphs);
     }

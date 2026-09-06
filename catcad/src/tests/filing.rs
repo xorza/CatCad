@@ -5,7 +5,7 @@ use crate::tests::harness::Raised;
 use crate::tool::Tool;
 use glam::DVec2;
 use glam::Vec3;
-use palantir::Key;
+use palantir::prelude::*;
 
 /// A document written out comes back the way it was left, and everything this
 /// run made of the one that was open goes with it.

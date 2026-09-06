@@ -10,7 +10,7 @@ use crate::hud::cube::Gizmo;
 use crate::scene_view::GIZMO;
 
 use glam::Vec3;
-use palantir::Rect;
+use palantir::prelude::*;
 use silverpoint::ConstraintId;
 
 use crate::lens::Lens;

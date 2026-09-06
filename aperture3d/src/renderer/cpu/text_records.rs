@@ -11,7 +11,7 @@ use crate::renderer::record::glyph_instance::GlyphInstance;
 use crate::text::Text;
 use crate::text::turn::Facing;
 use glam::{Vec2, Vec3};
-use palantir::{PlacedGlyph, TextGlyphs};
+use palantir::widget::{PlacedGlyph, TextGlyphs};
 
 /// What the scene's text flattens to, plus the two things filling it needs that
 /// a [`Records`] alone cannot ask for.

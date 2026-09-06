@@ -11,10 +11,9 @@ use std::f32::consts::{PI, TAU};
 
 use aperture::{Camera, Highlight, Lit, Viewport};
 use glam::{Mat4, UVec2, Vec2, Vec3};
-use palantir::{
-    Align, AnimSlot, Animatable, Configure, Drag, Panel, Rect, Sense, Shape, Sizing, Ui,
-    Vec2 as UiVec2, WidgetId,
-};
+use palantir::Drag;
+use palantir::prelude::*;
+use palantir::widget::{AnimSlot, Animatable, Shape};
 
 use crate::hud::cube::facet::{Facet, SIDES};
 use crate::intent::Intents;
@@ -185,7 +184,7 @@ impl Cube {
                     arrows(ui, theme);
                 }
             });
-        if let Some(facet) = under.filter(|_| state.left.clicked()) {
+        if let Some(facet) = under.filter(|_| state.clicked()) {
             self.turning_to = Some(Bearing::from(facet.out()).near(camera.yaw));
         }
         self.drag(state.left.drag, intents);
@@ -392,9 +391,9 @@ fn arrows(ui: &mut Ui, theme: &Theme) {
         let base = tip - side * RUN;
         ui.add_shape(
             Shape::triangle(
-                UiVec2::new(tip, middle),
-                UiVec2::new(base, middle - RISE),
-                UiVec2::new(base, middle + RISE),
+                Vec2::new(tip, middle),
+                Vec2::new(base, middle - RISE),
+                Vec2::new(base, middle + RISE),
             )
             .fill(theme.chrome.ink),
         );

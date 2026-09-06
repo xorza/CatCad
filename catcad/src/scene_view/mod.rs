@@ -2,7 +2,8 @@
 
 use crate::hud::cube::Gizmo;
 use aperture::{Camera, Extent};
-use palantir::{Configure, Drag, GpuView, Sense, Sizing, Ui, Vec2, WidgetId};
+use palantir::prelude::*;
+use palantir::{Drag, GpuView};
 use silverpoint::Entity;
 
 use crate::build::Build;

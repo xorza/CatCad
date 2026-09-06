@@ -92,7 +92,7 @@ impl Painting {
     /// Drained between frames, so a frame's own GPU work lands inside its own
     /// measured window rather than the next one's.
     fn frame(&mut self) {
-        black_box(self.host.frame_offscreen(&self.target, 1.0, &mut self.pane));
+        black_box(self.host.frame(&self.target, 1.0, &mut self.pane));
         self.gpu
             .device
             .poll(wgpu::PollType::Wait {

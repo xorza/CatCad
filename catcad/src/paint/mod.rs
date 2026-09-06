@@ -20,7 +20,8 @@
 
 use aperture::{Precedence, Scene};
 use glam::{Vec2, Vec3};
-use palantir::{FontFamily, FontWeight, GlyphFont};
+use palantir::widget::GlyphFont;
+use palantir::{FontFamily, FontWeight};
 use silverpoint::Constraint;
 
 use crate::lens::Lens;

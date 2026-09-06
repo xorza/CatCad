@@ -11,7 +11,7 @@ use crate::scene_view::tests::harness::RaisedView;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
 use glam::{DVec2, Vec2};
-use palantir::Modifiers;
+use palantir::prelude::*;
 use silverpoint::Entity;
 
 /// The pointer moving *within* the view has to wake a frame, and what it lands

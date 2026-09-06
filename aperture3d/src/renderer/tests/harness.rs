@@ -199,8 +199,7 @@ impl<'a> Framed<'a> {
     /// one — which leaves the target and the framing alone and changes only what
     /// a logical pixel is worth.
     pub(super) fn paint(&mut self, scale: f32) {
-        self.host
-            .frame_offscreen(&self.target, scale, &mut self.app);
+        self.host.frame(&self.target, scale, &mut self.app);
     }
 
     /// Where the last frame it painted has ink on it, and how much.

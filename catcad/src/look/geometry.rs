@@ -1,7 +1,7 @@
 //! What a drawing and the solids beside it are painted in.
 
 use glam::Vec3;
-use palantir::RgbaF32;
+use palantir::prelude::*;
 use silverpoint::Freedom;
 
 use crate::look::palette::Palette;

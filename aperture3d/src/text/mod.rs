@@ -11,7 +11,8 @@ use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::turn::Facing;
 use glam::{Vec2, Vec3};
-use palantir::{GlyphFont, Rect, Size, TextGlyphs};
+use palantir::widget::{GlyphFont, TextGlyphs};
+use palantir::{Rect, Size};
 use std::cell::Cell;
 
 /// How little of its face-on area a laid run's box may cover before there is

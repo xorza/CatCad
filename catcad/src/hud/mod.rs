@@ -1,7 +1,8 @@
 //! What floats over the viewport: five surfaces, one per edge and corner.
 
 use aperture::Camera;
-use palantir::{Align, Background, Configure, InternedStr, Panel, Sizing, Spacing, Ui, WidgetId};
+use palantir::InternedStr;
+use palantir::prelude::*;
 use std::hash::Hash;
 
 use crate::hud::cube::{Cube, Gizmo};

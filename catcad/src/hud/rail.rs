@@ -1,6 +1,6 @@
 //! The tools, down the left edge — and the way out of the sketch they draw in.
 
-use palantir::{Ui, WidgetId};
+use palantir::prelude::*;
 
 use crate::control::chip::Chip;
 use crate::control::pill::{self, Pill};

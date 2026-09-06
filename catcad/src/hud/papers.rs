@@ -1,6 +1,6 @@
 //! What is done to the document rather than in it, at the top left.
 
-use palantir::{Ui, WidgetId};
+use palantir::prelude::*;
 
 use crate::control::chip::Chip;
 use crate::control::pill::Pill;

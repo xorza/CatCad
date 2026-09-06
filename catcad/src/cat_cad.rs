@@ -5,9 +5,8 @@ use std::rc::Rc;
 
 use silverpoint::Stepping;
 
-use palantir::{
-    App, Configure, HostHandle, Key, KeyFilter, Mods, Panel, Shortcut, Sizing, Ui, WindowToken,
-};
+use palantir::prelude::*;
+use palantir::{HostHandle, KeyFilter, ShortcutMods};
 
 use crate::build::Build;
 use crate::demo;
@@ -70,8 +69,8 @@ const ROLL_FORWARD: Shortcut = Shortcut::ctrl_shift('R');
 /// and needs nothing held between frames.
 ///
 /// Ctrl rather than bare arrows, which the view will want for nudging geometry.
-const REORDER_UP: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowUp);
-const REORDER_DOWN: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowDown);
+const REORDER_UP: Shortcut = Shortcut::new(ShortcutMods::CTRL, Key::ArrowUp);
+const REORDER_DOWN: Shortcut = Shortcut::new(ShortcutMods::CTRL, Key::ArrowDown);
 
 /// Put the document away, and fetch one back.
 ///

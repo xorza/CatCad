@@ -8,8 +8,7 @@ use crate::tests::harness::Raised;
 use crate::tests::harness::Stated;
 use aperture::Viewport;
 use glam::Vec2;
-use palantir::Key;
-use palantir::Modifiers;
+use palantir::prelude::*;
 use silverpoint::{Entity, SegmentId};
 
 use crate::CatCad;

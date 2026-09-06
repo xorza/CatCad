@@ -1,6 +1,6 @@
 //! What a form's own two answers are drawn in.
 
-use palantir::RgbaF32;
+use palantir::prelude::*;
 
 use crate::look::palette::Palette;
 

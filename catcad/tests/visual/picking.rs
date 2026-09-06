@@ -12,7 +12,8 @@ use aperture::{Aim, Camera, Facing, Scene, Tag, Viewport};
 use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
-use palantir::{InputEvent, OffscreenHost, PointerButton, wgpu};
+use palantir::prelude::*;
+use palantir::{InputEvent, OffscreenHost, wgpu};
 
 /// The target every frame below is drawn into, in *physical* pixels.
 const PHYSICAL: UVec2 = UVec2::new(1200, 900);
@@ -89,8 +90,7 @@ impl Raised {
 
     /// Paint one frame.
     fn frame(&mut self) {
-        self.host
-            .frame_offscreen(&self.target, RASTER, &mut self.app);
+        self.host.frame(&self.target, RASTER, &mut self.app);
     }
 
     /// Paint until what the runs measure has reached the frame being read.

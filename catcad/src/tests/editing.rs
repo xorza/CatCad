@@ -6,7 +6,7 @@ use crate::marked;
 use crate::prompt::{Asking, Prompt};
 use crate::tests::harness::Raised;
 use glam::{DVec2, Vec2, Vec3};
-use palantir::Key;
+use palantir::prelude::*;
 
 use crate::intent::Choice;
 use crate::part::Part;

@@ -3,8 +3,9 @@
 
 use aperture::{Facing, Turn, Viewport};
 use glam::{DVec2, Vec2, Vec3};
+use palantir::InputDelta;
 use palantir::internals::UiHarness;
-use palantir::{App, InputDelta, Key, Modifiers, WidgetId, WindowToken};
+use palantir::prelude::*;
 
 use crate::CatCad;
 use crate::cat_cad::internals::HARNESS_SIZE;

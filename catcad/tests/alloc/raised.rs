@@ -3,8 +3,9 @@
 use aperture::Viewport;
 use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
+use palantir::ResponseState;
 use palantir::internals::UiHarness;
-use palantir::{App, ResponseState, WidgetId, WindowToken};
+use palantir::prelude::*;
 use std::hint::black_box;
 
 /// The surface every gate records at. Large enough that layout does real work

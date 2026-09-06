@@ -3,7 +3,7 @@
 use crate::tests::harness::Raised;
 use crate::tool::Tool;
 use glam::{DVec2, Vec2};
-use palantir::Key;
+use palantir::prelude::*;
 
 use crate::hud::internals;
 

@@ -1,9 +1,7 @@
 //! One square control standing on a pill.
 
-use palantir::{
-    Align, Background, Configure, Corners, FontFamily, FontWeight, Panel, Rect, RgbaF32, Sense,
-    Sizing, Spacing, Text, TextStyle, Tooltip, Ui, WidgetId,
-};
+use palantir::prelude::*;
+use palantir::{FontFamily, FontWeight};
 
 use crate::look::Theme;
 use crate::look::icons::{Glyph, Icons};
@@ -140,7 +138,7 @@ impl Chip {
         // chip's borrow of `ui` has ended by the time the bubble records into
         // it.
         let snapshot = chip.response.snapshot();
-        let clicked = chip.response.left.clicked();
+        let clicked = chip.response.clicked();
         Tooltip::on(&snapshot).label(self.tip).show(ui);
         clicked
     }

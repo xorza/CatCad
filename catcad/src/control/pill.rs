@@ -1,8 +1,6 @@
 //! The translucent slab a group of controls stands on.
 
-use palantir::{
-    Align, Background, Configure, Corners, Panel, RgbaF32, Sense, Sizing, Spacing, Stroke, Ui,
-};
+use palantir::prelude::*;
 
 use crate::look::Theme;
 

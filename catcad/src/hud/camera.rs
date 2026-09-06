@@ -1,7 +1,7 @@
 //! How the drawing is being looked at, in the bottom right corner.
 
 use aperture::Projection;
-use palantir::{Align, Background, Configure, Panel, Sizing, Spacing, Ui, WidgetId};
+use palantir::prelude::*;
 
 use crate::control::chip::Chip;
 use crate::control::pill::Pill;

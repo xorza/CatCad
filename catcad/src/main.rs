@@ -1,7 +1,8 @@
 //! CatCad application entry point.
 
 use catcad::CatCad;
-use palantir::{WindowToken, WinitHost, WinitHostError};
+use palantir::prelude::*;
+use palantir::{WinitHost, WinitHostError};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<(), WinitHostError> {

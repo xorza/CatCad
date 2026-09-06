@@ -13,7 +13,7 @@
 //! the side.
 
 use glam::UVec2;
-use palantir::{ContentType, GlyphRasterKey, TextGlyphs};
+use palantir::widget::{ContentType, GlyphRasterKey, TextGlyphs};
 use std::collections::HashMap;
 
 /// Side of a fresh sheet, in pixels. A 256² sheet is 64 KB and holds a hundred
@@ -213,7 +213,8 @@ impl GlyphAtlas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use palantir::{GlyphFont, TextShaper};
+    use palantir::TextShaper;
+    use palantir::widget::GlyphFont;
 
     /// One glyph at a time, and the same glyph twice.
     ///

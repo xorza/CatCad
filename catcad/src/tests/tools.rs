@@ -5,7 +5,7 @@ use crate::CatCad;
 use crate::prompt::Prompt;
 use crate::tests::harness::Raised;
 use glam::DVec2;
-use palantir::Key;
+use palantir::prelude::*;
 use silverpoint::Entity;
 use silverpoint::PointId;
 

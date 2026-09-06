@@ -2,7 +2,7 @@
 
 use crate::renderer::atlas::Slot;
 use glam::Vec2;
-use palantir::PlacedGlyph;
+use palantir::widget::PlacedGlyph;
 
 /// One glyph's quad, worked out from where the shaper put it and where the atlas
 /// keeps it.
@@ -43,7 +43,8 @@ impl GlyphQuad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use palantir::{GlyphFont, GlyphRasterKey, TextShaper};
+    use palantir::TextShaper;
+    use palantir::widget::{GlyphFont, GlyphRasterKey};
 
     /// A glyph's quad is placed where the pen and the bearing put it, and reads
     /// the sheet where the slot says.
