@@ -36,12 +36,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ron = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17"
-# Resolved lazily, only where an allocation test fails: `common`'s counting
-# allocator captures an unresolved stack per allocation inside a measured
-# window, so a gate that trips names the line that allocated.
 backtrace = "0.3"
-# PNG alone, for the golden-image suite: the goldens are written and read back
-# in one format, and every other codec would be a decoder nothing decodes.
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [workspace.lints.rust]
