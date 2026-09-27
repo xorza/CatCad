@@ -286,7 +286,7 @@ pub(crate) fn head_on() -> Camera {
 /// [`shown`] gets a scene built against the camera it is about to photograph.
 pub(crate) fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let mut host = OffscreenHost::builder(gpu.handles()).build();
 
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("catcad.harness.target"),

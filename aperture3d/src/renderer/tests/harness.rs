@@ -170,7 +170,7 @@ impl<'a> Framed<'a> {
         };
         app.view.borrow_mut().pane_mut(Self::DRAWING).camera = camera;
         Self {
-            host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
+            host: OffscreenHost::builder(gpu.handles()).build(),
             target: frame_target(&gpu.device),
             app,
             gpu,

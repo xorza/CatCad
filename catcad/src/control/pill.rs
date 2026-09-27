@@ -49,7 +49,7 @@ impl<'a> Pill<'a> {
                 .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
                 .background(
                     Background::rounded(chrome.pill, Corners::all(chrome.pill_radius()))
-                        .with_stroke(Stroke::solid(chrome.pill_edge, 1.0)),
+                        .with_border(Stroke::new(chrome.pill_edge, 1.0)),
                 ),
         }
     }
@@ -81,7 +81,7 @@ impl<'a> Pill<'a> {
         let chrome = &self.theme.chrome;
         self.panel = self.panel.sense(Sense::NONE).background(
             Background::rounded(chrome.pill_over, Corners::all(chrome.pill_radius()))
-                .with_stroke(Stroke::solid(chrome.pill_edge, 1.0)),
+                .with_border(Stroke::new(chrome.pill_edge, 1.0)),
         );
         self
     }

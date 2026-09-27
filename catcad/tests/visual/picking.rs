@@ -79,7 +79,7 @@ impl Raised {
         let mut app = CatCad::probe();
         app.enter_first_sketch();
         let mut raised = Self {
-            host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
+            host: OffscreenHost::builder(gpu.handles()).build(),
             target: target(gpu),
             app,
         };

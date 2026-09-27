@@ -224,7 +224,7 @@ impl Theme {
             text: ink_lit,
             text_muted: ink,
             text_disabled: ink_dim,
-            terminal_bg: geometry::tint(self.geometry.ground),
+            window_bg: geometry::tint(self.geometry.ground),
             elem: chip,
             elem_mid: chip_lit,
             elem_strong: chip_active,
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(roles.text, chrome.ink_lit);
         assert_eq!(roles.text_muted, chrome.ink);
         assert_eq!(roles.text_disabled, chrome.ink_dim);
-        assert_eq!(roles.terminal_bg, geometry::tint(theme.geometry.ground));
+        assert_eq!(roles.window_bg, geometry::tint(theme.geometry.ground));
         // The surface ladder is the chip's own three states, in that order: what
         // palantir calls a clickable surface is what this crate calls a chip.
         assert_eq!(roles.elem, chrome.chip);

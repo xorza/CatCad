@@ -54,7 +54,7 @@ struct Painting {
 impl Painting {
     fn raise() -> Self {
         let gpu = headless_test_gpu();
-        let host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+        let host = OffscreenHost::builder(gpu.handles()).build();
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aperture.alloc.target"),
             size: wgpu::Extent3d {
