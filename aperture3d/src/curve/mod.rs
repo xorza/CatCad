@@ -186,7 +186,7 @@ impl Span {
 /// The point of segment `a`–`b` nearest `cursor` on screen, or `None` if none
 /// of it is drawn.
 fn nearest_on_segment(a: Vec3, b: Vec3, aim: &Aim) -> Option<Nearest> {
-    let (a_clip, b_clip) = (aim.view_proj * a.extend(1.0), aim.view_proj * b.extend(1.0));
+    let (a_clip, b_clip) = (aim.view_proj.point(a), aim.view_proj.point(b));
     let (a_in, b_in) = (Inside::of(a_clip), Inside::of(b_clip));
     let span = Span::whole()
         .clip(a_in.near, b_in.near)?

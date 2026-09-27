@@ -1,7 +1,8 @@
 //! Pixels, how they meet normalized device coordinates, and which clip
 //! positions are drawn at all.
 
-use glam::{Mat4, UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
+use crate::camera::view_proj::ViewProj;
+use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
 
 /// Screen length below which a projected stretch lands on a single pixel and
 /// has no direction to project a cursor onto.
@@ -190,8 +191,8 @@ impl Viewport {
     /// Here rather than beside the one kind that reads it. Nothing about it is
     /// text: it is the tangent of the projection measured in these pixels, and its
     /// twin in WGSL sits beside the other projection helpers for the same reason.
-    pub(crate) fn screen_tangent(&self, world: Vec3, here: Vec4, view_proj: Mat4) -> Vec2 {
-        let there = view_proj * world.extend(0.0);
+    pub(crate) fn screen_tangent(&self, world: Vec3, here: Vec4, view_proj: ViewProj) -> Vec2 {
+        let there = view_proj.direction(world);
         let ndc = (there.xy() * here.w - here.xy() * there.w) / (here.w * here.w);
         // NDC counts y up from the middle and the framebuffer counts it down from
         // the top, which for a difference is the flip and nothing else; and it spans

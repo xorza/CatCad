@@ -101,7 +101,7 @@ fn the_bound_a_rim_is_dismissed_by_holds_every_point_of_it() {
                             );
                             for step in 0..64 {
                                 let angle = step as f32 / 64.0 * std::f32::consts::TAU;
-                                let clip = aim.view_proj * ring.at(angle).extend(1.0);
+                                let clip = aim.view_proj.point(ring.at(angle));
                                 let on_screen = viewport.pixel_from_clip(clip);
                                 // A hair of tolerance, because head-on this
                                 // is not a bound but the rim's exact extent —

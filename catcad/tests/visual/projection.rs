@@ -92,7 +92,7 @@ fn the_gpu_draws_the_marker_where_the_projection_says_it_is() {
     // The sketch's anchor is fixed at sketch (0, 0), which the ground plane
     // puts at the world origin — the near-left corner of the rectangle, and
     // the only corner the solver cannot move.
-    let clip = frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0);
+    let clip = frame.camera.view_proj(viewport.aspect()).point(Vec3::ZERO);
     let expected = viewport
         .pixel_of(clip)
         .expect("the anchor is in front of the camera");

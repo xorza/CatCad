@@ -9,8 +9,8 @@
 
 use std::f32::consts::{PI, TAU};
 
-use aperture::{Camera, Highlight, Lit, Viewport};
-use glam::{Mat4, UVec2, Vec2, Vec3};
+use aperture::{Camera, Highlight, Lit, ViewProj, Viewport};
+use glam::{UVec2, Vec2, Vec3};
 use palantir::Drag;
 use palantir::prelude::*;
 use palantir::widget::{AnimSlot, Animatable, Shape};
@@ -286,7 +286,7 @@ impl Cube {
 struct Seen {
     /// Where the eye stands, as a direction from what it is looking at.
     eye: Vec3,
-    view_proj: Mat4,
+    view_proj: ViewProj,
     /// The gizmo's box, which is the pane's viewport.
     viewport: Viewport,
     /// How far the solid's edges are cut, so an outline asked for here is the
@@ -318,7 +318,7 @@ impl Seen {
     /// sixty-four times the standoff, so nothing an inch across is clipped.
     fn at(&self, position: Vec3) -> Vec2 {
         self.viewport
-            .pixel_of(self.view_proj * position.extend(1.0))
+            .pixel_of(self.view_proj.point(position))
             .expect("a parallel view of the gizmo draws the whole of it")
     }
 

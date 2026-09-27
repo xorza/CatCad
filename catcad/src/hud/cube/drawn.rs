@@ -114,9 +114,11 @@ pub(crate) fn camera(theme: &Theme, aim: Camera) -> Camera {
 /// way the offset runs from a yaw and a pitch is aperture's convention, and a
 /// second copy of it here would be a gizmo that went on reading the old one the
 /// day it changed. What is dropped is the distance, which says nothing about
-/// which way round the cube reads.
+/// which way round the cube reads — so it is the facing turned round, rather
+/// than the eye less the target, which rounds to nothing once the target is
+/// far enough out.
 pub(crate) fn eye(camera: &Camera) -> Vec3 {
-    (camera.eye() - camera.target).normalize_or(Vec3::Y)
+    -camera.facing()
 }
 
 /// One piece of the solid, as the fan of triangles its ring is.

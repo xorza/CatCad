@@ -139,7 +139,7 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
 
     let viewport = Viewport::new(frame.size);
     let centre = viewport
-        .pixel_of(frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0))
+        .pixel_of(frame.camera.view_proj(viewport.aspect()).point(Vec3::ZERO))
         .expect("the camera is aimed at the origin");
 
     // Every pixel of the rim, by how far it sits from where the centre

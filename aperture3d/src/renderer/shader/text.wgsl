@@ -75,27 +75,20 @@ fn text_vs(
     @location(3) uv_min: vec2<f32>,
     @location(4) uv_size: vec2<f32>,
     @location(5) color: vec3<f32>,
-    // Location 6 is the paint's `spread`, and a glyph has no use for one —
-    // its size came from its shaping, not from a width the shader spreads. Left
-    // undeclared rather than declared and ignored: what a declaration would buy
-    // is wgpu matching its *base type* against the layout and nothing else — the
-    // component count is free to differ — so an `f32` among `f32`s is checked by
-    // nothing, and `Attributed::LAYOUT_SPANS_STRUCT` already holds the attribute
-    // list to the record's own size.
-    @location(7) plane: vec3<f32>,
+    @location(6) plane: vec3<f32>,
     // Zero where the run is square to the viewer, which is the whole of what
     // tells the two apart.
-    @location(8) right: vec3<f32>,
+    @location(7) right: vec3<f32>,
     // How far the run's box floats off the point it names, per logical pixel of
     // it — already resolved against the plane's authored axes, so there is no
     // second reading of them here. See `Turn::lift_world`.
-    @location(9) lift: vec3<f32>,
+    @location(8) lift: vec3<f32>,
 ) -> TextVsOut {
     let corner = vec2<f32>(
         select(0.0, 1.0, (index & 1u) != 0u),
         select(0.0, 1.0, (index & 2u) != 0u),
     );
-    let at = u.view_proj * vec4<f32>(anchor, 1.0);
+    let at = clip_of(anchor);
     // Logical pixels, as the run was shaped and as the lift is stated. Which of
     // the two branches below is taken decides what they are turned into: the
     // laid one spends them in the world, the square one in NDC.
@@ -124,10 +117,9 @@ fn text_vs(
         // is in the plane's own axes rather than the run's, so the mirror and
         // the half turn above leave it where it is. A run that comes round to
         // stay readable only changes direction.
-        let hangs = anchor + lift * step;
-        let corner_world =
-            hangs + axes.advance * (px.x * step) + axes.down * (px.y * step);
-        out.clip = u.view_proj * vec4<f32>(corner_world, 1.0);
+        let hangs = from_origin(anchor) + lift * step;
+        let corner = hangs + axes.advance * (px.x * step) + axes.down * (px.y * step);
+        out.clip = u.view_proj * vec4<f32>(corner, 1.0);
     } else {
         // **Square to the viewer.** A rectangle in screen space, hung off the
         // anchor's own projection.

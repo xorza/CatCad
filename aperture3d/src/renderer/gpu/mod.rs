@@ -18,6 +18,8 @@ use crate::renderer::record::gpu_vertex::GpuVertex;
 use crate::renderer::record::point_instance::PointInstance;
 use crate::renderer::record::ring_instance::RingInstance;
 use crate::renderer::retained::Retained;
+use crate::renderer::shader_interface::ShaderInterface;
+use crate::renderer::uniforms::Uniforms;
 use glam::{UVec2, Vec3};
 
 /// The depth ladder every layer of a drawing stands on, in steps of depth
@@ -261,8 +263,8 @@ impl Gpu {
     /// The catch: naga reports errors as offsets into the joined text, so a
     /// line number from it belongs to no file on disk. Count from the top of
     /// `common.wgsl` in the order below.
-    fn shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
-        let source = [
+    fn shader_source() -> String {
+        [
             include_str!("../shader/common.wgsl"),
             include_str!("../shader/mesh.wgsl"),
             include_str!("../shader/curve.wgsl"),
@@ -270,11 +272,7 @@ impl Gpu {
             include_str!("../shader/point.wgsl"),
             include_str!("../shader/text.wgsl"),
         ]
-        .concat();
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aperture.shader"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        })
+        .concat()
     }
 
     /// One layout for every pipeline, so the glyph sheet is declared even on
@@ -338,7 +336,13 @@ impl Gpu {
         target_format: wgpu::TextureFormat,
         atlas: &GlyphAtlas,
     ) -> Self {
-        let shader = Self::shader_module(device);
+        let source = Self::shader_source();
+        let interface = ShaderInterface::parse(&source);
+        interface.hold_struct_layout("Uniforms", &Uniforms::MEMBERS, size_of::<Uniforms>());
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aperture.shader"),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
         let bgl = Self::bind_group_layout(device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("aperture.pipeline_layout"),
@@ -349,6 +353,7 @@ impl Gpu {
             device,
             layout: &layout,
             shader: &shader,
+            interface: &interface,
             target_format,
         };
         // Solids are the one pass that culls — they are modelled geometry, wound

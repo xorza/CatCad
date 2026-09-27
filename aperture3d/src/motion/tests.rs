@@ -206,7 +206,7 @@ fn a_line_travels_by_what_the_pointer_travelled_along_it() {
     // the thing, not how many units of the model went past.
     let travelled = |camera: &Camera, x: f32| {
         let view_proj = camera.view_proj(viewport().aspect());
-        let seen = |at: Vec3| viewport().pixel_from_clip(view_proj * at.extend(1.0));
+        let seen = |at: Vec3| viewport().pixel_from_clip(view_proj.point(at));
         let from = Vec2::new(x, 100.0);
         (seen(resolved(&axis, camera, from + Vec2::new(20.0, 0.0)))
             - seen(resolved(&axis, camera, from)))

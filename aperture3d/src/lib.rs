@@ -128,6 +128,7 @@ pub mod internals {
 pub use aim::Aim;
 pub use batch::Batch;
 pub use bounds::Bounds;
+pub use camera::view_proj::ViewProj;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use extent::Extent;

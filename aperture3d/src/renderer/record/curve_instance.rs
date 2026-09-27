@@ -35,8 +35,12 @@ impl CurveInstance {
 }
 
 impl Instance for CurveInstance {
-    fn paint_mut(&mut self) -> &mut Paint {
-        &mut self.paint
+    fn color_mut(&mut self) -> &mut [f32; 3] {
+        &mut self.paint.color
+    }
+
+    fn spread_mut(&mut self) -> Option<&mut f32> {
+        Some(&mut self.paint.spread)
     }
 }
 

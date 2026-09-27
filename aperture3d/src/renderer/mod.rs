@@ -21,6 +21,7 @@ pub(crate) mod pass;
 pub(crate) mod pipelines;
 pub(crate) mod record;
 pub(crate) mod retained;
+pub(crate) mod shader_interface;
 pub(crate) mod target;
 pub(crate) mod tile;
 pub(crate) mod uniforms;

@@ -121,8 +121,8 @@ impl Motion {
         }
         // Clip space is affine in world position, so the line is a line there
         // too and one parameter names a point of both.
-        let base = aim.view_proj * origin.extend(1.0);
-        let step = aim.view_proj * unit.extend(0.0);
+        let base = aim.view_proj.point(origin);
+        let step = aim.view_proj.direction(unit);
         let depth = |at: f32| base.w + step.w * at;
 
         // Two points of it in front of the eye, far enough apart to say which

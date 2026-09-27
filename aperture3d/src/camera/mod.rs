@@ -1,19 +1,40 @@
 //! Where the scene is viewed from, and the matrix that follows from it.
 
+pub(crate) mod view_proj;
+
+use crate::camera::view_proj::ViewProj;
 use crate::extent::Extent;
 use crate::ray::Ray;
 use crate::viewport::Viewport;
-use glam::camera::rh::{proj::directx, view};
-use glam::{Mat4, Vec2, Vec3};
+use glam::camera::rh::proj::directx;
+use glam::{Mat3, Mat4, Vec2, Vec3};
 
-/// Pitch never reaches the pole: `look_at` degenerates when the eye-to-target
-/// direction is parallel to the up axis.
+/// Pitch never reaches the pole, where yaw stops naming a direction: the
+/// screen's right is level by construction, and straight up has no level
+/// square to it.
 const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 1e-3;
 
-/// Distance floor. All it has to do is keep the eye off the target, where
-/// `look_at` has no direction to work with — the near plane rides with the
-/// distance, so nothing else depends on how close the eye may come.
+/// Distance floor. All it has to do is keep the near plane a positive, normal
+/// `f32` — the plane rides with the distance, and nothing else depends on how
+/// close the eye may come. Not even which way the eye looks: that is read off
+/// the angles, so an eye that rounds onto a far-off target still looks along
+/// them.
 const MIN_DISTANCE: f32 = 1e-3;
+
+/// Distance ceiling, 2²⁹ — about 5.4 × 10⁸ world units.
+///
+/// There has to be one because an infinite distance is a fixed point of
+/// scaling: once the eye is there, no factor a gesture hands over brings it
+/// back. Where it sits is where the arithmetic gives out, not where the view
+/// stops being useful, and the orthographic view gives out first. Its
+/// determinant is `1 / (128 · aspect · tan²(fov_y / 2) · distance³)`, picking
+/// inverts that matrix, and once the determinant falls below the smallest
+/// normal `f32` the inverse — and every ray read out of it — is infinite. At
+/// the widest field [`Camera::sane`] allows (179°) across a 32768-by-1
+/// viewport, the widest texture desktop GPUs allow, that happens just past 2³⁰.
+/// One power of two inside it leaves room for a target twice as wide.
+/// Perspective holds to 2⁴².
+const MAX_DISTANCE: f32 = (1u32 << 29) as f32;
 
 /// How near the eye the near plane may be put, and how near the target, as a
 /// fraction of the orbit distance.
@@ -124,11 +145,12 @@ impl Default for Camera {
 
 impl Camera {
     /// The eye position implied by the target, distance, and angles.
+    ///
+    /// A position, and rounded like one: far enough from the origin, an eye
+    /// close in lands a step of the world off where the angles put it. Nothing
+    /// that projects reads it for that reason — see [`ViewProj`].
     pub fn eye(&self) -> Vec3 {
-        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
-        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
-        let offset = Vec3::new(sin_yaw * cos_pitch, sin_pitch, cos_yaw * cos_pitch);
-        self.target + offset * self.distance
+        self.target + self.basis().back * self.distance
     }
 
     /// The unit direction the camera looks along.
@@ -137,8 +159,26 @@ impl Camera {
     /// square to this lies in the screen's own plane, so a shape laid out on
     /// two such directions reads at full size from wherever the camera is
     /// rather than collapsing to a line as it comes round.
+    ///
+    /// Read off the angles rather than differenced out of the eye, so it is a
+    /// unit direction however far off the target is and however close in the
+    /// eye has come.
     pub fn facing(&self) -> Vec3 {
-        (self.target - self.eye()).normalize_or_zero()
+        -self.basis().back
+    }
+
+    /// The screen's axes in the world, straight from the angles.
+    ///
+    /// Right is level whatever the pitch, because yaw turns about the world up
+    /// axis and nothing else does.
+    fn basis(&self) -> ViewBasis {
+        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
+        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
+        ViewBasis {
+            right: Vec3::new(cos_yaw, 0.0, -sin_yaw),
+            up: Vec3::new(-sin_yaw * sin_pitch, cos_pitch, -cos_yaw * sin_pitch),
+            back: Vec3::new(sin_yaw * cos_pitch, sin_pitch, cos_yaw * cos_pitch),
+        }
     }
 
     /// Where the near plane currently sits, in world units. Perspective only:
@@ -228,7 +268,9 @@ impl Camera {
     fn view_depth(&self, at: Vec3) -> f32 {
         match self.projection {
             Projection::Orthographic => 1.0,
-            Projection::Perspective => (at - self.eye()).dot(self.facing()).max(self.z_near()),
+            Projection::Perspective => {
+                ((at - self.target).dot(self.facing()) + self.distance).max(self.z_near())
+            }
         }
     }
 
@@ -253,7 +295,11 @@ impl Camera {
     /// with no vanishing point there is nothing to justify clipping what the
     /// eye has passed, and clipping it would slice the model open on the way
     /// in.
-    pub fn view_proj(&self, aspect: f32) -> Mat4 {
+    ///
+    /// Measured from the orbit target rather than from the world's origin — see
+    /// [`ViewProj`] for why, and for what that costs a caller: nothing, as long
+    /// as every projection goes through it.
+    pub fn view_proj(&self, aspect: f32) -> ViewProj {
         let proj = match self.projection {
             Projection::Perspective => {
                 directx::perspective_infinite_reverse(self.fov_y, aspect, self.z_near())
@@ -274,7 +320,17 @@ impl Camera {
                 )
             }
         };
-        proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
+        // The world turned into the screen's axes, then pushed the orbit
+        // distance down the view — which is where the target sits, and why the
+        // target is the origin this is measured from.
+        let basis = self.basis();
+        let turn = Mat3::from_cols(basis.right, basis.up, basis.back).transpose();
+        let view =
+            Mat4::from_translation(Vec3::new(0.0, 0.0, -self.distance)) * Mat4::from_mat3(turn);
+        ViewProj {
+            relative: proj * view,
+            origin: self.target,
+        }
     }
 
     /// Where `world` lands on the viewport, in logical pixels down from its
@@ -294,7 +350,7 @@ impl Camera {
     /// matrix once with [`Camera::view_proj`] and read each through
     /// [`Viewport::pixel_of`], which is what this does and all it does.
     pub fn screen_of(&self, world: Vec3, viewport: Viewport) -> Option<Vec2> {
-        viewport.pixel_of(self.view_proj(viewport.aspect()) * world.extend(1.0))
+        viewport.pixel_of(self.view_proj(viewport.aspect()).point(world))
     }
 
     /// The world-space ray through a point on the viewport. `cursor` counts
@@ -320,19 +376,10 @@ impl Camera {
     /// otherwise build it twice. `view_proj` has to be this camera's own for
     /// this viewport — the assert below is what catches one that is not, since a
     /// foreign matrix aims the ray somewhere the picture is not.
-    pub(crate) fn ray_from(&self, cursor: Vec2, viewport: Viewport, view_proj: Mat4) -> Ray {
-        let ndc = viewport.ndc_from_pixel(cursor);
-        let inverse = view_proj.inverse();
-
-        // Depth is reversed under both projections, so 1 is the near plane and
-        // anything below it is further off. Half of it is a second point down
-        // the same ray, and finite in both — where 0 is the point at infinity
-        // that a perspective inverse has nowhere to put.
-        let near = inverse.project_point3(ndc.extend(1.0));
-        let beyond = inverse.project_point3(ndc.extend(0.5));
-        let ray = Ray::new(near, beyond - near);
+    pub(crate) fn ray_from(&self, cursor: Vec2, viewport: Viewport, view_proj: ViewProj) -> Ray {
+        let ray = view_proj.ray_through_ndc(viewport.ndc_from_pixel(cursor));
         debug_assert!(
-            ray.direction.dot(self.target - self.eye()) > 0.0,
+            ray.direction.dot(self.facing()) > 0.0,
             "ray points away from the scene, so depth no longer runs 1 at the \
              near plane — the two ends of this projection have swapped"
         );
@@ -368,7 +415,7 @@ impl Camera {
         Self {
             projection: self.projection,
             target,
-            distance: finite(self.distance, default.distance).max(MIN_DISTANCE),
+            distance: bounded_distance(finite(self.distance, default.distance)),
             yaw: finite(self.yaw, default.yaw),
             pitch: finite(self.pitch, default.pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT),
             // Zero would flatten the view to a line and π or more would turn it
@@ -401,8 +448,16 @@ impl Camera {
     }
 
     /// Scale the orbit distance — `factor` below 1 moves the eye in.
+    ///
+    /// Zero and infinity land on the nearest and the furthest the eye may be.
+    /// A factor that is not a scale at all — negative, or not a number — leaves
+    /// the eye where it is: whatever reported one said nothing about which way
+    /// to go, and reading it as "all the way in" would jump the view.
     pub fn dolly(&mut self, factor: f32) {
-        self.distance = (self.distance * factor).max(MIN_DISTANCE);
+        if factor.is_nan() || factor < 0.0 {
+            return;
+        }
+        self.distance = bounded_distance(self.distance * factor);
     }
 
     /// Slide what is being looked at, taking the eye with it. Neither angle
@@ -424,12 +479,7 @@ impl Camera {
     /// being panned is nearest to; the orthographic view has that size
     /// everywhere and reads the same number.
     pub fn pan_step(&self, screen: Vec2, viewport: Viewport) -> Vec3 {
-        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
-        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
-        // The screen basis in world space. Right is level whatever the pitch,
-        // because yaw turns about the world up axis and nothing else does.
-        let right = Vec3::new(cos_yaw, 0.0, -sin_yaw);
-        let up = Vec3::new(-sin_yaw * sin_pitch, cos_pitch, -cos_yaw * sin_pitch);
+        let ViewBasis { right, up, .. } = self.basis();
         // The scale at the target, asked for rather than worked out: "at the
         // orbit target" is what the paragraph above promises, and a second
         // spelling of it here would be free to stop meaning that.
@@ -447,8 +497,28 @@ impl Camera {
     pub fn frame(&mut self, extent: Extent) {
         self.target = extent.centre();
         let radius = extent.radius();
-        self.distance = (radius / (self.fov_y * 0.5).sin()).max(MIN_DISTANCE);
+        self.distance = bounded_distance(radius / (self.fov_y * 0.5).sin());
     }
+}
+
+/// The screen's three axes in the world: right and up across it, and back out
+/// of it toward the eye.
+#[derive(Debug, Clone, Copy)]
+struct ViewBasis {
+    right: Vec3,
+    up: Vec3,
+    back: Vec3,
+}
+
+/// `distance` brought between the floor and the ceiling.
+///
+/// `max` then `min` rather than `clamp`, because those two pass over a NaN
+/// operand where `clamp` hands it back: an infinite distance written straight
+/// into the field and then scaled by zero lands on the floor instead of
+/// reaching the renderer.
+#[allow(clippy::manual_clamp)]
+fn bounded_distance(distance: f32) -> f32 {
+    distance.max(MIN_DISTANCE).min(MAX_DISTANCE)
 }
 
 #[cfg(any(test, feature = "internals"))]

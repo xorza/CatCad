@@ -1,12 +1,13 @@
 //! What a pick is aiming with, and what it can answer about a world position.
 
 use crate::camera::Camera;
+use crate::camera::view_proj::ViewProj;
 use crate::hit::{Hit, HitAt};
 use crate::precedence::Precedence;
 use crate::ray::Ray;
 use crate::tag::Tag;
 use crate::viewport::{MIN_RUN_PX2, Viewport};
-use glam::{Mat4, Vec2, Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec4};
 use palantir::Rect;
 
 /// Where the cursor is, how far it reaches, and the projection that puts the
@@ -28,7 +29,7 @@ pub struct Aim {
     /// wider than this is pickable anywhere it is visible.
     pub(crate) radius: f32,
     pub(crate) viewport: Viewport,
-    pub(crate) view_proj: Mat4,
+    pub(crate) view_proj: ViewProj,
     /// Through the cursor, for ordering hits by how near the eye they are.
     pub(crate) ray: Ray,
     /// The one this was aimed through, kept for the questions the matrix alone
@@ -81,7 +82,7 @@ impl Aim {
     /// of every primitive in a pick, and rebuilding a view-projection apiece is
     /// the cost that shape exists to avoid.
     pub(crate) fn screen_of(&self, world: Vec3) -> Option<Vec2> {
-        self.viewport.pixel_of(self.view_proj * world.extend(1.0))
+        self.viewport.pixel_of(self.view_proj.point(world))
     }
 
     /// How far `world` fell from the cursor on screen, or `None` if it is not

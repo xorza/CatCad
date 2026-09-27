@@ -2,6 +2,7 @@
 
 use crate::renderer::band;
 use crate::renderer::record::Attributed;
+use crate::renderer::shader_interface::ShaderInterface;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::viewport;
 
@@ -163,6 +164,9 @@ pub(super) struct Pipelines<'a> {
     pub(super) device: &'a wgpu::Device,
     pub(super) layout: &'a wgpu::PipelineLayout,
     pub(super) shader: &'a wgpu::ShaderModule,
+    /// The same module read back, which every pipeline's record is held to as
+    /// it is built.
+    pub(super) interface: &'a ShaderInterface,
     pub(super) target_format: wgpu::TextureFormat,
 }
 
@@ -171,6 +175,9 @@ impl Pipelines<'_> {
     /// shares: what a mirror adds is the records it draws through this.
     pub(super) fn build<R: Attributed>(&self, spec: PassSpec) -> wgpu::RenderPipeline {
         let () = R::LAYOUT_SPANS_STRUCT;
+        let vertex_entry = format!("{}_vs", spec.name);
+        self.interface
+            .hold_vertex_inputs(&vertex_entry, R::ATTRIBUTES);
         let constants = overrides(&spec);
         let compilation_options = wgpu::PipelineCompilationOptions {
             constants: &constants,
@@ -182,7 +189,7 @@ impl Pipelines<'_> {
                 layout: Some(self.layout),
                 vertex: wgpu::VertexState {
                     module: self.shader,
-                    entry_point: Some(&format!("{}_vs", spec.name)),
+                    entry_point: Some(&vertex_entry),
                     compilation_options: compilation_options.clone(),
                     buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: size_of::<R>() as u64,

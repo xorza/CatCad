@@ -6,8 +6,9 @@
 //! answers and a pick brings the cursor onto the same pair — and the vertex
 //! shader cannot call it, so it builds the same two rules instead.
 
+use crate::camera::view_proj::ViewProj;
 use crate::viewport::Viewport;
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Vec2, Vec3};
 
 /// What a run is set against: the screen, or a plane of the world.
 ///
@@ -257,8 +258,8 @@ impl Turn {
     /// projection answers deterministically, and a run whose plane covers no
     /// screen is one nobody can read or click either way. What refuses it is the
     /// area its box comes to, which is what a pick refuses on.
-    pub(crate) fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
-        let here = view_proj * at.extend(1.0);
+    pub(crate) fn axes(self, at: Vec3, view_proj: ViewProj, viewport: Viewport) -> Axes {
+        let here = view_proj.point(at);
         let across = self.normal.cross(self.right);
         let along = viewport.screen_tangent(self.right, here, view_proj);
         let sideways = viewport.screen_tangent(across, here, view_proj);

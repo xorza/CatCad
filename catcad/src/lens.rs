@@ -102,7 +102,7 @@ impl Lens {
         // The span carries "nothing drawn yet" itself, rather than a pair of
         // sentinels with a flag beside them saying whether to believe it — an
         // empty run then has one spelling instead of two that have to agree.
-        at.filter_map(|corner| self.viewport.pixel_of(view_proj * corner.extend(1.0)))
+        at.filter_map(|corner| self.viewport.pixel_of(view_proj.point(corner)))
             .fold(None, |span: Option<[Vec2; 2]>, corner| {
                 Some(span.map_or([corner, corner], |[low, high]| {
                     [low.min(corner), high.max(corner)]

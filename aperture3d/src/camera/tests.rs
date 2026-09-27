@@ -1,5 +1,11 @@
 use super::*;
-use glam::UVec2;
+use glam::{UVec2, Vec4Swizzles};
+
+/// Where `world` lands in NDC under `view_proj`, after the divide.
+fn ndc_of(view_proj: ViewProj, world: Vec3) -> Vec3 {
+    let clip = view_proj.point(world);
+    clip.xyz() / clip.w
+}
 
 #[test]
 fn the_near_plane_rides_with_the_orbit_distance() {
@@ -163,7 +169,7 @@ fn view_proj_maps_the_frustum_to_ndc() {
 
     // Reversed depth with the far plane at infinity is just near/depth.
     // The target sits 5 units in front of the eye, so 1/5.
-    let centre = view_proj.project_point3(Vec3::ZERO);
+    let centre = ndc_of(view_proj, Vec3::ZERO);
     assert!(
         centre.abs_diff_eq(Vec3::new(0.0, 0.0, 0.2), 1e-6),
         "{centre:?}"
@@ -172,30 +178,28 @@ fn view_proj_maps_the_frustum_to_ndc() {
     // At depth 5 the half-height is 5 * tan(45°) = 5, and aspect 1 makes
     // the half-width the same — so world (5, 0, 0) lands on the right edge
     // and world (0, 5, 0) on the top edge.
-    let right = view_proj.project_point3(Vec3::new(5.0, 0.0, 0.0));
+    let right = ndc_of(view_proj, Vec3::new(5.0, 0.0, 0.0));
     assert!((right.x - 1.0).abs() < 1e-5, "{right:?}");
-    let top = view_proj.project_point3(Vec3::new(0.0, 5.0, 0.0));
+    let top = ndc_of(view_proj, Vec3::new(0.0, 5.0, 0.0));
     assert!((top.y - 1.0).abs() < 1e-5, "{top:?}");
 
     // Depth runs the other way now: the near plane is 1, not 0. The eye is
     // at z = 5, so world z = 4 is exactly one unit in front of it.
-    let near = view_proj.project_point3(Vec3::new(0.0, 0.0, 4.0));
+    let near = ndc_of(view_proj, Vec3::new(0.0, 0.0, 4.0));
     assert!((near.z - 1.0).abs() < 1e-6, "{near:?}");
 
     // And distance falls toward 0 without ever reaching it — the far
     // plane is at infinity, so depth 101 is 1/101 rather than clipped.
-    let far = view_proj.project_point3(Vec3::new(0.0, 0.0, -96.0));
+    let far = ndc_of(view_proj, Vec3::new(0.0, 0.0, -96.0));
     assert!((far.z - 1.0 / 101.0).abs() < 1e-6, "{far:?}");
-    let further = view_proj.project_point3(Vec3::new(0.0, 0.0, -999_995.0));
+    let further = ndc_of(view_proj, Vec3::new(0.0, 0.0, -999_995.0));
     assert!(further.z > 0.0 && further.z < 1e-5, "{further:?}");
 
     // Nearer is greater, which is what the `Greater` depth test reads.
     assert!(near.z > centre.z && centre.z > far.z && far.z > further.z);
 
     // A wider viewport spreads the same world point over less NDC width.
-    let wide = camera
-        .view_proj(2.0)
-        .project_point3(Vec3::new(5.0, 0.0, 0.0));
+    let wide = ndc_of(camera.view_proj(2.0), Vec3::new(5.0, 0.0, 0.0));
     assert!((wide.x - 0.5).abs() < 1e-5, "{wide:?}");
 }
 
@@ -211,18 +215,18 @@ fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
     // 5 × tan(45°) = 5 — the same half-height perspective has *there*. So
     // the target plane measures identically under either, and the toggle
     // doesn't jump: (5, 0, 0) is on the right edge here as it is above.
-    let right = view_proj.project_point3(Vec3::new(5.0, 0.0, 0.0));
+    let right = ndc_of(view_proj, Vec3::new(5.0, 0.0, 0.0));
     assert!((right.x - 1.0).abs() < 1e-5, "{right:?}");
-    let top = view_proj.project_point3(Vec3::new(0.0, 5.0, 0.0));
+    let top = ndc_of(view_proj, Vec3::new(0.0, 5.0, 0.0));
     assert!((top.y - 1.0).abs() < 1e-5, "{top:?}");
 
     // Ten units further out, perspective pulls that same point in to a
     // third of the width. Parallel rays don't move it at all — which is
     // the whole difference between the two.
     let deeper = Vec3::new(5.0, 0.0, -10.0);
-    let parallel = view_proj.project_point3(deeper);
+    let parallel = ndc_of(view_proj, deeper);
     assert!((parallel.x - 1.0).abs() < 1e-5, "{parallel:?}");
-    let foreshortened = Camera::head_on().view_proj(1.0).project_point3(deeper);
+    let foreshortened = ndc_of(Camera::head_on().view_proj(1.0), deeper);
     assert!(
         (foreshortened.x - 1.0 / 3.0).abs() < 1e-5,
         "{foreshortened:?}"
@@ -232,24 +236,22 @@ fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
     // backwards so nearer is greater. The eye plane halves it, and the
     // target one distance in front of it lands a 128th further down:
     // (64 - 1) / 128.
-    let eye_plane = view_proj.project_point3(Vec3::new(0.0, 0.0, 5.0));
+    let eye_plane = ndc_of(view_proj, Vec3::new(0.0, 0.0, 5.0));
     assert!((eye_plane.z - 0.5).abs() < 1e-6, "{eye_plane:?}");
-    let centre = view_proj.project_point3(Vec3::ZERO);
+    let centre = ndc_of(view_proj, Vec3::ZERO);
     assert!((centre.z - 63.0 / 128.0).abs() < 1e-6, "{centre:?}");
 
     // Both ends of the slab, 320 units out either way. The near one is
     // *behind* the eye — which is the point: with nothing clipped in front
     // of it, dollying in to zoom can't slice the model open.
-    let far = view_proj.project_point3(Vec3::new(0.0, 0.0, -315.0));
+    let far = ndc_of(view_proj, Vec3::new(0.0, 0.0, -315.0));
     assert!(far.z.abs() < 1e-6, "{far:?}");
-    let behind = view_proj.project_point3(Vec3::new(0.0, 0.0, 325.0));
+    let behind = ndc_of(view_proj, Vec3::new(0.0, 0.0, 325.0));
     assert!((behind.z - 1.0).abs() < 1e-6, "{behind:?}");
     assert!(behind.z > eye_plane.z && eye_plane.z > centre.z && centre.z > far.z);
 
     // A wider viewport spreads the extent, same as perspective.
-    let wide = camera
-        .view_proj(2.0)
-        .project_point3(Vec3::new(5.0, 0.0, 0.0));
+    let wide = ndc_of(camera.view_proj(2.0), Vec3::new(5.0, 0.0, 0.0));
     assert!((wide.x - 0.5).abs() < 1e-5, "{wide:?}");
 
     assert_eq!(camera.projection.toggled(), Projection::Perspective);
@@ -294,7 +296,7 @@ fn a_camera_from_outside_is_brought_back_inside_its_limits() {
     let sound = Camera::head_on();
     assert_eq!(sound.sane(), sound);
 
-    // Past the pole either way, and short of the eye.
+    // Past the pole either way, short of the eye, and past the ceiling.
     let mut wild = Camera::head_on();
     wild.pitch = 4.0;
     assert_eq!(wild.sane().pitch, PITCH_LIMIT);
@@ -306,6 +308,8 @@ fn a_camera_from_outside_is_brought_back_inside_its_limits() {
     assert_eq!(wild.sane().distance, MIN_DISTANCE);
     wild.distance = 0.0;
     assert_eq!(wild.sane().distance, MIN_DISTANCE);
+    wild.distance = 1e30;
+    assert_eq!(wild.sane().distance, MAX_DISTANCE);
     wild.distance = 5.0;
 
     // The near ratio is what `z_near` asserts on, and both ends of its range
@@ -401,7 +405,7 @@ fn frame_pulls_back_until_the_bounds_fit() {
             Vec3::new(2.0, 6.0, 6.0),
             Vec3::new(6.0, 6.0, 6.0),
         ] {
-            let ndc = view_proj.project_point3(corner);
+            let ndc = ndc_of(view_proj, corner);
             assert!(
                 ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0,
                 "{corner:?} projects out of frame at {ndc:?} under {projection:?}"
@@ -427,10 +431,11 @@ fn frame_pulls_back_until_the_bounds_fit() {
 /// nothing else about the camera.
 ///
 /// Checked against the projection rather than against the arithmetic that
-/// produced it, which is what makes it a cross-check: `pan_step` builds the
-/// screen basis out of the angles by hand, and `view_proj` builds its own out
-/// of `look_at`. A sign or an axis wrong in either shows up here as a point
-/// landing somewhere other than where the pan promised to put it.
+/// produced it, which is what makes it a cross-check: `pan_step` spends the
+/// screen basis as two vectors, and `view_proj` spends it as a matrix —
+/// transposed, and pushed down the view by the distance. A sign or an axis
+/// wrong in either shows up here as a point landing somewhere other than where
+/// the pan promised to put it.
 #[test]
 fn a_pan_moves_the_picture_by_the_pixels_it_was_given() {
     let viewport = Viewport::new(UVec2::new(800, 600));
@@ -438,7 +443,7 @@ fn a_pan_moves_the_picture_by_the_pixels_it_was_given() {
     // The pan travels in the plane through the target, so a point sitting on
     // the target keeps its depth and its projection stays exact.
     let pixel_of_origin = |camera: &Camera| {
-        viewport.pixel_from_clip(camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0))
+        viewport.pixel_from_clip(camera.view_proj(viewport.aspect()).point(Vec3::ZERO))
     };
 
     for projection in [Projection::Perspective, Projection::Orthographic] {
@@ -504,15 +509,93 @@ fn a_pan_of_one_viewport_covers_the_height_it_frames() {
 }
 
 #[test]
-fn dolly_scales_distance_down_to_the_floor() {
+fn dolly_scales_distance_between_its_floor_and_ceiling() {
     let mut camera = Camera::head_on();
     camera.dolly(0.5);
     assert!((camera.distance - 2.5).abs() < 1e-6);
     camera.dolly(2.0);
     assert!((camera.distance - 5.0).abs() < 1e-6);
 
+    // Not a scale, so not a direction either: the eye stays put rather than
+    // jumping to the floor.
+    for nonsense in [f32::NAN, -2.0, f32::NEG_INFINITY] {
+        camera.dolly(nonsense);
+        assert_eq!(camera.distance, 5.0, "factor {nonsense}");
+    }
+
     camera.dolly(0.0);
     assert_eq!(camera.distance, MIN_DISTANCE);
+
+    // All the way out ends at the ceiling rather than at infinity, which no
+    // factor scales back from — so the next step in lands where it says:
+    // 2²⁹ halves exactly to 2²⁸.
+    camera.dolly(f32::INFINITY);
+    assert_eq!(camera.distance, MAX_DISTANCE);
+    camera.dolly(0.5);
+    assert_eq!(camera.distance, MAX_DISTANCE / 2.0);
+
+    // A run of ordinary steps gets there too. Doubling from 5 overflows f32 at
+    // the 126th step, so two hundred of them would otherwise end at infinity.
+    camera.distance = 5.0;
+    for _ in 0..200 {
+        camera.dolly(2.0);
+    }
+    assert_eq!(camera.distance, MAX_DISTANCE);
+
+    // Framing lands in the same range: a scene 3.5 × 10¹² across wants
+    // 1.7 × 10¹² / sin(45°) ≈ 2.4 × 10¹² of distance, past the ceiling.
+    camera.frame(Extent {
+        min: Vec3::splat(-1e12),
+        max: Vec3::splat(1e12),
+    });
+    assert_eq!(camera.distance, MAX_DISTANCE);
+}
+
+/// **The furthest the eye may go is somewhere it still draws and picks.**
+///
+/// A ceiling is only worth having inside the range where the arithmetic holds,
+/// so this goes to it at the worst corner of that range: the widest field
+/// `sane` allows, across a viewport 32768 pixels by one, each way round. The
+/// orthographic determinant there is `1 / (128 · 32768 · tan²(89.5°) · d³)`,
+/// which at `d = 2²⁹` is `1 / (2²² · 13131 · 2⁸⁷)` ≈ 1.2e-37 — ten times the
+/// smallest normal f32. Four times further out it is 64 times smaller, under
+/// that, and the inverse picking reads through is gone: the half that says the
+/// ceiling sits where it does for a reason.
+#[test]
+fn the_ceiling_is_a_distance_the_camera_still_draws_and_picks_from() {
+    let widest = 179f32.to_radians();
+    for projection in [Projection::Perspective, Projection::Orthographic] {
+        for fov_y in [1f32.to_radians(), widest] {
+            for size in [UVec2::new(32768, 1), UVec2::new(1, 32768)] {
+                let viewport = Viewport::new(size);
+                let camera = Camera {
+                    projection,
+                    distance: MAX_DISTANCE,
+                    fov_y,
+                    ..Camera::default()
+                };
+                let view_proj = camera.view_proj(viewport.aspect());
+                assert!(
+                    view_proj.relative.is_finite() && view_proj.relative.inverse().is_finite(),
+                    "{projection:?} at {fov_y} over {size}"
+                );
+                let ray = camera.ray_through(size.as_vec2() * 0.5, viewport);
+                assert!(
+                    ray.origin.is_finite() && ray.direction.is_normalized(),
+                    "{projection:?} at {fov_y} over {size}: {ray:?}"
+                );
+            }
+        }
+    }
+
+    let past = Camera {
+        projection: Projection::Orthographic,
+        distance: MAX_DISTANCE * 4.0,
+        fov_y: widest,
+        ..Camera::default()
+    };
+    let aspect = Viewport::new(UVec2::new(32768, 1)).aspect();
+    assert!(!past.view_proj(aspect).relative.inverse().is_finite());
 }
 
 /// **A pixel covers more world the further off it is, and the same everywhere
@@ -602,7 +685,7 @@ fn the_depth_a_scale_is_taken_at_is_the_clip_w_the_projection_writes() {
             camera.target - camera.facing() * 3.0,
             camera.target + Vec3::new(4.0, 1.0, -2.0),
         ] {
-            let wrote = (view_proj * at.extend(1.0)).w;
+            let wrote = (view_proj.point(at)).w;
             let took = camera.view_depth(at);
             assert!(
                 (took - wrote).abs() < 1e-4,
@@ -613,6 +696,69 @@ fn the_depth_a_scale_is_taken_at_is_the_clip_w_the_projection_writes() {
             let whole = camera.world_per_pixel(at, viewport);
             let split = wrote * camera.world_per_clip_w(viewport);
             assert!((whole - split).abs() < 1e-6, "{whole} against {split}");
+        }
+    }
+}
+
+/// **Where the target is changes nothing about how the view reads or picks.**
+///
+/// The projection is measured from the target, so moving the target — with the
+/// eye riding along — leaves the matrix that sees it untouched, and everything
+/// read out of that matrix alone comes back bit for bit. Held across the whole
+/// range the camera allows, both floors and ceilings, because the failure this
+/// pins was worst exactly at the corners: with the target folded into one `f32`
+/// matrix, a ray through the middle of the view ran 0.4° off at a target a
+/// thousand units out and a distance of one, 36° off at a hundred thousand, and
+/// at a million the view had no direction at all and the ray tripped its own
+/// assertion.
+///
+/// Three things are exact rather than close, and asserted so. The ray's
+/// direction is read out of the relative matrix alone. The target lands on the
+/// middle pixel because it is its own origin: the offset handed to the matrix
+/// is zero, and a symmetric frustum sends zero to the middle with nothing to
+/// round. And a pixel is worth what it is worth at the origin, because the
+/// depth of the target is the orbit distance and not a difference of two
+/// rounded positions. The ray through the middle runs along the facing to a
+/// millionth, the rounding of one inverse of a matrix whose entries are all
+/// the size of what is on screen.
+#[test]
+fn a_target_far_from_the_origin_is_viewed_and_picked_as_one_at_it() {
+    let viewport = Viewport::new(UVec2::new(800, 600));
+    let middle = Vec2::new(400.0, 300.0);
+    let cursors = [middle, Vec2::new(5.0, 590.0), Vec2::new(733.0, 41.0)];
+    for projection in [Projection::Perspective, Projection::Orthographic] {
+        for distance in [MIN_DISTANCE, 1.0, 6.0, MAX_DISTANCE] {
+            let home = Camera {
+                projection,
+                distance,
+                ..Camera::default()
+            };
+            for out in [1e3, 1e6, 1e7, 1e20] {
+                let far = Camera {
+                    target: Vec3::new(out, -out * 0.5, out * 0.25),
+                    ..home
+                };
+                let case = format!("{projection:?} at {distance} from a target {out} out");
+                assert_eq!(far.screen_of(far.target, viewport), Some(middle), "{case}");
+                assert_eq!(
+                    far.world_per_pixel(far.target, viewport),
+                    home.world_per_pixel(home.target, viewport),
+                    "{case}"
+                );
+                for cursor in cursors {
+                    assert_eq!(
+                        far.ray_through(cursor, viewport).direction,
+                        home.ray_through(cursor, viewport).direction,
+                        "{case}, through {cursor}"
+                    );
+                }
+                let straight = far.ray_through(middle, viewport).direction;
+                assert!(
+                    straight.abs_diff_eq(far.facing(), 1e-6),
+                    "{case}: {straight} against {}",
+                    far.facing()
+                );
+            }
         }
     }
 }

@@ -25,10 +25,17 @@ fn main() -> Result<(), WinitHostError> {
 /// alongside the frames the window decided to draw. Warnings and above without
 /// it, so a run nobody asked anything of still says when something was refused.
 ///
-/// **Nothing below `info` is in a release build** unless it was built with the
-/// defaults off — see the `quiet` feature, which is where that is argued. So a
-/// filter naming `trace` against an ordinary release build selects nothing, and
-/// that is the trade rather than an oversight.
+/// The crates underneath that report through `log` rather than `tracing` —
+/// wgpu, naga, the font stack — come through the same filter, under their
+/// module paths: `wgpu_core=info`, `naga=debug`. A wgpu validation error is
+/// one of those records, which is why they are bridged at all.
+///
+/// **Nothing below `info` of this program's own is in a release build** unless
+/// it was built with the defaults off — see the `quiet` feature, which is where
+/// that is argued. So a filter naming `catcad=trace` against an ordinary
+/// release build selects nothing, and that is the trade rather than an
+/// oversight. The `log` crates are not under it: their records are compiled in
+/// by them, and the filter is all that decides.
 fn logging() {
     tracing_subscriber::fmt()
         .with_env_filter(

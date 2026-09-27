@@ -27,7 +27,7 @@ fn point_vs(
     @builtin(vertex_index) index: u32,
     @location(0) position: vec3<f32>,
     @location(1) color: vec3<f32>,
-    // Half the diameter, in logical px — the tail every overlay record shares.
+    // Half the diameter, in logical px — the tail every widened overlay record shares.
     @location(2) half_size: f32,
     @location(3) plane: vec3<f32>,
 ) -> PointVsOut {
@@ -35,7 +35,7 @@ fn point_vs(
         select(-1.0, 1.0, (index & 1u) != 0u),
         select(-1.0, 1.0, (index & 2u) != 0u),
     );
-    let anchor = u.view_proj * vec4<f32>(position, 1.0);
+    let anchor = clip_of(position);
     let half_px = half_size * u.raster_scale;
     let offset_ndc = ndc_from_px_delta(corner * half_px);
 

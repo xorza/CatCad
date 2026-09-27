@@ -22,7 +22,7 @@ fn mesh_vs(
     @location(2) color: vec3<f32>,
 ) -> VsOut {
     var out: VsOut;
-    out.clip = u.view_proj * vec4<f32>(position, 1.0);
+    out.clip = clip_of(position);
     out.normal = normal;
     out.color = color;
     return out;

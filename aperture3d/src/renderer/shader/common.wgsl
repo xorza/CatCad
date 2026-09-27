@@ -3,7 +3,16 @@
 // instead of one per primitive.
 
 struct Uniforms {
+    // Clip position of a world position less `origin` — never of a world
+    // position itself. See `ViewProj`, and `clip_of` below.
     view_proj: mat4x4<f32>,
+    origin: vec3<f32>,
+    // World units per *logical* pixel, per unit of clip w — what a vertex
+    // standing in the world multiplies its own w by to hold a size on screen.
+    // Only the text pass reads it, and it is the whole of the scale there:
+    // a length arriving in logical pixels is spent through this and through
+    // nothing else. See `Camera::world_per_clip_w`.
+    world_per_logical_px: f32,
     // Target size in physical pixels, and how many of them a logical pixel is
     // worth. Both overlay passes read them; the mesh pass needs neither.
     viewport: vec2<f32>,
@@ -11,15 +20,21 @@ struct Uniforms {
     // World distance per unit of clip w to step when probing the plane a curve
     // lies on. The projection sets it — see `Uniforms::probe_reach`.
     probe_reach: f32,
-    // World units per *logical* pixel, per unit of clip w — what a vertex
-    // standing in the world multiplies its own w by to hold a size on screen.
-    // Only the text pass reads it, and it is the whole of the scale there:
-    // a length arriving in logical pixels is spent through this and through
-    // nothing else. See `Camera::world_per_clip_w`.
-    world_per_logical_px: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+
+// A world position as `view_proj` takes it: measured from the orbit target.
+// The subtraction is exact near the target, which the one matrix with the
+// target folded into it was not — see `ViewProj`. A shape built out of offsets
+// from a position builds them onto this, never onto the world position.
+fn from_origin(world: vec3<f32>) -> vec3<f32> {
+    return world - u.origin;
+}
+
+fn clip_of(world: vec3<f32>) -> vec4<f32> {
+    return u.view_proj * vec4<f32>(from_origin(world), 1.0);
+}
 
 // WGSL has no built-in for either, and a shader that spells one out inline is
 // a shader that can spell it out differently.
@@ -179,8 +194,9 @@ fn plane_depth_shift(
     }
     let e1 = cross(plane, seed) * (here.w * u.probe_reach);
     let e2 = cross(plane, e1);
-    let p1 = u.view_proj * vec4<f32>(position + e1, 1.0);
-    let p2 = u.view_proj * vec4<f32>(position + e2, 1.0);
+    let at = from_origin(position);
+    let p1 = u.view_proj * vec4<f32>(at + e1, 1.0);
+    let p2 = u.view_proj * vec4<f32>(at + e2, 1.0);
     if (p1.w <= MIN_W || p2.w <= MIN_W) {
         return out;
     }

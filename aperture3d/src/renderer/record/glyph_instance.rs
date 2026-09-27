@@ -1,7 +1,6 @@
 //! One glyph's quad, as the vertex buffer takes it.
 
 use crate::renderer::glyph_quad::GlyphQuad;
-use crate::renderer::record::paint::Paint;
 use crate::renderer::record::{Attributed, Instance, direction_of};
 use crate::text::turn::Facing;
 use glam::Vec3;
@@ -18,8 +17,8 @@ use glam::Vec3;
 /// tells them apart, and it is why this carries a direction and a lift that a
 /// screen-facing run never reads.
 ///
-/// **Thirty-two of its ninety-six bytes are the glyph's** — where it hangs, how
-/// large it is, and where on the sheet to read it. The other sixty-four are the
+/// **Thirty-two of its ninety-two bytes are the glyph's** — where it hangs, how
+/// large it is, and where on the sheet to read it. The other sixty are the
 /// *run's*: the anchor, the colour, the plane, the advance and the lift,
 /// repeated once per glyph because a vertex buffer is the only thing an instance
 /// step reads. A run of four digits ships them four times over.
@@ -44,15 +43,11 @@ pub(crate) struct GlyphInstance {
     /// Where to read the coverage sheet, as a fraction of it.
     pub(super) uv_min: [f32; 2],
     pub(super) uv_size: [f32; 2],
-    /// Colour and depth bias, as every overlay ends.
-    ///
-    /// Its [`spread`](Paint::spread) is unused and always zero: a glyph's size
-    /// was decided when the run was shaped, so there is nothing here to
-    /// spread. That also
-    /// makes a highlight's `scale` a no-op on text, which is the honest answer
-    /// — larger type is a different shaping, not a larger quad over the same
-    /// pixels.
-    pub(super) paint: Paint,
+    /// The colour the run is drawn in, and the whole of what a glyph shares
+    /// with the other overlays' [`Paint`](super::paint::Paint): a glyph's size
+    /// was decided when the run was shaped, so there is no spread for the
+    /// shader to widen it by.
+    pub(super) color: [f32; 3],
     /// The plane the run lies on, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
     /// The world direction the run advances along, and zero where it advances
@@ -94,7 +89,7 @@ impl GlyphInstance {
             size: quad.size.to_array(),
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
-            paint: Paint::of(color, 0.0),
+            color: color.to_array(),
             plane: direction_of(facing.normal()),
             right: direction_of(facing.right()),
             lift: facing.lift_world().to_array(),
@@ -103,8 +98,12 @@ impl GlyphInstance {
 }
 
 impl Instance for GlyphInstance {
-    fn paint_mut(&mut self) -> &mut Paint {
-        &mut self.paint
+    fn color_mut(&mut self) -> &mut [f32; 3] {
+        &mut self.color
+    }
+
+    fn spread_mut(&mut self) -> Option<&mut f32> {
+        None
     }
 }
 
@@ -112,6 +111,6 @@ impl Attributed for GlyphInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
-        5 => Float32x3, 6 => Float32, 7 => Float32x3, 8 => Float32x3, 9 => Float32x3
+        5 => Float32x3, 6 => Float32x3, 7 => Float32x3, 8 => Float32x3
     ];
 }

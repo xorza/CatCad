@@ -38,7 +38,7 @@ fn the_rim_search_converges_on_a_rim_drawn_thousands_of_pixels_across() {
     for turns in [0.05f32, 0.3, 0.61, 0.87] {
         let want = turns * std::f32::consts::TAU;
         let on_rim = ring.at(want);
-        let cursor = Viewport::hundred().pixel_from_clip(view_proj * on_rim.extend(1.0));
+        let cursor = Viewport::hundred().pixel_from_clip(view_proj.point(on_rim));
 
         let hits = ranked_through(&scene, &camera, cursor, 4.0);
         assert_eq!(hits.len(), 1, "turns {turns}: the rim was missed");
@@ -75,7 +75,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
     // assumed, so the aim is one pixel outside it whatever the lean does.
     let aim_beside_the_rim = |through: &Camera, out: f32| {
         let rim = Vec3::new(2.0, 0.0, 0.0);
-        let clip = through.view_proj(Viewport::hundred().aspect()) * rim.extend(1.0);
+        let clip = through.view_proj(Viewport::hundred().aspect()).point(rim);
         Viewport::hundred().pixel_from_clip(clip) + Vec2::new(out, 0.0)
     };
 

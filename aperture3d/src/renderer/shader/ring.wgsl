@@ -66,7 +66,7 @@ fn ring_vs(
     @location(1) x_axis: vec3<f32>,
     @location(2) y_axis: vec3<f32>,
     @location(3) radius: f32,
-    // The tail every overlay record shares — see `Paint`.
+    // The tail every widened overlay record shares — see `Paint`.
     @location(4) color: vec3<f32>,
     @location(5) half_width: f32,
 ) -> RingVsOut {
@@ -79,7 +79,7 @@ fn ring_vs(
     // where the vertex goes, which way the rim runs on screen, and what a pixel
     // is worth there — so the whole instance costs three products and no
     // probing at all.
-    let c = u.view_proj * vec4<f32>(center, 1.0);
+    let c = clip_of(center);
     let ex = u.view_proj * vec4<f32>(x_axis, 0.0);
     let ey = u.view_proj * vec4<f32>(y_axis, 0.0);
 

@@ -13,25 +13,41 @@ pub(crate) mod point_instance;
 pub(crate) mod ring_instance;
 
 use crate::highlight::Highlight;
-use crate::renderer::record::paint::Paint;
 use glam::Vec3;
 
-/// An overlay record: a shape, and the [`Paint`] every one of them ends with.
+/// An overlay record: a shape, a colour, and for the shapes the shader widens,
+/// how far it widens them.
 ///
-/// The paint is reached through rather than restated, the way [`Styled`] does it
+/// The two are reached through rather than restated, the way [`Styled`] does it
 /// for the primitives themselves — so what a highlight *is* lives in one place
-/// and all three inherit it.
+/// and every kind inherits it. Reached separately rather than as one
+/// [`Paint`](paint::Paint), because a glyph has a colour and nothing to widen:
+/// its record ships only what `text_vs` reads, and the spread it would have
+/// carried is an absence here rather than four dead bytes there.
 ///
 /// [`Styled`]: crate::styled::Styled
 pub(crate) trait Instance: Attributed {
-    fn paint_mut(&mut self) -> &mut Paint;
+    fn color_mut(&mut self) -> &mut [f32; 3];
+
+    /// Half the width the shader widens the shape to — see
+    /// [`Paint::spread`](paint::Paint::spread) — or `None` for a kind it does
+    /// not widen.
+    fn spread_mut(&mut self) -> Option<&mut f32>;
 
     /// Drawn again in `look`, over the top of its ordinary self.
+    ///
+    /// A glyph takes the tint and not the scale, which is the honest answer:
+    /// larger type is a different shaping, not a larger quad over the same
+    /// pixels.
     fn highlighted(mut self, look: Highlight) -> Self
     where
         Self: Sized,
     {
-        self.paint_mut().take_on(look);
+        let color = self.color_mut();
+        *color = look.tint.over(Vec3::from_array(*color)).to_array();
+        if let Some(spread) = self.spread_mut() {
+            *spread *= look.scale;
+        }
         self
     }
 }
@@ -86,10 +102,12 @@ pub(crate) trait Attributed: bytemuck::Pod {
     /// formats and never looks at the fields, so a field added, removed, or
     /// retyped to a different width leaves struct and list silently
     /// disagreeing, and geometry is drawn out of the wrong bytes. Comparing
-    /// the total is the whole of what can be checked from here: swapping two
-    /// fields of equal width still slips through, and so does the shader
-    /// reading them in the wrong order, since wgpu only checks the list
-    /// against the shader's declared types. Forced by
+    /// the total is the whole of what can be checked from here. The list's
+    /// other side is the shader, and
+    /// [`ShaderInterface`](crate::renderer::shader_interface::ShaderInterface)
+    /// holds it to that one location and component at a time. What neither
+    /// catches is two fields of equal width swapped, in the struct or in the
+    /// shader. Forced by
     /// [`Pipelines::build`](crate::renderer::pipelines::Pipelines::build), the one
     /// place that pairs a struct with its list.
     const LAYOUT_SPANS_STRUCT: () = {
@@ -104,4 +122,56 @@ pub(crate) trait Attributed: bytemuck::Pod {
             "the attribute list does not span the whole struct"
         );
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::renderer::record::curve_instance::CurveInstance;
+    use crate::renderer::record::glyph_instance::GlyphInstance;
+    use crate::renderer::record::paint::Paint;
+    use bytemuck::Zeroable;
+
+    /// **A highlight tints every kind and widens only the kinds the shader
+    /// widens.**
+    ///
+    /// Both halves of the look, both ways it can tint: a lift of 2 doubles a
+    /// colour, and an ink replaces it. The stroke's half width goes from 1.5 to
+    /// 4.5 under a scale of 3; the glyph has none, and every other byte of it
+    /// is left exactly where it was — a label lit is the same label in another
+    /// colour.
+    #[test]
+    fn a_highlight_tints_every_kind_and_widens_only_what_is_widened() {
+        let mut glyph = GlyphInstance::zeroed();
+        glyph.anchor = [1.0, 2.0, 3.0];
+        glyph.size = [7.0, 9.0];
+        glyph.color = [0.25, 0.5, 0.125];
+        let mut stroke = CurveInstance::zeroed();
+        stroke.paint = Paint {
+            color: [0.25, 0.5, 0.125],
+            spread: 1.5,
+        };
+
+        for (look, tinted) in [
+            (Highlight::new(Vec3::X).scale(3.0), [1.0, 0.0, 0.0]),
+            (Highlight::lifted(2.0).scale(3.0), [0.5, 1.0, 0.25]),
+        ] {
+            let lit = glyph.highlighted(look);
+            assert_eq!(lit.color, tinted);
+            assert_eq!(
+                GlyphInstance {
+                    color: glyph.color,
+                    ..lit
+                },
+                glyph
+            );
+            assert_eq!(
+                stroke.highlighted(look).paint,
+                Paint {
+                    color: tinted,
+                    spread: 4.5,
+                }
+            );
+        }
+    }
 }

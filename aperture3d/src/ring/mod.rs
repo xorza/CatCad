@@ -124,11 +124,11 @@ impl Ring {
     /// walk exists to avoid — it has no simple form once the circle crosses the
     /// near plane. This has no form there either, and says so.
     fn bound_on_screen(&self, aim: &Aim) -> Option<Rect> {
-        let centre = aim.view_proj * self.center.extend(1.0);
+        let centre = aim.view_proj.point(self.center);
         // Directions rather than positions, so the translation stays out and
         // what comes back is how far the rim reaches from its own centre.
-        let across = aim.view_proj * (self.x_axis * self.radius).extend(0.0);
-        let up = aim.view_proj * (self.y_axis * self.radius).extend(0.0);
+        let across = aim.view_proj.direction(self.x_axis * self.radius);
+        let up = aim.view_proj.direction(self.y_axis * self.radius);
 
         let amplitude = |a: f32, b: f32| (a * a + b * b).sqrt();
         let depth = amplitude(across.w, up.w);

@@ -2,9 +2,11 @@
 
 use crate::camera::{Camera, Projection};
 use crate::renderer::pane::Placement;
+use crate::renderer::shader_interface::StructMember;
 use crate::renderer::tile::Tile;
 use glam::{UVec2, Vec2};
 use palantir::GpuFrameCtx;
+use std::mem::offset_of;
 
 /// The shape of one frame's target: how much of the view is being drawn into,
 /// and at what density.
@@ -72,20 +74,21 @@ impl Frame {
     }
 }
 
-/// What both pipelines read. Laid out to match the WGSL `Uniforms`, which puts
-/// the struct on a sixteen-byte boundary: the matrix is sixty-four of them and
-/// the trailing scalars are padded out to a second ninety-six.
+/// What every pipeline reads. Laid out to match the WGSL `Uniforms`, which
+/// puts a `vec3` on a sixteen-byte boundary and the whole struct on another:
+/// the matrix is sixty-four bytes, the origin twelve with the scale after it
+/// filling its sixteen, and the four trailing scalars the last sixteen of
+/// ninety-six. [`ShaderInterface::hold_struct_layout`] holds the two layouts
+/// to each other, member by member and in total, when the shader is built.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct Uniforms {
+    /// [`ViewProj::relative`](crate::ViewProj), with the pane landed on the
+    /// target.
     view_proj: [f32; 16],
-    /// Target size in physical pixels.
-    viewport: [f32; 2],
-    /// Physical pixels per logical pixel, which is what turns a curve's
-    /// authored width into the width it is drawn at.
-    raster_scale: f32,
-    /// See [`Uniforms::probe_reach`].
-    probe_reach: f32,
+    /// What every position is measured from before `view_proj` sees it — see
+    /// [`ViewProj`](crate::ViewProj).
+    origin: [f32; 3],
     /// World units per *logical* pixel, per unit of clip `w` — what a vertex
     /// sizing itself against the screen while standing in the world multiplies
     /// its own `w` by. See
@@ -106,36 +109,47 @@ pub(super) struct Uniforms {
     /// `Aim::world_per_pixel` is `Camera::world_per_clip_w` of the *logical*
     /// viewport, and so is this.
     world_per_logical_px: f32,
-    /// Nothing, and it has to be here: WGSL rounds a uniform struct up to its
-    /// own sixteen-byte alignment, so the five trailing scalars are read out of
-    /// ninety-six bytes whether or not Rust ships that many.
-    _pad: [f32; 3],
+    /// Target size in physical pixels.
+    viewport: [f32; 2],
+    /// Physical pixels per logical pixel, which is what turns a curve's
+    /// authored width into the width it is drawn at.
+    raster_scale: f32,
+    /// See [`Uniforms::probe_reach`].
+    probe_reach: f32,
 }
 
-/// Fails the build when the trailing scalars stop filling out the sixteen bytes
-/// WGSL rounds [`Uniforms`] up to.
-///
-/// The guard the vertex records are already under, for the same reason — see
-/// [`Attributed::LAYOUT_SPANS_STRUCT`](super::record::Attributed::LAYOUT_SPANS_STRUCT). What it
-/// catches is a scalar added without the padding beside it being taken back:
-/// the buffer is
-/// created at this struct's own size, so Rust would ship fewer bytes than the
-/// shader declares and wgpu would refuse the binding with a complaint about
-/// lengths, a long way from the field that caused it.
-///
-/// A modulus rather than the ninety-six it happens to be, so that four more
-/// scalars satisfy it by filling the next sixteen rather than by having this
-/// number rewritten.
-///
-/// **A bare `const` item, and anonymous.** An associated const is evaluated only
-/// where something reaches it, and a `let () = Self::…` in a method of this very
-/// struct does not: the record trait's own guard gets there only because a
-/// generic parameter forces it at every impl. This form depends on nothing to
-/// fire, and having no name is what keeps it from reading as a constant somebody
-/// forgot to use.
-const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
-
 impl Uniforms {
+    /// Every field, by the name the WGSL struct gives it and where Rust puts
+    /// it — what [`ShaderInterface::hold_struct_layout`] holds the shader's
+    /// layout to. A field missing here is a field missing from the WGSL, and
+    /// the check says so.
+    pub(super) const MEMBERS: [StructMember<'static>; 6] = [
+        StructMember {
+            name: "view_proj",
+            offset: offset_of!(Uniforms, view_proj),
+        },
+        StructMember {
+            name: "origin",
+            offset: offset_of!(Uniforms, origin),
+        },
+        StructMember {
+            name: "world_per_logical_px",
+            offset: offset_of!(Uniforms, world_per_logical_px),
+        },
+        StructMember {
+            name: "viewport",
+            offset: offset_of!(Uniforms, viewport),
+        },
+        StructMember {
+            name: "raster_scale",
+            offset: offset_of!(Uniforms, raster_scale),
+        },
+        StructMember {
+            name: "probe_reach",
+            offset: offset_of!(Uniforms, probe_reach),
+        },
+    ];
+
     /// What a frame of `camera` over `pane` is drawn through, landed where the
     /// frame's target shows that tile.
     ///
@@ -155,8 +169,12 @@ impl Uniforms {
     /// stroke in a small pane is still two pixels wide.
     pub(super) fn of(camera: &Camera, frame: Frame, pane: Tile) -> Self {
         let seen = pane.viewport();
+        let view_proj = camera
+            .view_proj(seen.aspect())
+            .followed_by(pane.onto(frame.target));
         Self {
-            view_proj: (pane.onto(frame.target) * camera.view_proj(seen.aspect())).to_cols_array(),
+            view_proj: view_proj.relative.to_cols_array(),
+            origin: view_proj.origin.to_array(),
             viewport: frame.target.size.as_vec2().to_array(),
             raster_scale: frame.raster_scale,
             probe_reach: Self::probe_reach(camera),
@@ -169,7 +187,6 @@ impl Uniforms {
             // gives for a viewport `raster_scale` smaller, and exactly what a
             // pick asks the camera for.
             world_per_logical_px: camera.world_per_clip_w(seen) * frame.raster_scale,
-            _pad: [0.0; 3],
         }
     }
 

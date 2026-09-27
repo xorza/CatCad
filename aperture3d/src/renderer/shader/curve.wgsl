@@ -39,8 +39,8 @@ fn curve_vs(
     let other = select(end, start, at_end);
     let side = select(1.0, -1.0, corner == 1u || corner == 2u);
 
-    let here = u.view_proj * vec4<f32>(position, 1.0);
-    let there = u.view_proj * vec4<f32>(other, 1.0);
+    let here = clip_of(position);
+    let there = clip_of(other);
     let here_ndc = ndc_from_clip(here);
     let there_ndc = ndc_from_clip(there);
 
